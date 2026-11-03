@@ -1,0 +1,108 @@
+# 部署到已有 MySQL 与 Nginx
+
+## 环境选择
+
+本地测试使用 `.env.test`、`yearly_test` 与测试数据库账号，启动命令为 `scripts/start-local.sh`。正式部署使用 `.env.production`、`yearly` 与正式数据库账号。两套配置均使用 MySQL，页面和健康检查显示当前环境。以下步骤针对正式环境，首次数据库初始化完成后可跳过建库与建表步骤。
+
+## 1. 运行依赖
+
+Linux、Python 3.12、Node.js 22.12+、已有 MySQL 5.7.8+、已有 Nginx。JSON 字段要求 MySQL 至少 5.7.8，推荐最新 5.7 补丁版本。无需 Docker，也无需新建 MySQL / Nginx 容器。建议数据库时间保持 UTC，拍摄当地时间单独按 DATETIME 保存。
+
+将仓库放在 `/opt/yearly`，创建系统用户 `yearly`。Nginx 运行用户需能读取 `frontend/dist`，`.env.production` 权限设为 600、归 `yearly` 所有。应用源码与 venv 为只读运行，不在后端落地媒体。
+
+```bash
+cd /opt/yearly
+python3.12 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+cp .env.production.example .env.production
+chmod 600 .env.production
+# 使用 secrets.token_urlsafe(48) 生成 SESSION_SECRET，填入 .env.production，妥善保管。
+```
+
+`.env.production` 必须使用 `APP_ENV=production`、`COOKIE_SECURE=true`，`ALLOWED_ORIGIN` 精确匹配页面 HTTPS origin，不带末尾 `/`。本地测试环境使用 APP_ENV=test 和独立 .env.test 关闭 Secure Cookie。应用在生产启动时验证该约束。数据库密码中的特殊字符需 URL 编码，禁止将 .env.production 提交到版本控制。
+
+## 2. 已有 MySQL 实例创建应用库
+
+由数据库管理员在新实例首次初始化时执行。当前服务器上的两个库与账号已经建立，已有环境可跳过此步骤。两套密码应独立生成。
+
+```sql
+CREATE DATABASE yearly CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE yearly_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'yearly_app'@'%' IDENTIFIED BY 'REPLACE_WITH_RANDOM_PRODUCTION_PASSWORD' REQUIRE SSL;
+CREATE USER 'yearly_test_app'@'%' IDENTIFIED BY 'REPLACE_WITH_RANDOM_TEST_PASSWORD' REQUIRE SSL;
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES
+  ON `yearly`.* TO 'yearly_app'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES
+  ON `yearly\_test`.* TO 'yearly_test_app'@'%';
+```
+
+当前账号支持本地开发机远程连接，并要求 TLS。权限限定各自的库，数据库名中的下划线在授权中已转义。DATABASE_URL 中填写对应账号和可信 CA 路径。若部署位置固定，可按实际来源进一步限定账号 Host。建表迁移所需 CREATE / ALTER / INDEX / DROP / REFERENCES 权限已经包括在各自库的授权内。
+
+```bash
+export APP_ENV=production
+export PYTHONPATH="$PWD/backend"
+# 本命令读取 .env.production 中的正式数据库账号。
+.venv/bin/alembic -c backend/alembic.ini upgrade head
+.venv/bin/python -m app.cli create-admin your-admin-name
+```
+
+也可手动导入 `deploy/schema-mysql57.sql`，之后执行 `alembic -c backend/alembic.ini stamp 0002`。两个入口任选其一。所有表为 InnoDB / utf8mb4，ID 使用 BIGINT，时间为 DATETIME(3)，坐标为 DECIMAL，原始元数据为 JSON。模型没有 MySQL 8 专属 SQL。
+
+## 3. 配置私有 OSS
+
+按 [存储与元数据说明](storage-and-metadata.md) 创建或选择私有 Bucket，配置 V4 所需地域、CORS、RAM 权限及 HTTPS 域名。生产配置使用独立 RAM 用户密钥，禁止使用主账号密钥。只将密钥放在服务器 `.env.production`。
+
+## 4. 构建静态前端
+
+```bash
+cd frontend
+npm ci
+npm test
+npm run build
+cd ..
+```
+
+前端固定使用同源 `/api`，无需向前端注入数据库密码或 OSS 永久密钥。更新应用时先构建到临时发布目录，再原子切换版本目录，避免用户加载到半份 dist。
+
+## 5. 启动 systemd
+
+```bash
+sudo cp deploy/yearly.service /etc/systemd/system/
+sudo cp deploy/yearly-cleanup.service deploy/yearly-cleanup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now yearly.service yearly-cleanup.timer
+sudo systemctl status yearly.service
+```
+
+单 worker 默认避免在小内存机器重复常驻 Python 进程，所有阻塞 SDK 与 SQL 调用由 FastAPI 同步路由线程池处理。任务状态与登录限制持久化在 MySQL，重启不会丢失已签发任务。按实际 CPU / 内存测量后再调整 worker。
+
+服务仅监听 127.0.0.1。`--forwarded-allow-ips=127.0.0.1` 只信任本机 Nginx 的代理头。禁止将 8000 端口直接暴露公网。
+
+## 6. 现有 Nginx 配置
+
+把 `deploy/nginx.conf` 合并到已有 Nginx 的 `http {}` 范围，替换站点域名、证书、静态根路径与 CSP 中的 OSS / 自定义域名。`log_format` 和 `limit_req_zone` 属于 http 级别，不要放入 server 块。此文件供已有 Nginx 使用。
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+curl --fail https://yearly.example.com/api/health
+```
+
+证书可通过现有 ACME 流程签发和续期。启用 HTTPS 后再开放家庭账户。CSP 允许 hash-wasm 的 WebAssembly 和 Element Plus 的 inline style，不允许第三方分析脚本。分片 PUT 请求直接发送到 OSS，Nginx 的 2 MiB 请求上限仅覆盖元数据 API。
+
+## 7. 发布检查
+
+1. 浏览器登录，确认 Cookie 有 HttpOnly、Secure、SameSite=Strict。
+2. 新增两个不同生日的孩子，上传一份共同照片。网络面板应显示 PUT 目标为 OSS 域名，API 不出现文件二进制。
+3. 核对两个孩子时间线及全部时间线数量，下载原件比较 SHA-256。
+4. 测试大视频分片中断，刷新后重新选择同一原件恢复，旧分片应跳过。
+5. HEIC / MOV 的本机兼容性、Live Photo 双文件、GPS 和拍摄时间需用实际设备原件复核。
+6. 按备份文档执行一次恢复演练。
+
+## 运维
+
+- `journalctl -u yearly.service` 查看不含访问参数的服务日志。应用隐藏 SQL 参数，OSS SDK 日志级别为 WARNING，错误接口不返回 OSS SDK 原始签名 URL。
+- `yearly-cleanup.timer` 每日清理过期授权、未完成分片及认证记录。原始对象始终保留。OSS 生命周期另设“清理未完成分片”，不要给 originals 配置自动过期。
+- 备份任务与恢复在维护窗口运行，停写后创建完整快照。系统导出包含家庭隐私，备份目录设为 700，文件 600，加密异地保存。
+- 修改 SESSION_SECRET 会使所有已登录会话失效。密码修改会注销该账户所有会话。
+- 首次真实部署前执行 `scripts/test.sh`，确认 Nginx / MySQL / OSS 参数符合本机环境。仓库提供部署能力，本地开发验证不代表线上发布。

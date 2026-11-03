@@ -1,0 +1,17 @@
+.env
+.env.test
+.env.production
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.db
+node_modules/
+frontend/dist/
+.DS_Store
+backups/
+.local/
+
+.ruff_cache/
+
+.idea/

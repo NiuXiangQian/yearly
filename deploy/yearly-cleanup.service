@@ -1,0 +1,15 @@
+[Unit]
+Description=Clean expired yearly upload authorizations and sessions
+[Service]
+Type=oneshot
+User=yearly
+Group=yearly
+WorkingDirectory=/opt/yearly
+EnvironmentFile=/opt/yearly/.env.production
+Environment=APP_ENV=production
+Environment=PYTHONPATH=/opt/yearly/backend
+ExecStart=/opt/yearly/.venv/bin/python -m app.cli cleanup
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

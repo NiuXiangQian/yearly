@@ -1,0 +1,253 @@
+import json
+import math
+from datetime import timedelta
+from pathlib import PurePath
+from uuid import uuid4
+import oss2
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from .db import get_db, now
+from .models import Media, MediaFile, MediaMetadata, UploadTask
+from .schemas import UploadIn
+from .security import editor
+from .services import require_row, set_children, apply_time, validate_children
+from .models import MediaChild
+from .storage import get_storage, verify_object
+from .config import settings
+
+router = APIRouter(prefix="/api/uploads", tags=["uploads"])
+EXTENSIONS = {
+    "jpg",
+    "jpeg",
+    "png",
+    "heic",
+    "heif",
+    "webp",
+    "dng",
+    "cr2",
+    "cr3",
+    "nef",
+    "arw",
+    "orf",
+    "rw2",
+    "raf",
+    "mp4",
+    "mov",
+}
+VIDEO = {"mp4", "mov"}
+
+
+def task_data(task, file):
+    return {
+        "id": task.id,
+        "media_id": task.media_id,
+        "file_id": file.id,
+        "filename": file.original_filename,
+        "sha256": file.sha256,
+        "file_size": file.file_size,
+        "file_role": file.file_role,
+        "status": task.status,
+        "part_size": task.part_size,
+        "expires_at": task.expires_at,
+    }
+
+
+def owned_task(db, tid, user):
+    task = require_row(db, UploadTask, tid)
+    if task.owner_id != user.id:
+        raise HTTPException(403, "只能管理自己的上传任务")
+    if task.expires_at < now() and task.status != "complete":
+        raise HTTPException(410, "上传任务已过期")
+    return task, require_row(db, MediaFile, task.file_id)
+
+
+@router.post("")
+def create_upload(
+    data: UploadIn,
+    db=Depends(get_db),
+    user=Depends(editor),
+    storage=Depends(get_storage),
+):
+    cfg = settings()
+    validate_children(db, data.child_ids)
+    if len(json.dumps(data.metadata, ensure_ascii=False)) > 1024 * 1024:
+        raise HTTPException(413, "元数据超过 1 MiB 限制")
+    for f in data.files:
+        ext = PurePath(f.original_filename).suffix.lower().lstrip(".")
+        if ext not in EXTENSIONS or f.file_size > cfg.max_file_size:
+            raise HTTPException(422, "格式不受支持或文件超过大小限制")
+        if f.file_role == "live_video" and ext != "mov":
+            raise HTTPException(422, "Live Photo 动态原件需为 MOV")
+        if f.file_role == "original" and (
+            (data.media_type == "video") != (ext in VIDEO)
+        ):
+            raise HTTPException(422, "媒体类型与文件格式不一致")
+        if f.file_role == "preview" and ext not in {
+            "jpg",
+            "jpeg",
+            "png",
+            "webp",
+            "mp4",
+        }:
+            raise HTTPException(422, "兼容预览格式不受支持")
+    fields = data.model_dump(exclude={"files", "metadata", "child_ids", "time_source"})
+    media = Media(**fields, owner_id=user.id, original_time_source=data.time_source)
+    apply_time(media)
+    db.add(media)
+    db.flush()
+    set_children(db, media.id, data.child_ids, MediaChild)
+    db.add(
+        MediaMetadata(
+            media_id=media.id,
+            raw_metadata=data.metadata,
+            parser_name="exifr + bounded ISO-BMFF",
+            parser_version="1",
+            parse_status=data.metadata.get("parse_status", "partial"),
+            parse_error=data.metadata.get("parse_error"),
+        )
+    )
+    tasks = []
+    for f in data.files:
+        ext = PurePath(f.original_filename).suffix.lower()
+        mime = {
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "png": "image/png",
+            "webp": "image/webp",
+            "heic": "image/heic",
+            "heif": "image/heif",
+            "mov": "video/quicktime",
+            "mp4": "video/mp4",
+        }.get(ext.lstrip("."), "application/octet-stream")
+        file = MediaFile(
+            **{**f.model_dump(), "mime_type": mime},
+            media_id=media.id,
+            oss_bucket=cfg.oss_bucket,
+            oss_object_key=f"{'previews' if f.file_role == 'preview' else 'originals'}/{now():%Y/%m}/{uuid4().hex}{ext}",
+        )
+        db.add(file)
+        db.flush()
+        task = UploadTask(
+            id=str(uuid4()),
+            owner_id=user.id,
+            media_id=media.id,
+            file_id=file.id,
+            part_size=max(cfg.upload_part_size, math.ceil(f.file_size / 9999)),
+            expires_at=now() + timedelta(days=7),
+        )
+        db.add(task)
+        db.flush()
+        tasks.append(task_data(task, file))
+    # Initiation is lazy, so a partially failed create never leaves untracked OSS uploads.
+    db.commit()
+    return {"media_id": media.id, "tasks": tasks}
+
+
+@router.get("")
+def list_uploads(db=Depends(get_db), user=Depends(editor)):
+    tasks = db.scalars(
+        select(UploadTask)
+        .where(
+            UploadTask.owner_id == user.id,
+            UploadTask.status.in_(["pending", "uploading"]),
+            UploadTask.expires_at > now(),
+        )
+        .order_by(UploadTask.created_at.desc())
+    )
+    return [task_data(t, db.get(MediaFile, t.file_id)) for t in tasks]
+
+
+@router.get("/{tid}")
+def upload_status(
+    tid: str, db=Depends(get_db), user=Depends(editor), storage=Depends(get_storage)
+):
+    task, file = owned_task(db, tid, user)
+    parts = (
+        storage.parts(file, task.oss_upload_id)
+        if task.oss_upload_id and task.status == "uploading"
+        else []
+    )
+    return {
+        **task_data(task, file),
+        "parts": [{"number": p.part_number, "size": p.size} for p in parts],
+    }
+
+
+@router.post("/{tid}/sign")
+def sign_part(
+    tid: str,
+    number: int = Query(ge=1, le=10000),
+    db=Depends(get_db),
+    user=Depends(editor),
+    storage=Depends(get_storage),
+):
+    task, file = owned_task(db, tid, user)
+    if task.status not in ("pending", "uploading"):
+        raise HTTPException(409, "任务当前不可上传")
+    if number > math.ceil(file.file_size / task.part_size):
+        raise HTTPException(422, "分片序号超过文件大小")
+    # Lock the task while creating its single multipart upload ID.
+    task = db.scalar(
+        select(UploadTask)
+        .where(UploadTask.id == tid)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not task.oss_upload_id:
+        task.oss_upload_id = storage.initiate(file)
+        task.status = "uploading"
+        db.commit()
+    return {
+        "url": storage.sign_part(file, task.oss_upload_id, number),
+        "expires_in": 900,
+    }
+
+
+@router.post("/{tid}/complete")
+def complete_upload(
+    tid: str, db=Depends(get_db), user=Depends(editor), storage=Depends(get_storage)
+):
+    task, file = owned_task(db, tid, user)
+    db.scalar(select(Media).where(Media.id == task.media_id).with_for_update())
+    task = db.scalar(
+        select(UploadTask)
+        .where(UploadTask.id == tid)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if task.status == "complete":
+        return {"status": "complete", "media_id": task.media_id}
+    if task.status != "uploading":
+        raise HTTPException(409, "请先上传文件分片")
+    # HEAD also recovers a completion whose OSS response or following DB commit was interrupted.
+    try:
+        info = storage.head(file)
+    except oss2.exceptions.NoSuchKey:
+        parts = storage.parts(file, task.oss_upload_id)
+        count = math.ceil(file.file_size / task.part_size)
+        if [p.part_number for p in parts] != list(range(1, count + 1)):
+            raise HTTPException(409, "分片不完整")
+        for p in parts:
+            expected = min(
+                task.part_size, file.file_size - (p.part_number - 1) * task.part_size
+            )
+            if p.size != expected:
+                raise HTTPException(409, "分片大小不正确")
+        storage.complete(file, task.oss_upload_id, parts)
+        info = storage.head(file)
+    verify_object(file, info)
+    file.upload_status = "complete"
+    task.status = "complete"
+    task.updated_at = now()
+    db.flush()
+    remaining = db.scalar(
+        select(UploadTask.id)
+        .where(UploadTask.media_id == task.media_id, UploadTask.status != "complete")
+        .limit(1)
+        .with_for_update()
+    )
+    media = db.get(Media, task.media_id)
+    if not remaining and media.status == "uploading":
+        media.status = "active"
+    db.commit()
+    return {"status": "complete", "media_id": task.media_id}

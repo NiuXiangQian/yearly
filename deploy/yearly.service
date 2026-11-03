@@ -1,0 +1,27 @@
+[Unit]
+Description=yearly API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yearly
+Group=yearly
+WorkingDirectory=/opt/yearly
+EnvironmentFile=/opt/yearly/.env.production
+Environment=APP_ENV=production
+Environment=PYTHONPATH=/opt/yearly/backend
+ExecStart=/opt/yearly/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/yearly
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
