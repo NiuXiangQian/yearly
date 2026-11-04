@@ -6,15 +6,13 @@
 
 A self-hosted, private family photo and video archive. Organize photos, videos, and growth journals by date and child, so the moments that matter remain easy to find years later.
 
-Daily timeline · Multiple child profiles · Drag-and-drop folders · Compressed previews · Original-file backups
+Daily timeline · Expiring read-only shares · Multiple child profiles · Drag-and-drop folders · Compressed previews · Original-file backups
 
-[Screenshots](#screenshots) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
-
-[Expiring timeline shares](docs/en/sharing.md): set content permissions in its editor and choose dates when creating a link, set a 1-hour to 7-day lifetime, and read eight entries per day before expanding.
+[Screenshots](#screenshots) · [Sharing page](#share-a-read-only-timeline) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
 
 ## Screenshots
 
-These screenshots show the actual application with isolated fictional data. Names, birthdays, entries, and counts are fictional; avatars and media use original sample illustrations. No real family photos or accounts are included. The screenshots below show the English interface. Family names and user-written content are preserved in their original language. All screenshots are lossless PNGs captured at 2× resolution (3024px wide); open an image or its full-resolution link for details.
+These screenshots show the actual application with isolated fictional data. Names, birthdays, entries, and counts are fictional; avatars and media use original sample illustrations. No real family photos or accounts are included. The main gallery shows the English interface; the sharing examples use Simplified Chinese. Both languages are supported. Family names and user-written content are preserved in their original language. All screenshots are lossless PNGs captured at 2× resolution (3024px wide); open an image or its full-resolution link for details.
 
 ### A daily timeline you can organize your way
 
@@ -31,6 +29,29 @@ Name a batch, select children, and choose an archive date. The compact file list
 ![Fictional demo: batch naming and upload queue](docs/images/demo-upload-en.png)
 
 [Full-resolution upload screenshot](docs/images/demo-upload-en.png)
+
+### Share a read-only timeline
+
+Set sharing permissions while editing files, folders, or timeline days. Creating a link only requires a date range and a lifetime of 1 hour to 7 days. Links can be revoked at any time.
+
+Recipients browse compressed previews without signing in. They can switch chronological order, collapse months, and expand days beyond eight entries. The timeline on the left marks dates with dots: drag to preview a date, then release to jump and open the corresponding month.
+
+![Fictional demo: read-only sharing page with a left timeline](docs/images/demo-share.png)
+
+[Full-resolution sharing screenshot](docs/images/demo-share.png) · [Sharing guide and permissions](docs/en/sharing.md)
+
+<details>
+<summary>View link creation and timeline dragging</summary>
+
+Start from the earliest date, one year ago, six months ago, or a custom date. There is no per-file picker during link creation.
+
+![Fictional demo: share date range and lifetime](docs/images/demo-share-create.png)
+
+Dragging previews the date; releasing loads the target content on demand.
+
+![Fictional demo: date tooltip while dragging the timeline](docs/images/demo-share-drag.png)
+
+</details>
 
 <details>
 <summary>View folder organization and child profiles</summary>
@@ -58,6 +79,7 @@ Set an individual avatar, birthday, and introduction for each child, then filter
 | Upload in batches | Batch names, EXIF / QuickTime date parsing, date checks when appending, cross-batch deduplication, multipart uploads and retries |
 | Browse efficiently | Image thumbnails, HEIC / HEIF previews, image zoom and pan, compressed video copies, originals on demand |
 | Preserve originals | Direct uploads to private OSS, paired Live Photo resources, original metadata, backups and integrity checks |
+| Expiring shares | [Content permissions, date ranges, 1-hour to 7-day lifetime, revocation, collapsible months, eight-entry days, draggable date navigation](docs/en/sharing.md) |
 | Share with family | Administrator / member / read-only guest roles, login CAPTCHA, recycle bin, Chinese / English switching, light / dark themes, responsive layout |
 
 Each deployment serves one family. All enabled accounts share the family archive. There is no public registration or multi-tenant isolation.
