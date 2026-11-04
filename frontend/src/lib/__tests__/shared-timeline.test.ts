@@ -42,9 +42,9 @@ async function mount() {
   await vi.waitFor(() => expect(vi.mocked(api)).toHaveBeenCalled());
 }
 function button(text: string) {
-  return [...host.querySelectorAll("button")].find((b) =>
-    b.textContent?.includes(text),
-  )!;
+  const buttons = [...host.querySelectorAll("button")];
+  return (buttons.find((b) => b.textContent?.trim() === text) ||
+    buttons.find((b) => b.textContent?.includes(text)))!;
 }
 beforeEach(() => {
   vi.mocked(api).mockResolvedValue(response());
@@ -140,4 +140,34 @@ it("switches chronological direction and paginates using the corresponding day c
       "/public/shares/virtual?order=asc&after=2024-01-02",
     ),
   );
+});
+
+it("folds months without fetching media and preserves the fold when loading another page", async () => {
+  vi.mocked(api).mockResolvedValueOnce({
+    ...response(),
+    next_before: "2024-01-01",
+  });
+  await mount();
+  await vi.waitFor(() =>
+    expect(host.querySelectorAll(".shared-card")).toHaveLength(9),
+  );
+  button("全部收起").click();
+  await vi.waitFor(() =>
+    expect(host.querySelectorAll(".shared-card")).toHaveLength(0),
+  );
+  expect(api).toHaveBeenCalledTimes(1);
+  vi.mocked(api).mockResolvedValueOnce({
+    ...response(),
+    days: [{ day: "2023-12-31", total: 1, items: [items[0]] }],
+  });
+  button("更早的日子").click();
+  await vi.waitFor(() =>
+    expect(host.querySelectorAll(".timeline-month")).toHaveLength(2),
+  );
+  expect(host.querySelectorAll(".shared-card")).toHaveLength(0);
+  button("2023年12月").click();
+  await vi.waitFor(() =>
+    expect(host.querySelectorAll(".shared-card")).toHaveLength(1),
+  );
+  expect(api).toHaveBeenCalledTimes(2);
 });

@@ -5,6 +5,7 @@ import { Leaf, Folder, ChevronDown, ShieldCheck } from "lucide-vue-next";
 import { api, notify } from "../lib/api";
 import { t, locale } from "../lib/i18n";
 import LanguageSwitch from "../components/LanguageSwitch.vue";
+import TimelineMonths from "../components/TimelineMonths.vue";
 import SharedThumbnail from "../components/SharedThumbnail.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
@@ -182,71 +183,77 @@ onBeforeUnmount(() => clearTimeout(expiryTimer));
           </select></label
         >
       </div>
-      <section v-for="day in days" :key="day.day" class="shared-day">
-        <header>
-          <h2>{{ day.day.replaceAll("-", ".") }}</h2>
-          <span>{{ t("{p0} 项回忆", { p0: day.total }) }}</span>
-        </header>
-        <div class="shared-grid">
-          <button
-            v-for="item in expanded[day.day]
-              ? day.items
-              : day.items.slice(0, 8)"
-            :key="item.kind + item.id"
-            class="shared-card"
-            @click="item.kind === 'folder' ? openFolder(item) : openMedia(item)"
-          >
-            <template v-if="item.kind === 'folder'"
-              ><div class="shared-folder">
-                <b><Folder :size="20" />{{ item.name }}</b>
-                <div class="shared-folder-previews">
-                  <SharedThumbnail
-                    v-for="media in item.previews"
-                    :key="media.id"
-                    :base="base"
-                    :media="media"
-                  />
-                </div>
-                <small>{{ t("{p0} 份影像", { p0: item.media_count }) }}</small>
-              </div></template
+      <TimelineMonths :days="days" v-slot="{ day }">
+        <section class="shared-day">
+          <header>
+            <h2>{{ day.day.replaceAll("-", ".") }}</h2>
+            <span>{{ t("{p0} 项回忆", { p0: day.total }) }}</span>
+          </header>
+          <div class="shared-grid">
+            <button
+              v-for="item in expanded[day.day]
+                ? day.items
+                : day.items.slice(0, 8)"
+              :key="item.kind + item.id"
+              class="shared-card"
+              @click="
+                item.kind === 'folder' ? openFolder(item) : openMedia(item)
+              "
             >
-            <template v-else-if="item.kind === 'event'"
-              ><div class="shared-diary">
-                <small>{{ t("成长日记") }}</small>
-                <h3>{{ item.title }}</h3>
-                <p>{{ item.content }}</p>
-              </div></template
+              <template v-if="item.kind === 'folder'"
+                ><div class="shared-folder">
+                  <b><Folder :size="20" />{{ item.name }}</b>
+                  <div class="shared-folder-previews">
+                    <SharedThumbnail
+                      v-for="media in item.previews"
+                      :key="media.id"
+                      :base="base"
+                      :media="media"
+                    />
+                  </div>
+                  <small>{{
+                    t("{p0} 份影像", { p0: item.media_count })
+                  }}</small>
+                </div></template
+              >
+              <template v-else-if="item.kind === 'event'"
+                ><div class="shared-diary">
+                  <small>{{ t("成长日记") }}</small>
+                  <h3>{{ item.title }}</h3>
+                  <p>{{ item.content }}</p>
+                </div></template
+              >
+              <template v-else
+                ><SharedThumbnail :base="base" :media="item" /><span
+                  v-if="item.title"
+                  class="shared-caption"
+                  >{{ item.title }}</span
+                ></template
+              >
+            </button>
+          </div>
+          <div v-if="day.total > 8" class="expand-actions">
+            <button
+              v-if="!expanded[day.day] || day.items.length < day.total"
+              class="button"
+              :disabled="!!busyDay"
+              @click="expand(day)"
             >
-            <template v-else
-              ><SharedThumbnail :base="base" :media="item" /><span
-                v-if="item.title"
-                class="shared-caption"
-                >{{ item.title }}</span
-              ></template
+              <ChevronDown :size="15" />{{
+                t("展开更多（剩余 {p0} 项）", {
+                  p0: day.total - (expanded[day.day] ? day.items.length : 8),
+                })
+              }}</button
+            ><button
+              v-if="expanded[day.day]"
+              class="text-button"
+              @click="expanded[day.day] = false"
             >
-          </button>
-        </div>
-        <div v-if="day.total > 8" class="expand-actions">
-          <button
-            v-if="!expanded[day.day] || day.items.length < day.total"
-            class="button"
-            :disabled="!!busyDay"
-            @click="expand(day)"
-          >
-            <ChevronDown :size="15" />{{
-              t("展开更多（剩余 {p0} 项）", {
-                p0: day.total - (expanded[day.day] ? day.items.length : 8),
-              })
-            }}</button
-          ><button
-            v-if="expanded[day.day]"
-            class="text-button"
-            @click="expanded[day.day] = false"
-          >
-            {{ t("收起") }}
-          </button>
-        </div>
-      </section>
+              {{ t("收起") }}
+            </button>
+          </div>
+        </section>
+      </TimelineMonths>
       <div v-if="!days.length && !loading" class="shared-empty">
         {{ t("这个范围还没有可分享的回忆") }}
       </div>

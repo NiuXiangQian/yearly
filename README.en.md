@@ -76,6 +76,8 @@ Browsing uses compressed previews by default. Originals are loaded only when exp
 
 Simplified Chinese is the default. Switch to English on the login page, in the top-right header, or in family settings. The choice is saved in the current browser and survives refreshes. Menus, forms, messages, and calendars switch together; child names, filenames, and journal content remain unchanged.
 
+Long timelines support collapsible months, individual expansion, and Collapse all / Expand all in both family and shared views.
+
 The timeline offers Day / Month / Year filters, previous/next period buttons, and All time / Today / This month / Day of birth shortcuts (the birthday shortcut appears when one child is selected). Type dates directly or click the calendar's year/month heading to navigate quickly. Child birthdays, upload archive dates, and journal times use the same date controls.
 
 ## Quick start

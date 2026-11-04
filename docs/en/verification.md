@@ -4,7 +4,13 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
-## Timeline-sharing verification (2026-11-04)
+## Monthly collapse verification (2026-11-04)
+
+- All 53 frontend tests, type checking, and the production build passed. Cases cover year boundaries, unknown dates, appended pages after collapse, ordering, editing visibility, and English labels.
+- Browser checks with fictional data covered individual/all-month folding, ascending order, day expansion, selection/sorting, and 390px Chinese/English layouts in family and shared timelines. High-resolution screenshots were saved.
+- This frontend-only update needs no migration and was not deployed to production. Backend and OSS authorization are unchanged; the following results belong to the previous round and were not rerun.
+
+## Previous timeline-sharing verification (2026-11-04)
 
 - Frontend: 49 Vitest tests passed, including date-only share creation, date presets and leap days, public sort order and pagination, expansion, collapse, and expiration cleanup.
 - Backend: 43 relevant tests passed across private/public ascending and descending pagination, undated entries, manual ordering, content permissions, cross-share signing rejection, folders, and compressed previews.

@@ -24,6 +24,8 @@ Recipients need no account and read a separate, read-only timeline. Each day ini
 
 Both family and shared timelines offer **Newest first / Oldest first**. Newest first is the default; each view remembers its preference in this browser. Dates and capture times follow the selected direction while manual mixed ordering retains priority. Undated family entries stay last. Switching resets pagination so cursors from the previous direction are not reused.
 
+For long timelines, click a month heading to collapse or expand it, or use **Collapse all / Expand all**. Days remain individually readable, including the existing eight-entry limit. Additional pages merge into their months and retain the current collapsed state. Counts refer to loaded days, not full-month totals. The family timeline supports the same controls; selection and sorting temporarily expand months, then restore the previous state.
+
 ## Preview
 
 These 2× lossless PNGs use fictional data only. The creation dialog only asks for dates and lifetime; file permissions belong in their editors. The interface also supports English.
@@ -31,6 +33,8 @@ These 2× lossless PNGs use fictional data only. The creation dialog only asks f
 ![Fictional example: date-only sharing dialog](../images/demo-share-create.png)
 
 ![Fictional example: read-only shared timeline](../images/demo-share.png)
+
+![Fictional example: collapsible timeline months](../images/demo-months.png)
 
 ## Privacy and bandwidth
 

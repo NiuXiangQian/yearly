@@ -630,5 +630,9 @@
   "六个月前": "Six months ago",
   "自选日期": "Custom date",
   "暂无有日期且允许分享的内容，可选择自选日期。": "No dated content is currently allowed for sharing. You can choose a custom date.",
-  "切换时间顺序后请重新加载": "Reload after changing the timeline order."
+  "切换时间顺序后请重新加载": "Reload after changing the timeline order.",
+  "按月浏览": "Browse by month",
+  "全部收起": "Collapse all",
+  "全部展开": "Expand all",
+  "已加载 {p0} 天": "Days loaded: {p0}"
 }

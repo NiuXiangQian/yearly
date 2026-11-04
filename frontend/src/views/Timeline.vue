@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { t, ageLabel } from "../lib/i18n";
 import ShareDialog from "../components/ShareDialog.vue";
+import TimelineMonths from "../components/TimelineMonths.vue";
 import DateField from "../components/DateField.vue";
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -1002,298 +1003,308 @@ function saveStages() {
       @pointerdown="startDrag"
       @pointermove="moveDrag"
     >
-      <div v-for="group in groups" :key="group.date" class="day-group">
-        <div class="date-heading">
-          <span class="date-dot"></span>
-          <h2>
-            {{
-              group.date === "unknown"
-                ? t("拍摄时间未知")
-                : localDate(group.date)
-            }}
-          </h2>
-          <span>{{ group.media.length }} {{ t("条记录") }} </span>
-          <div class="date-rule"></div>
-          <div v-if="yearly.canEdit && !trash" class="day-actions">
-            <label
-              v-if="group.date !== 'unknown' && view === 'calendar'"
-              class="checkbox-label day-share-option"
-              :title="t('关闭后，这一天的全部内容不会出现在任何分享链接中。')"
-              ><input
-                type="checkbox"
-                :checked="daySharing[group.date] !== false"
-                :disabled="!!savingDaySharing"
-                @change="saveDaySharing(group.date, $event)"
-              />{{ t("允许分享当天") }}</label
-            >
-            <button
-              v-if="group.date !== 'unknown'"
-              class="button small"
-              @click="appendToDate(group.date)"
-            >
-              <Plus :size="14" /> {{ t("追加") }}
-            </button>
-            <button
-              class="text-button"
-              :disabled="!group.files.length"
-              :title="t('选择本日已加载的照片与视频')"
-              @click="selectDay(group)"
-            >
-              {{ t("选本组") }}
-            </button>
-            <button
-              v-if="group.date !== 'unknown'"
-              class="text-button"
-              @click="newFolder(group.date)"
-            >
-              <Folder :size="14" /> {{ t("新建文件夹") }}
-            </button>
-            <button
-              class="text-button"
-              :disabled="
-                orderSaving || (!group.files.length && !group.folders.length)
-              "
-              @click="startSort(group.date)"
-            >
-              <GripVertical :size="14" />{{
-                sortDate === group.date ? t("完成排序") : t("排序")
+      <TimelineMonths
+        :days="groups"
+        :disabled="
+          selection || !!sortDate || !!draggedIds.length || !!folderDrag
+        "
+        v-slot="{ day: group }"
+      >
+        <div class="day-group">
+          <div class="date-heading">
+            <span class="date-dot"></span>
+            <h2>
+              {{
+                group.date === "unknown"
+                  ? t("拍摄时间未知")
+                  : localDate(group.date)
               }}
-            </button>
-            <ElPopconfirm
-              :width="280"
-              :title="
-                t(
-                  '恢复本日默认排序：文件夹置前，全部影像（含文件夹内）按拍摄时间从新到旧排列。其他日期不受影响。',
-                )
-              "
-              :confirm-button-text="t('恢复排序')"
-              :cancel-button-text="t('取消')"
-              @confirm="restoreDayOrder(group.date)"
-              ><template #reference
-                ><button
-                  class="text-button"
-                  :disabled="orderSaving"
-                  :title="t('恢复本日全部影像的拍摄时间排序')"
-                >
-                  <RotateCcw :size="14" /> {{ t("恢复默认排序") }}
-                </button></template
-              ></ElPopconfirm
-            >
+            </h2>
+            <span>{{ group.media.length }} {{ t("条记录") }} </span>
+            <div class="date-rule"></div>
+            <div v-if="yearly.canEdit && !trash" class="day-actions">
+              <label
+                v-if="group.date !== 'unknown' && view === 'calendar'"
+                class="checkbox-label day-share-option"
+                :title="t('关闭后，这一天的全部内容不会出现在任何分享链接中。')"
+                ><input
+                  type="checkbox"
+                  :checked="daySharing[group.date] !== false"
+                  :disabled="!!savingDaySharing"
+                  @change="saveDaySharing(group.date, $event)"
+                />{{ t("允许分享当天") }}</label
+              >
+              <button
+                v-if="group.date !== 'unknown'"
+                class="button small"
+                @click="appendToDate(group.date)"
+              >
+                <Plus :size="14" /> {{ t("追加") }}
+              </button>
+              <button
+                class="text-button"
+                :disabled="!group.files.length"
+                :title="t('选择本日已加载的照片与视频')"
+                @click="selectDay(group)"
+              >
+                {{ t("选本组") }}
+              </button>
+              <button
+                v-if="group.date !== 'unknown'"
+                class="text-button"
+                @click="newFolder(group.date)"
+              >
+                <Folder :size="14" /> {{ t("新建文件夹") }}
+              </button>
+              <button
+                class="text-button"
+                :disabled="
+                  orderSaving || (!group.files.length && !group.folders.length)
+                "
+                @click="startSort(group.date)"
+              >
+                <GripVertical :size="14" />{{
+                  sortDate === group.date ? t("完成排序") : t("排序")
+                }}
+              </button>
+              <ElPopconfirm
+                :width="280"
+                :title="
+                  t(
+                    '恢复本日默认排序：文件夹置前，全部影像（含文件夹内）按拍摄时间从新到旧排列。其他日期不受影响。',
+                  )
+                "
+                :confirm-button-text="t('恢复排序')"
+                :cancel-button-text="t('取消')"
+                @confirm="restoreDayOrder(group.date)"
+                ><template #reference
+                  ><button
+                    class="text-button"
+                    :disabled="orderSaving"
+                    :title="t('恢复本日全部影像的拍摄时间排序')"
+                  >
+                    <RotateCcw :size="14" /> {{ t("恢复默认排序") }}
+                  </button></template
+                ></ElPopconfirm
+              >
+            </div>
           </div>
-        </div>
-        <p v-if="sortDate === group.date" class="sort-instructions">
-          {{
-            orderSaving
-              ? t("正在保存顺序…")
-              : t(
-                  "文件夹与影像可自由混排；拖到卡片左右两侧插入排序，拖到文件夹中间移入。多选影像可一起拖动。",
-                )
-          }}
-        </p>
-        <div
-          v-if="dragFromFolder && dragDay === group.date && draggedIds.length"
-          class="day-drop-out"
-          @dragover.prevent
-          @drop.prevent.stop="dropToDay(group.date)"
-        >
-          {{ t("松开移回当天时间线") }}
-        </div>
-        <div class="media-grid">
+          <p v-if="sortDate === group.date" class="sort-instructions">
+            {{
+              orderSaving
+                ? t("正在保存顺序…")
+                : t(
+                    "文件夹与影像可自由混排；拖到卡片左右两侧插入排序，拖到文件夹中间移入。多选影像可一起拖动。",
+                  )
+            }}
+          </p>
           <div
-            v-for="m in mobile &&
-            !expandedDays[group.date] &&
-            !selection &&
-            sortDate !== group.date
-              ? group.media.slice(0, 8)
-              : group.media"
-            :key="m.kind + '-' + m.id"
-            class="timeline-entry"
-            :class="{
-              'sortable-entry':
+            v-if="dragFromFolder && dragDay === group.date && draggedIds.length"
+            class="day-drop-out"
+            @dragover.prevent
+            @drop.prevent.stop="dropToDay(group.date)"
+          >
+            {{ t("松开移回当天时间线") }}
+          </div>
+          <div class="media-grid">
+            <div
+              v-for="m in mobile &&
+              !expandedDays[group.date] &&
+              !selection &&
+              sortDate !== group.date
+                ? group.media.slice(0, 8)
+                : group.media"
+              :key="m.kind + '-' + m.id"
+              class="timeline-entry"
+              :class="{
+                'sortable-entry':
+                  yearly.canEdit &&
+                  !trash &&
+                  view === 'calendar' &&
+                  !dragEnabled &&
+                  m.kind !== 'event',
+                'drop-into-folder': m.kind === 'folder' && dropFolder === m.id,
+                'drop-before':
+                  dropTarget?.kind === m.kind &&
+                  dropTarget?.id === m.id &&
+                  dropTarget?.placement === 'before',
+                'drop-after':
+                  dropTarget?.kind === m.kind &&
+                  dropTarget?.id === m.id &&
+                  dropTarget?.placement === 'after',
+              }"
+              :draggable="
                 yearly.canEdit &&
                 !trash &&
                 view === 'calendar' &&
                 !dragEnabled &&
-                m.kind !== 'event',
-              'drop-into-folder': m.kind === 'folder' && dropFolder === m.id,
-              'drop-before':
-                dropTarget?.kind === m.kind &&
-                dropTarget?.id === m.id &&
-                dropTarget?.placement === 'before',
-              'drop-after':
-                dropTarget?.kind === m.kind &&
-                dropTarget?.id === m.id &&
-                dropTarget?.placement === 'after',
-            }"
-            :draggable="
-              yearly.canEdit &&
-              !trash &&
-              view === 'calendar' &&
-              !dragEnabled &&
-              m.kind !== 'event' &&
-              !orderSaving
-            "
-            @dragstart="startOrderDrag($event, m, group)"
-            @dragover="dragOver($event, m, group)"
-            @dragleave="
-              if (
-                !($event.currentTarget as HTMLElement).contains(
-                  $event.relatedTarget as Node,
-                )
-              ) {
-                dropFolder = null;
-                dropTarget = null;
-              }
-            "
-            @drop.prevent="dropOrder(m, group)"
-            @dragend="
-              folderDrag = null;
-              dragFromFolder = null;
-              dragDay = '';
-              dropFolder = null;
-              draggedIds = [];
-              dropTarget = null;
-            "
-          >
-            <div
-              v-if="sortDate === group.date && m.kind !== 'event'"
-              class="sort-entry-tools"
-            >
-              <GripVertical :size="16" /><button
-                class="text-button"
-                :disabled="
-                  orderSaving ||
-                  (group.orderable[0]?.id === m.id &&
-                    group.orderable[0]?.kind === m.kind)
-                "
-                @click="moveOne(m, group, -1)"
-              >
-                <ArrowLeft :size="13" /> {{ t("前移") }}</button
-              ><button
-                class="text-button"
-                :disabled="
-                  orderSaving ||
-                  (group.orderable.at(-1)?.id === m.id &&
-                    group.orderable.at(-1)?.kind === m.kind)
-                "
-                @click="moveOne(m, group, 1)"
-              >
-                {{ t("后移") }} <ArrowRight :size="13" />
-              </button>
-            </div>
-            <div
-              v-if="m.kind === 'folder'"
-              class="day-folder-card"
-              role="button"
-              tabindex="0"
-              :aria-label="t('打开文件夹 {p0}', { p0: m.name })"
-              :title="
-                dropFolder === m.id
-                  ? t('松开移入 {p0} 份影像', { p0: draggedIds.length })
-                  : yearly.canEdit
-                    ? t('拖动标题排序；拖到两侧插入，中间移入影像')
-                    : m.name
+                m.kind !== 'event' &&
+                !orderSaving
               "
-              @click="folderId = m.id"
-              @keydown.enter.self="folderId = m.id"
-              @keydown.space.prevent.self="folderId = m.id"
+              @dragstart="startOrderDrag($event, m, group)"
+              @dragover="dragOver($event, m, group)"
+              @dragleave="
+                if (
+                  !($event.currentTarget as HTMLElement).contains(
+                    $event.relatedTarget as Node,
+                  )
+                ) {
+                  dropFolder = null;
+                  dropTarget = null;
+                }
+              "
+              @drop.prevent="dropOrder(m, group)"
+              @dragend="
+                folderDrag = null;
+                dragFromFolder = null;
+                dragDay = '';
+                dropFolder = null;
+                draggedIds = [];
+                dropTarget = null;
+              "
             >
-              <div class="folder-card-body media-visual">
-                <div class="folder-card-heading">
-                  <Folder :size="23" /><b>{{ m.name }}</b>
-                  <span
-                    v-if="yearly.canEdit"
-                    class="folder-drag-handle"
-                    :title="t('拖动文件夹，可放在照片、视频之间')"
-                    ><GripVertical :size="15"
-                  /></span>
-                </div>
-                <div v-if="m.previews?.length" class="folder-thumbnails">
-                  <div
-                    v-for="preview in m.previews"
-                    :key="preview.id"
-                    :draggable="yearly.canEdit && !orderSaving && !dragEnabled"
-                    :aria-label="
-                      t('拖动影像 {p0}', { p0: preview.title || preview.id })
-                    "
-                    @dragstart.stop="
-                      startOrderDrag(
-                        $event,
-                        { ...preview, kind: 'media' },
-                        group,
-                      )
-                    "
-                  >
-                    <MediaCard :media="preview" thumbnail />
+              <div
+                v-if="sortDate === group.date && m.kind !== 'event'"
+                class="sort-entry-tools"
+              >
+                <GripVertical :size="16" /><button
+                  class="text-button"
+                  :disabled="
+                    orderSaving ||
+                    (group.orderable[0]?.id === m.id &&
+                      group.orderable[0]?.kind === m.kind)
+                  "
+                  @click="moveOne(m, group, -1)"
+                >
+                  <ArrowLeft :size="13" /> {{ t("前移") }}</button
+                ><button
+                  class="text-button"
+                  :disabled="
+                    orderSaving ||
+                    (group.orderable.at(-1)?.id === m.id &&
+                      group.orderable.at(-1)?.kind === m.kind)
+                  "
+                  @click="moveOne(m, group, 1)"
+                >
+                  {{ t("后移") }} <ArrowRight :size="13" />
+                </button>
+              </div>
+              <div
+                v-if="m.kind === 'folder'"
+                class="day-folder-card"
+                role="button"
+                tabindex="0"
+                :aria-label="t('打开文件夹 {p0}', { p0: m.name })"
+                :title="
+                  dropFolder === m.id
+                    ? t('松开移入 {p0} 份影像', { p0: draggedIds.length })
+                    : yearly.canEdit
+                      ? t('拖动标题排序；拖到两侧插入，中间移入影像')
+                      : m.name
+                "
+                @click="folderId = m.id"
+                @keydown.enter.self="folderId = m.id"
+                @keydown.space.prevent.self="folderId = m.id"
+              >
+                <div class="folder-card-body media-visual">
+                  <div class="folder-card-heading">
+                    <Folder :size="23" /><b>{{ m.name }}</b>
+                    <span
+                      v-if="yearly.canEdit"
+                      class="folder-drag-handle"
+                      :title="t('拖动文件夹，可放在照片、视频之间')"
+                      ><GripVertical :size="15"
+                    /></span>
+                  </div>
+                  <div v-if="m.previews?.length" class="folder-thumbnails">
+                    <div
+                      v-for="preview in m.previews"
+                      :key="preview.id"
+                      :draggable="
+                        yearly.canEdit && !orderSaving && !dragEnabled
+                      "
+                      :aria-label="
+                        t('拖动影像 {p0}', { p0: preview.title || preview.id })
+                      "
+                      @dragstart.stop="
+                        startOrderDrag(
+                          $event,
+                          { ...preview, kind: 'media' },
+                          group,
+                        )
+                      "
+                    >
+                      <MediaCard :media="preview" thumbnail />
+                    </div>
+                  </div>
+                  <div v-else class="folder-empty-preview">
+                    <Folder :size="28" />
                   </div>
                 </div>
-                <div v-else class="folder-empty-preview">
-                  <Folder :size="28" />
-                </div>
               </div>
-            </div>
-            <button
-              v-else-if="m.kind === 'event'"
-              class="timeline-diary"
-              @click="!trash && ((eventId = m.id), (eventOpen = true))"
-            >
-              <EventCover :media-id="m.cover_media_id" /><BookHeart
-                :size="27"
-                stroke-width="1.3"
-              /><span class="eyebrow"> {{ t("成长日记") }} </span>
-              <h3>{{ m.title }}</h3>
-              <p>{{ m.content }}</p>
-              <small
-                >{{ localDate(m.start_at)
-                }}<template v-if="m.end_at">
-                  — {{ localDate(m.end_at) }}</template
-                ></small
+              <button
+                v-else-if="m.kind === 'event'"
+                class="timeline-diary"
+                @click="!trash && ((eventId = m.id), (eventOpen = true))"
               >
-              <div class="age-labels">
-                <span v-for="c in m.children" :key="c.id"
-                  >{{ c.name }} · {{ ageLabel(c.age_start)
-                  }}<template v-if="c.age_end && c.age_end !== c.age_start">
-                    ～ {{ ageLabel(c.age_end) }}</template
-                  ></span
+                <EventCover :media-id="m.cover_media_id" /><BookHeart
+                  :size="27"
+                  stroke-width="1.3"
+                /><span class="eyebrow"> {{ t("成长日记") }} </span>
+                <h3>{{ m.title }}</h3>
+                <p>{{ m.content }}</p>
+                <small
+                  >{{ localDate(m.start_at)
+                  }}<template v-if="m.end_at">
+                    — {{ localDate(m.end_at) }}</template
+                  ></small
                 >
-              </div>
-              <small
-                >{{ m.media_ids.length }} {{ t("份回忆 · 全部事件媒体") }}
-              </small></button
-            ><MediaCard
-              v-else
-              :media="m"
-              :selection="selection"
-              :selected="selected.includes(m.id)"
-              @open="openMedia"
-              @select="toggle"
-              @longpress="longpress"
-            /><button
-              v-if="trash && yearly.canEdit"
-              class="button small restore-button"
-              @click="restore(m.id, m.kind)"
-            >
-              <RotateCcw :size="14" /> {{ t("恢复这份回忆") }}
-            </button>
+                <div class="age-labels">
+                  <span v-for="c in m.children" :key="c.id"
+                    >{{ c.name }} · {{ ageLabel(c.age_start)
+                    }}<template v-if="c.age_end && c.age_end !== c.age_start">
+                      ～ {{ ageLabel(c.age_end) }}</template
+                    ></span
+                  >
+                </div>
+                <small
+                  >{{ m.media_ids.length }} {{ t("份回忆 · 全部事件媒体") }}
+                </small></button
+              ><MediaCard
+                v-else
+                :media="m"
+                :selection="selection"
+                :selected="selected.includes(m.id)"
+                @open="openMedia"
+                @select="toggle"
+                @longpress="longpress"
+              /><button
+                v-if="trash && yearly.canEdit"
+                class="button small restore-button"
+                @click="restore(m.id, m.kind)"
+              >
+                <RotateCcw :size="14" /> {{ t("恢复这份回忆") }}
+              </button>
+            </div>
           </div>
+          <button
+            v-if="
+              mobile &&
+              group.media.length > 8 &&
+              !selection &&
+              sortDate !== group.date
+            "
+            class="button day-expand"
+            @click="expandedDays[group.date] = !expandedDays[group.date]"
+          >
+            {{
+              expandedDays[group.date]
+                ? t("收起")
+                : t("展开更多（剩余 {p0} 项）", { p0: group.media.length - 8 })
+            }}
+          </button>
         </div>
-        <button
-          v-if="
-            mobile &&
-            group.media.length > 8 &&
-            !selection &&
-            sortDate !== group.date
-          "
-          class="button day-expand"
-          @click="expandedDays[group.date] = !expandedDays[group.date]"
-        >
-          {{
-            expandedDays[group.date]
-              ? t("收起")
-              : t("展开更多（剩余 {p0} 项）", { p0: group.media.length - 8 })
-          }}
-        </button>
-      </div>
+      </TimelineMonths>
       <div v-if="loading" class="media-grid loading-grid">
         <div v-for="i in 4" :key="i" class="media-card" aria-hidden="true">
           <div class="media-visual skeleton"></div>
