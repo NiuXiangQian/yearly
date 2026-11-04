@@ -18,7 +18,7 @@ def validate_children(db, ids):
         db.scalars(select(Child.id).where(Child.id.in_(ids), Child.status != "deleted"))
     )
     if existing != ids:
-        raise HTTPException(422, "关联的孩子或宠物不存在")
+        raise HTTPException(422, "关联的人物或宠物不存在")
     return ids
 
 

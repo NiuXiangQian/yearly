@@ -322,7 +322,7 @@ def update_child(cid: int, data: ChildIn, db=Depends(get_db), user=Depends(edito
     for key, value in data.model_dump().items():
         # Older clients omit these fields; preserve the existing profile type and details.
         if (
-            key in {"profile_type", "species", "breed"}
+            key in {"profile_type", "relationship", "species", "breed"}
             and key not in data.model_fields_set
         ):
             continue
@@ -734,7 +734,16 @@ def stats(db=Depends(get_db), user=Depends(current_user)):
         ),
         "children": db.scalar(
             select(func.count(Child.id)).where(
-                Child.status == "active", Child.profile_type == "child"
+                Child.status == "active",
+                or_(
+                    Child.profile_type == "child",
+                    (Child.profile_type == "person") & (Child.relationship == "孩子"),
+                ),
+            )
+        ),
+        "people": db.scalar(
+            select(func.count(Child.id)).where(
+                Child.status == "active", Child.profile_type.in_(["child", "person"])
             )
         ),
         "pets": db.scalar(

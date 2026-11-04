@@ -139,7 +139,7 @@ def test_profile_backup_roundtrip_and_old_manifest(context, legacy):
     document = context.client.get("/api/export/manifest").json()
     if legacy:
         for row in document["tables"]["child"]:
-            for key in ("profile_type", "species", "breed"):
+            for key in ("profile_type", "relationship", "species", "breed"):
                 row.pop(key)
     target = context.tmp_path / "profiles.json"
     target.write_text(json.dumps(document))

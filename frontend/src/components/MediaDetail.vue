@@ -167,7 +167,7 @@ async function trash() {
             />
           </label>
           <div class="field-group">
-            <span> {{ t("关联孩子与宠物") }} </span
+            <span> {{ t("里面都有谁（可多选）") }} </span
             ><ChildPicker
               v-model="form.child_ids"
               :disabled="!yearly.canEdit"

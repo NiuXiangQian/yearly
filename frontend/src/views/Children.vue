@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { t } from "../lib/i18n";
+import {
+  personRelationships,
+  petSpecies,
+  profileCategories,
+  matchesProfile,
+} from "../lib/profiles";
 import DateField from "../components/DateField.vue";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   Plus,
@@ -26,6 +32,14 @@ const yearly = useYearly(),
   deleteOpen = ref(false),
   busy = ref(false),
   avatarOptions = ref<any[]>([]);
+const category = ref(""),
+  search = ref("");
+const categories = computed(() => profileCategories(yearly.children));
+const visibleProfiles = computed(() =>
+  yearly.children.filter((p) =>
+    matchesProfile(p, category.value, search.value),
+  ),
+);
 const avatarInput = ref<HTMLInputElement>(),
   avatarFile = ref<File | null>(null),
   avatarPreview = ref(""),
@@ -93,13 +107,22 @@ async function chooseAvatar(event: Event) {
     avatarPreparing.value = false;
   }
 }
-function edit(c?: any, profileType = "child") {
+function edit(c?: any, profileType = "person") {
   clearAvatarDraft();
   editing.value = c?.id || null;
   form.value = c
-    ? { profile_type: "child", species: "", breed: "", ...c }
+    ? {
+        species: "",
+        breed: "",
+        ...c,
+        profile_type: c.profile_type === "pet" ? "pet" : "person",
+        relationship:
+          c.relationship ||
+          (c.profile_type === "child" || !c.profile_type ? "孩子" : ""),
+      }
     : {
         profile_type: profileType,
+        relationship: "",
         species: "",
         breed: "",
         name: "",
@@ -164,6 +187,8 @@ async function save() {
       ? await put("/children/" + editing.value, data)
       : await post("/children", data);
     open.value = false;
+    category.value = "";
+    search.value = "";
     await yearly.load();
   } catch (e) {
     notify(e);
@@ -194,9 +219,9 @@ function browse(id: number) {
   <div class="page-heading">
     <div>
       <span class="eyebrow">LITTLE LIVES, SHARED STORIES</span>
-      <h1>{{ t("孩子与宠物，一起长大。") }}</h1>
+      <h1>{{ t("每一位家人，都在时光里。") }}</h1>
       <p>
-        {{ t("为孩子和宠物建立档案，共同回忆可以同时出现在各自的时间线。") }}
+        {{ t("记录爸爸妈妈、长辈、孩子和宠物，按名字或分类找到共同回忆。") }}
       </p>
     </div>
     <div v-if="yearly.canEdit" class="profile-create-actions">
@@ -204,13 +229,29 @@ function browse(id: number) {
         <PawPrint :size="17" /> {{ t("添加宠物") }}
       </button>
       <button class="button primary" @click="edit()">
-        <Plus :size="17" /> {{ t("添加孩子") }}
+        <Plus :size="17" /> {{ t("添加人物") }}
       </button>
     </div>
   </div>
+  <div v-if="yearly.children.length" class="profile-list-filters">
+    <input
+      v-model="search"
+      type="search"
+      :aria-label="t('搜索人物或宠物')"
+      :placeholder="t('搜索名字、关系、分类')"
+    />
+    <select v-model="category" :aria-label="t('档案分类')">
+      <option v-for="item in categories" :key="item.value" :value="item.value">
+        {{ item.label }}
+      </option>
+    </select>
+  </div>
+  <p v-if="yearly.children.length && !visibleProfiles.length" class="muted">
+    {{ t("没有匹配的档案") }}
+  </p>
   <div v-if="yearly.children.length" class="children-grid">
     <article
-      v-for="c in yearly.children"
+      v-for="c in visibleProfiles"
       :key="c.id"
       class="child-profile-card"
       :style="{ '--child-color': c.theme_color }"
@@ -221,7 +262,10 @@ function browse(id: number) {
             ? t("已归档")
             : c.profile_type === "pet"
               ? t("宠物")
-              : t("孩子")
+              : t(
+                  c.relationship ||
+                    (c.profile_type === "child" ? "孩子" : "人物"),
+                )
         }}</span>
       </div>
       <h2>
@@ -250,7 +294,7 @@ function browse(id: number) {
           v-if="yearly.canEdit"
           class="icon-button"
           :aria-label="
-            t(c.profile_type === 'pet' ? '编辑宠物档案' : '编辑孩子档案')
+            t(c.profile_type === 'pet' ? '编辑宠物档案' : '编辑人物档案')
           "
           @click="edit(c)"
         >
@@ -262,9 +306,11 @@ function browse(id: number) {
   <EmptyState
     v-else
     :title="t('从一个名字，开始一段故事')"
-    :description="t('添加孩子或宠物，同一张照片可以记录彼此陪伴的时光。')"
+    :description="
+      t('添加人物或宠物，在文件中标记都有谁，共同回忆便能一起找到。')
+    "
     ><button v-if="yearly.canEdit" class="button primary" @click="edit()">
-      <Plus :size="16" /> {{ t("创建孩子档案") }}
+      <Plus :size="16" /> {{ t("创建人物档案") }}
     </button></EmptyState
   >
   <ElDialog
@@ -272,7 +318,7 @@ function browse(id: number) {
     :title="
       form.profile_type === 'pet'
         ? t(editing ? '编辑宠物档案' : '添加宠物')
-        : t(editing ? '编辑孩子档案' : '认识一个小小的你')
+        : t(editing ? '编辑人物档案' : '添加人物')
     "
     width="660px"
     :close-on-click-modal="!busy && !avatarPreparing"
@@ -337,7 +383,7 @@ function browse(id: number) {
             maxlength="80"
             required
             :placeholder="
-              t(form.profile_type === 'pet' ? '宠物的名字' : '孩子的名字')
+              t(form.profile_type === 'pet' ? '宠物的名字' : '人物的名字')
             " /></label
         ><label>
           {{ t("昵称") }}
@@ -347,14 +393,38 @@ function browse(id: number) {
             :placeholder="t('家里怎么称呼 TA')"
         /></label>
       </div>
+      <label v-if="form.profile_type !== 'pet'">
+        {{ t("人物关系（可自定义）") }}
+        <input
+          v-model="form.relationship"
+          list="person-relationships"
+          maxlength="80"
+          :placeholder="t('例如：爸爸、妈妈、爷爷、奶奶')"
+        />
+        <datalist id="person-relationships">
+          <option v-for="role in personRelationships" :key="role" :value="role">
+            {{ t(role) }}
+          </option>
+        </datalist>
+      </label>
       <div v-if="form.profile_type === 'pet'" class="form-row">
         <label
-          >{{ t("种类（可选）")
+          >{{ t("宠物分类（可自定义）")
           }}<input
             v-model="form.species"
+            list="pet-species"
             maxlength="80"
             :placeholder="t('例如：猫、狗、兔子')"
-        /></label>
+          /><datalist id="pet-species">
+            <option
+              v-for="species in petSpecies"
+              :key="species"
+              :value="species"
+            >
+              {{ t(species) }}
+            </option>
+          </datalist></label
+        >
         <label
           >{{ t("品种（可选）")
           }}<input
@@ -365,11 +435,8 @@ function browse(id: number) {
       </div>
       <div class="form-row">
         <label>
-          {{ t(form.profile_type === "pet" ? "出生日期（可选）" : "出生日期") }}
-          <DateField
-            v-model="form.birthday"
-            type="date"
-            :required="form.profile_type !== 'pet'" /></label
+          {{ t("出生日期（可选）") }}
+          <DateField v-model="form.birthday" type="date" /></label
         ><label>
           {{ t("出生时刻（可选）") }}
           <input v-model="form.birth_time" type="time" step="1"
@@ -394,7 +461,7 @@ function browse(id: number) {
         /></label>
       </div>
       <label>
-        {{ t(form.profile_type === "pet" ? "关于宠物" : "关于孩子") }}
+        {{ t(form.profile_type === "pet" ? "关于宠物" : "关于人物") }}
         <textarea
           v-model="form.description"
           rows="3"
@@ -436,7 +503,7 @@ function browse(id: number) {
           </select></label
         >
       </div>
-      <p v-if="form.profile_type === 'pet' && !form.birthday" class="muted">
+      <p v-if="!form.birthday" class="muted">
         {{ t("不知道生日也可以记录；补充生日后即可按年龄浏览。") }}
       </p>
       <p class="muted">
@@ -484,6 +551,18 @@ function browse(id: number) {
 </template>
 
 <style scoped>
+.profile-list-filters {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.profile-list-filters input {
+  flex: 1;
+  min-width: 180px;
+  max-width: 360px;
+}
+
 .child-profile-card {
   display: flex;
   flex-direction: column;

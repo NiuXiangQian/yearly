@@ -171,7 +171,7 @@ async function trash() {
       >
       <p class="muted">{{ t("关闭后，此日记不会出现在任何分享链接中。") }}</p>
       <div class="field-group">
-        <span> {{ t("一起经历的孩子与宠物") }} </span
+        <span> {{ t("一起经历的人物与宠物") }} </span
         ><ChildPicker v-model="form.child_ids" :disabled="!yearly.canEdit" />
       </div>
       <div class="section-heading">

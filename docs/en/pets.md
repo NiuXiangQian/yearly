@@ -1,29 +1,39 @@
-# Children & pets
+# People & pets
 
 [简体中文](../pets.md) | **English** · [Home](../../README.en.md)
 
-Choose **Add child** or **Add pet** on the Children & pets page. Pet profiles support names, nicknames, individual avatars, species, breed, gender, descriptions, colors, display order, and archiving.
+Choose **Add person** or **Add pet** on the People & pets page. People can be parents, grandparents, children, friends, or anyone else in your family story. Choose a suggested relationship or enter a custom one. Each profile supports an avatar, nickname, description, color, display order, and archiving.
 
-A pet's birthday is optional. Once supplied, photo and journal ages are calculated from capture dates, and age-stage browsing and birthday navigation become available. Profiles with unknown birthdays omit ages and disable age filtering. Child profiles still require a birthday.
+These profiles tag memories; they do not create login accounts or change account permissions.
 
-## Shared memories
+Birthdays are optional for both people and pets. Adding one enables ages based on capture dates, age-stage browsing, and birthday navigation. Profiles without a birthday omit ages and disable age filtering.
 
-- Select children and pets together when uploading. Link existing photos or videos to pets through media details or bulk linking.
-- Journals can link both children and pets. The same record appears when browsing either profile.
-- Choose **Any selected profile** or **All selected profiles** for combined filters. Shared photos retain a single original and appear only once in the combined timeline.
-- Deleting a pet profile removes only its links. Child links, shared journals, and original files remain. Only administrators can delete profiles.
+## Pet categories
+
+Set a pet category and breed separately. Suggested categories include cats, dogs, rabbits, birds, fish, hamsters, and turtles; custom categories are also supported. Existing species values serve as categories without losing breed information.
+
+Profile lists and file selectors can narrow candidates to people, pets, or an existing pet category. Pets without a category appear under **Pets · Uncategorized**. Search matches names, nicknames, relationships, categories, and breeds.
+
+## Who is in each file?
+
+- Use **Who is in this? (select multiple)** when uploading a batch or editing a file. A photo can include a child, parents, grandparents, and pets together.
+- Existing files support bulk adding, removing, and replacing profile links. Journals support the same shared cast.
+- **Select these profiles** in an editor adds the matching candidates while preserving existing selections. **Clear selection** removes all selections.
+- Click profiles on the timeline to filter. Choose **Any selected profile** or **All selected profiles** for combined filters. After finding a category, **Filter by these profiles** switches to that group, such as all cats. Searching candidates alone does not change the selected timeline scope.
+- Each shared photo, video, or journal appears in every linked profile’s timeline. Originals are stored once and records are not duplicated in combined views.
+- Deleting a profile removes only its links; other profiles and originals remain. Only administrators can delete profiles.
 
 ## Data and upgrades
 
-Alembic `0009` adds `profile_type`, `species`, and `breed` to the existing `child` table and allows a missing birthday for pets. Existing profiles default to children. To preserve compatibility, `/api/children`, `child_ids`, and relationship table names remain unchanged and can now refer to either children or pets. `/api/stats` reports `children` and `pets` separately.
+Alembic `0010` adds `relationship` to the existing `child` table. Existing child IDs, avatars, and links remain intact and receive the child relationship. New people use `profile_type=person`; pets remain `pet`, with categories stored in `species`. For compatibility, `/api/children`, `child_ids`, and existing relationship tables now refer to all people and pets. New person birthdays are optional; older clients omitting the type still use the original child validation rules.
 
-Run migrations for each environment you intend to upgrade before starting the new backend:
+`/api/stats` reports `people` and `pets`, while retaining `children` for compatibility. Backups preserve relationships, categories, and associations; older manifests without relationships remain supported.
+
+Run migrations for each environment you intend to upgrade before starting the backend:
 
 ```bash
 ./scripts/manage.sh test migrate
 ./scripts/manage.sh production migrate
 ```
 
-Portable backups preserve pet details and relationships. Older manifests without a profile type restore profiles as children. Downgrading removes pet-specific fields; null birthdays prevent a direct schema downgrade. Back up and resolve those profiles before reverting.
-
-Sharing still uses date ranges and content permissions. Adding pets does not broaden access, and public responses do not return child or pet profiles. Review visible media, user-written titles, and journal text before sharing.
+Sharing continues to enforce date ranges and content permissions. Public responses omit relationships and private people/pet profiles and do not grant original-file access. Review visible media and user-written titles or journal text before sharing.

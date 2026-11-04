@@ -7,7 +7,7 @@ import { useRoute, useRouter } from "vue-router";
 import {
   Images,
   BookHeart,
-  Baby,
+  Users,
   Upload,
   Settings,
   ShieldCheck,
@@ -27,12 +27,12 @@ const route = useRoute(),
 const nav = computed(() => [
   { path: "/", label: t("成长时间线"), icon: Images },
   { path: "/events", label: t("成长日记"), icon: BookHeart },
-  { path: "/children", label: t("孩子与宠物"), icon: Baby },
+  { path: "/children", label: t("人物与宠物"), icon: Users },
 ]);
 const titles = computed<Record<string, string>>(() => ({
   "/": t("成长时间线"),
   "/events": t("成长日记"),
-  "/children": t("孩子与宠物"),
+  "/children": t("人物与宠物"),
   "/upload": t("珍藏新回忆"),
   "/settings": t("我的家庭"),
   "/backup": t("备份与导出"),

@@ -4,9 +4,9 @@
 
 **Keep every chapter of growing up.**
 
-A self-hosted, private family photo and video archive. Organize photos, videos, and growth journals by date, child, and pet, so the moments that matter remain easy to find years later.
+A self-hosted, private family photo and video archive. Organize photos, videos, and growth journals by date, person, and pet, so the moments that matter remain easy to find years later.
 
-Daily timeline · Expiring read-only shares · Child and pet profiles · Drag-and-drop folders · Compressed previews · Original-file backups
+Daily timeline · Expiring read-only shares · People and pet profiles · Drag-and-drop folders · Compressed previews · Original-file backups
 
 [Screenshots](#screenshots) · [Sharing page](#share-a-read-only-timeline) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
 
@@ -24,7 +24,7 @@ Drag photos, videos, and folders into any order within a day. Folders display sm
 
 ### Organize a whole batch before uploading
 
-Name a batch, select children and pets, and choose an archive date. The compact file list supports bulk selection, drag-to-reorder, and file details.
+Name a batch, select people and pets, and choose an archive date. The compact file list supports bulk selection, drag-to-reorder, and file details.
 
 ![Fictional demo: batch naming and upload queue](docs/images/demo-upload-en.png)
 
@@ -54,7 +54,7 @@ Dragging previews the date; releasing loads the target content on demand.
 </details>
 
 <details>
-<summary>View folder organization and child / pet profiles</summary>
+<summary>View folder organization and people / pet profiles</summary>
 
 ### Keep a story together in a folder
 
@@ -62,11 +62,11 @@ Select multiple items, append uploads, drag items into or out of folders, reorde
 
 ![Fictional demo: folder contents and organization controls](docs/images/demo-folder-en.png)
 
-### Children and pets, growing together
+### People and pets, sharing memories
 
-Create individual child and pet profiles with avatars and introductions. Pets can have species and breed details, with an optional birthday. Link the same photo, video, or journal to children and pets so it appears in each timeline while keeping one original. See [Children & pets](docs/en/pets.md).
+Create profiles for parents, grandparents, children, friends, and pets. Set custom relationships and pet categories, with optional birthdays. Tag multiple people and pets in each file, then filter by profile or pet category. Shared memories keep one original. See [People & pets](docs/en/pets.md).
 
-![Fictional demo: child and pet profiles](docs/images/demo-pets-en.png)
+![Fictional demo: people and pet profiles](docs/images/demo-profiles-en.png)
 
 </details>
 
@@ -75,7 +75,7 @@ Create individual child and pet profiles with avatars and introductions. Pets ca
 | Use case | Capabilities |
 | --- | --- |
 | Organize memories | Daily grouping, named folders, mixed folder/media ordering, bulk selection and moves, default-order reset |
-| Record growth | Child and pet profiles, individual avatars, age-based browsing, one-month / 100-day / birthday navigation, shared growth journals |
+| Record growth | People and pet profiles, individual avatars, age-based browsing, one-month / 100-day / birthday navigation, shared growth journals |
 | Upload in batches | Batch names, EXIF / QuickTime date parsing, date checks when appending, cross-batch deduplication, multipart uploads and retries |
 | Browse efficiently | Image thumbnails, HEIC / HEIF previews, image zoom and pan, compressed video copies, originals on demand |
 | Preserve originals | Direct uploads to private OSS, paired Live Photo resources, original metadata, backups and integrity checks |
@@ -195,7 +195,7 @@ See [verification notes](docs/en/verification.md) for coverage and remaining acc
 
 | Document | Contents |
 | --- | --- |
-| [Children & pets](docs/en/pets.md) | Pet profiles, shared timelines, and compatible upgrades |
+| [People & pets](docs/en/pets.md) | Relationships, pet categories, file tagging, and filtering |
 | [Deployment](docs/en/deployment.md) | MySQL, HTTPS, Nginx, systemd, and the video preview worker |
 | [Storage and metadata](docs/en/storage-and-metadata.md) | OSS, direct uploads, compressed previews, capture times, and organization rules |
 | [Backup and restore](docs/en/backup-restore.md) | Database, manifests, original-file backups, and restoration |

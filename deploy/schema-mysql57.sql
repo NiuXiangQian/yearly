@@ -23,6 +23,7 @@ CREATE TABLE child (
 	nickname VARCHAR(80) NOT NULL,
 	avatar_media_id BIGINT,
 	profile_type VARCHAR(16) NOT NULL DEFAULT 'child',
+	relationship VARCHAR(80) NOT NULL DEFAULT '',
 	species VARCHAR(80) NOT NULL DEFAULT '',
 	breed VARCHAR(80) NOT NULL DEFAULT '',
 	birthday DATE,

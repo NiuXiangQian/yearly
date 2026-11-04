@@ -2,9 +2,9 @@
 
 [简体中文](../storage-and-metadata.md) | **English** · [Home](../../README.en.md)
 
-## Child and pet relationships
+## People and pet relationships
 
-Profiles support children and pets, and either can share the same media or journal. The child association rules below also apply to pets; see [Children & pets](pets.md).
+Profiles support all people and pets, who can share the same media or journal. The child association rules below also apply to other people and pets; see [People & pets](pets.md).
 
 ## Data flow and integrity
 

@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class ChildIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     nickname: str = Field(default="", max_length=80)
-    profile_type: Literal["child", "pet"] = "child"
+    profile_type: Literal["child", "person", "pet"] = "child"
+    relationship: str = Field(default="", max_length=80)
     species: str = Field(default="", max_length=80)
     breed: str = Field(default="", max_length=80)
     birthday: date | None = None

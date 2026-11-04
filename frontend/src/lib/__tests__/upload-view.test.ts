@@ -98,7 +98,7 @@ it("defaults to the only child on first use and applies later child choices imme
   picker.click();
   await nextTick();
   expect(host.querySelector(".file-summary")?.textContent).toContain(
-    "未关联孩子",
+    "未关联人物与宠物",
   );
   picker.click();
   await nextTick();
@@ -133,7 +133,7 @@ it("honors an explicit family-only choice instead of silently associating a chil
   app.mount(host);
   await nextTick();
   expect(host.querySelector(".batch-children .child-pill.selected")).toBeNull();
-  expect(host.textContent).toContain("仅出现在全部孩子与宠物中");
+  expect(host.textContent).toContain("仅出现在全部人物与宠物中");
 });
 
 it("keeps details collapsed and uploads only selected files in the chosen order with the batch name and date", async () => {

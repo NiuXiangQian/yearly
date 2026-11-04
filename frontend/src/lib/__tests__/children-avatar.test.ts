@@ -80,7 +80,7 @@ beforeEach(async () => {
   app = createApp(Children);
   app.mount(host);
   (
-    document.querySelector('[aria-label="编辑孩子档案"]') as HTMLButtonElement
+    document.querySelector('[aria-label="编辑人物档案"]') as HTMLButtonElement
   ).click();
   await nextTick();
 });
@@ -168,4 +168,34 @@ it("creates a pet without a birthday and preserves its species and breed", async
   );
   expect(put).not.toHaveBeenCalled();
   expect(family.load).toHaveBeenCalled();
+});
+it("creates a parent with a custom relationship and no required birthday", async () => {
+  button("取消").click();
+  await nextTick();
+  button("添加人物").click();
+  await nextTick();
+  for (const [placeholder, value] of [
+    ["人物的名字", "林先生"],
+    ["例如：爸爸、妈妈、爷爷、奶奶", "爸爸"],
+  ]) {
+    const input = document.querySelector(
+      `input[placeholder="${placeholder}"]`,
+    ) as HTMLInputElement;
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  document
+    .querySelector("form")!
+    .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/children",
+      expect.objectContaining({
+        profile_type: "person",
+        relationship: "爸爸",
+        name: "林先生",
+        birthday: null,
+      }),
+    ),
+  );
 });

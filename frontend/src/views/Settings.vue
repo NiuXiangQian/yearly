@@ -10,7 +10,7 @@ import {
   Archive,
   Settings,
   Trash2,
-  Baby,
+  Users,
   ArrowUpRight,
 } from "lucide-vue-next";
 import { api, post, del, notify, bytes } from "../lib/api";
@@ -115,7 +115,7 @@ async function changePassword() {
         }}
       </p>
       <RouterLink to="/children" class="setting-link"
-        ><Baby :size="17" /> {{ t("孩子与宠物") }}
+        ><Users :size="17" /> {{ t("人物与宠物") }}
         <ArrowUpRight :size="16" /></RouterLink
       ><RouterLink to="/trash" class="setting-link"
         ><Trash2 :size="17" /> {{ t("回收站") }}

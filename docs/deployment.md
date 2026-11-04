@@ -48,7 +48,7 @@ export PYTHONPATH="$PWD/backend"
 .venv/bin/python -m app.cli create-admin your-admin-name
 ```
 
-也可手动导入 `deploy/schema-mysql57.sql`，之后执行 `alembic -c backend/alembic.ini stamp 0009`。两个入口任选其一。已有库执行 `./scripts/manage.sh production migrate` 升级到 0009 后再启动新版后端。所有表为 InnoDB / utf8mb4，ID 使用 BIGINT，时间为 DATETIME(3)，坐标为 DECIMAL，原始元数据为 JSON。模型没有 MySQL 8 专属 SQL。
+也可手动导入 `deploy/schema-mysql57.sql`，之后执行 `alembic -c backend/alembic.ini stamp 0010`。两个入口任选其一。已有库执行 `./scripts/manage.sh production migrate` 升级到 0010 后再启动新版后端。所有表为 InnoDB / utf8mb4，ID 使用 BIGINT，时间为 DATETIME(3)，坐标为 DECIMAL，原始元数据为 JSON。模型没有 MySQL 8 专属 SQL。
 
 ## 3. 配置私有 OSS
 

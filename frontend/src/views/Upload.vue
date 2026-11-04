@@ -464,7 +464,7 @@ onBeforeUnmount(() => {
           {{ targetFolder.timeline_day }}
         </p>
         <div class="batch-children">
-          <span> {{ t("谁的故事") }} </span
+          <span> {{ t("里面都有谁（可多选）") }} </span
           ><ChildPicker
             :model-value="kids"
             :disabled="busy || parsing"
@@ -478,7 +478,7 @@ onBeforeUnmount(() => {
           <small class="muted">{{
             kids.length
               ? t("已自动应用到所选待上传文件")
-              : t("未关联孩子与宠物：仅出现在全部孩子与宠物中")
+              : t("未关联人物与宠物：仅出现在全部人物与宠物中")
           }}</small>
         </div>
       </section>
@@ -653,7 +653,7 @@ onBeforeUnmount(() => {
                         .filter((c) => item.child_ids.includes(c.id))
                         .map((c) => c.nickname || c.name)
                         .join("、")
-                    : t("家庭时光 · 未关联孩子与宠物")
+                    : t("家庭时光 · 未关联人物与宠物")
                 }}
               </p>
             </div>
@@ -848,8 +848,12 @@ onBeforeUnmount(() => {
           </div>
           <label class="checkbox-label"
             ><input type="checkbox" v-model="editingItem.time_unknown" />
-            {{ t("明确标记拍摄时间未知（保留原始解析结果）") }} </label
-          ><ChildPicker v-model="editingItem.child_ids" />
+            {{ t("明确标记拍摄时间未知（保留原始解析结果）") }}
+          </label>
+          <div class="field-group">
+            <span>{{ t("里面都有谁（可多选）") }}</span
+            ><ChildPicker v-model="editingItem.child_ids" />
+          </div>
           <div
             v-if="!editingItem.original.video && !editingItem.live"
             class="pair-row"

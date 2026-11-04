@@ -4,6 +4,14 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
+## People and pet category verification (2026-11-04)
+
+- All 60 frontend tests, type checking, the production build, and 28 relevant backend tests passed. Coverage includes relationships, optional birthdays, shared people/pet media and journals, bulk links, deduplication, deletion preserving other links, and new/legacy backups.
+- Browser checks used isolated fictional data for grandparent creation, relationship search, pet category filters, tagging people and pets together, preserving editor selections when adding a category, and Chinese/English layouts at 390px. High-resolution screenshots were saved.
+- Public shares omit relationships and private profiles; anonymous profile access remains denied. Tests used MySQL and mocked OSS, not real OSS or production acceptance.
+- Test MySQL is at `0010 (head)` and local services resumed. Production was neither migrated nor deployed.
+
+
 ## Pet profile verification (2026-11-04)
 
 - All 58 frontend tests, type checking, the production build, and 24 relevant backend tests passed. Coverage includes shared child/pet photos and journals, any/all deduplication, unknown birthdays, avatars, archiving, deletion preserving originals, and new/legacy backup restoration.

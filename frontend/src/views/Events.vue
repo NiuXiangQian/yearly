@@ -62,7 +62,7 @@ onMounted(() => load());
       class="compact-select"
     >
       <option value="any">{{ t("任意所选档案") }}</option>
-      <option value="all">{{ t("全部孩子与宠物") }}</option>
+      <option value="all">{{ t("全部人物与宠物") }}</option>
     </select>
   </div>
   <div v-if="events.length" class="events-grid">

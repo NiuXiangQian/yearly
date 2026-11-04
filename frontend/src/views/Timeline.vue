@@ -761,8 +761,11 @@ function saveStages() {
       <div>
         <span class="summary-icon sand"><Users :size="21" /></span
         ><span
-          ><b>{{ yearly.stats.children + (yearly.stats.pets || 0) }}</b
-          ><small> {{ t("一起长大的孩子与宠物") }} </small></span
+          ><b>{{
+            (yearly.stats.people ?? yearly.stats.children) +
+            (yearly.stats.pets || 0)
+          }}</b
+          ><small> {{ t("人物与宠物档案") }} </small></span
         >
       </div>
       <p>
@@ -965,7 +968,7 @@ function saveStages() {
           batchOpen = true;
         "
       >
-        {{ t("关联孩子与宠物") }}</button
+        {{ t("关联人物与宠物") }}</button
       ><button
         class="button small"
         :disabled="!selected.length"
@@ -1337,7 +1340,7 @@ function saveStages() {
             ? t('每一份回忆，都在好好收藏。')
             : yearly.selected.length && !q && !year && !day && !type
               ? t(
-                  '这个档案还没有关联影像。可在“全部孩子与宠物”中多选已有影像后关联，也可以直接上传。',
+                  '这个档案还没有关联影像。可在“全部人物与宠物”中多选已有影像后关联，也可以直接上传。',
                 )
               : q || yearly.selected.length || year || day || type
                 ? t('换个筛选条件，或为这个档案上传新的成长影像。')
@@ -1432,7 +1435,7 @@ function saveStages() {
         </div>
       </form></ElDialog
     >
-    <ElDialog v-model="batchOpen" :title="t('批量关联孩子与宠物')" width="540px"
+    <ElDialog v-model="batchOpen" :title="t('批量关联人物与宠物')" width="540px"
       ><p class="muted">
         {{ t("将调整已选") }} {{ selected.length }}
         {{ t("份回忆的关联，原文件保持独立保存。") }}
