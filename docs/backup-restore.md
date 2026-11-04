@@ -1,5 +1,7 @@
 # 可恢复备份与长期迁移
 
+**简体中文** | [English](en/backup-restore.md) · [返回首页](../README.md)
+
 ## 备份内容
 
 完整备份包含 MySQL 全库 dump、便携 manifest.json、原始 OSS 对象的逐文件副本及 SHA-256 / CRC64 清单。JSON / CSV 下载只是清单，完整原件需通过 CLI 备份。完整 MySQL dump 含账户密码哈希及会话，便携清单主动排除 sys_user、user_session、captcha、login_guard、upload_task。

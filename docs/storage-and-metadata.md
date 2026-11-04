@@ -1,5 +1,7 @@
 # OSS、原件与元数据
 
+**简体中文** | [English](en/storage-and-metadata.md) · [返回首页](../README.md)
+
 ## 数据流与完整性
 
 浏览器选择原件 → 范围读取元数据 → 4 MiB 分块计算 SHA-256 和 CRC64/XZ → 用户确认 → API 创建逻辑媒体 / 多孩子关联 / 任务 → API 签名每份分片 → 浏览器 PUT 到 OSS → API 从 OSS 获取权威分片清单并完成合并 → HEAD 验证大小与 CRC64 → 全部逻辑资源完成才发布媒体。

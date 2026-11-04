@@ -1,5 +1,7 @@
 # 部署到已有 MySQL 与 Nginx
 
+**简体中文** | [English](en/deployment.md) · [返回首页](../README.md)
+
 ## 环境选择
 
 本地测试使用 `.env.test`、`yearly_test` 与测试数据库账号，启动命令为 `scripts/start-local.sh`。正式部署使用 `.env.production`、`yearly` 与正式数据库账号。两套配置均使用 MySQL，页面和健康检查显示当前环境。以下步骤针对正式环境，首次数据库初始化完成后可跳过建库与建表步骤。
