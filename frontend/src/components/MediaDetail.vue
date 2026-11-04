@@ -49,6 +49,7 @@ async function save() {
     await put(`/media/${props.id}`, {
       time_unknown: form.value.time_unknown,
       title: form.value.title,
+      share_allowed: form.value.share_allowed,
       batch_name: form.value.batch_name,
       timeline_date: form.value.timeline_date || null,
       remark: form.value.remark,
@@ -123,6 +124,16 @@ async function trash() {
           >
         </div>
         <form @submit.prevent="save">
+          <label class="checkbox-label"
+            ><input
+              v-model="form.share_allowed"
+              type="checkbox"
+              :disabled="!yearly.canEdit"
+            />{{ t("允许分享") }}</label
+          >
+          <p class="muted">
+            {{ t("关闭后，此文件不会出现在任何分享链接中。") }}
+          </p>
           <div class="form-row">
             <label>
               {{ t("批次名称") }}

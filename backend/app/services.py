@@ -149,7 +149,10 @@ def save_event(db, event, payload):
     if found != ids:
         raise HTTPException(422, "事件包含不可用媒体")
     validate_children(db, payload.child_ids)
-    for key, value in payload.model_dump(exclude={"child_ids", "media_ids"}).items():
+    excluded = {"child_ids", "media_ids"} | (
+        {"share_allowed"} - payload.model_fields_set
+    )
+    for key, value in payload.model_dump(exclude=excluded).items():
         setattr(event, key, value)
     db.add(event)
     db.flush()

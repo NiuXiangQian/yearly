@@ -27,7 +27,7 @@ import {
   Pencil,
   Folder,
 } from "lucide-vue-next";
-import { api, post, notify, localDate } from "../lib/api";
+import { api, post, put, notify, localDate } from "../lib/api";
 import { useYearly } from "../stores/yearly";
 import ChildPicker from "../components/ChildPicker.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -41,6 +41,22 @@ const yearly = useYearly(),
   route = useRoute(),
   router = useRouter();
 const shareOpen = ref(false);
+const daySharing = ref<Record<string, boolean>>({});
+const savingDaySharing = ref("");
+async function saveDaySharing(date: string, event: Event) {
+  const previous = daySharing.value[date] !== false;
+  const allowed = (event.target as HTMLInputElement).checked;
+  daySharing.value[date] = allowed;
+  savingDaySharing.value = date;
+  try {
+    await put(`/timeline/days/${date}/sharing`, { share_allowed: allowed });
+  } catch (e) {
+    daySharing.value[date] = previous;
+    notify(e);
+  } finally {
+    savingDaySharing.value = "";
+  }
+}
 const expandedDays = ref<Record<string, boolean>>({});
 const mobile = ref(window.matchMedia("(max-width: 700px)").matches);
 const mobileQuery = window.matchMedia("(max-width: 700px)");
@@ -287,6 +303,7 @@ async function load(reset = true, preserveLoaded = false) {
       params.set("page", "1");
       result = await api("/timeline?" + params);
       if (ticket !== generation) return;
+      Object.assign(daySharing.value, result.day_sharing || {});
       loaded.push(...result.items);
       cursor = result.next_cursor;
     } while (cursor && loaded.length < targetCount);
@@ -982,6 +999,17 @@ function saveStages() {
           <span>{{ group.media.length }} {{ t("条记录") }} </span>
           <div class="date-rule"></div>
           <div v-if="yearly.canEdit && !trash" class="day-actions">
+            <label
+              v-if="group.date !== 'unknown' && view === 'calendar'"
+              class="checkbox-label day-share-option"
+              :title="t('关闭后，这一天的全部内容不会出现在任何分享链接中。')"
+              ><input
+                type="checkbox"
+                :checked="daySharing[group.date] !== false"
+                :disabled="!!savingDaySharing"
+                @change="saveDaySharing(group.date, $event)"
+              />{{ t("允许分享当天") }}</label
+            >
             <button
               v-if="group.date !== 'unknown'"
               class="button small"
@@ -1581,6 +1609,17 @@ function saveStages() {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.day-actions {
+  flex-wrap: wrap;
+}
+.day-share-option {
+  margin: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.day-share-option input {
+  width: 16px;
 }
 .day-actions .text-button {
   display: inline-flex;

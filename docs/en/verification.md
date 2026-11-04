@@ -6,10 +6,10 @@ This document records only publicly shareable functional verification. It contai
 
 ## Timeline-sharing verification (2026-11-04)
 
-- Frontend: 46 Vitest tests passed, including expansion, collapse, expiration cleanup, and unavailable-share rendering.
-- Backend: 38 relevant tests passed across sharing, folders, organization, backup schema, and security. The final sharing-only run passed 13 tests.
-- Type checking and production build passed. Test MySQL reports migration `0007 (head)`; production was not migrated or deployed in this task.
-- Browser checks covered 390px reading, eight entries per day, folders, image zoom, creation and exclusion payloads, revocation, and English switching.
+- Frontend: 47 Vitest tests passed, including date-and-duration-only creation without loading file lists, expansion, collapse, and expiration cleanup.
+- Backend: 35 relevant tests passed across persistent content permissions, existing-link enforcement, folders, organization, and backup restoration. Editing unrelated fields does not reset sharing permission.
+- Type checking and production build passed. Test MySQL reports migration `0008 (head)`; production was not migrated or deployed in this task.
+- Browser checks covered permission saving in file and folder editors, the day permission toggle, and the simplified date-only sharing dialog. The reading page remains unchanged.
 
 Screenshots use a separate virtual API with no family MySQL or OSS connection. API tests use test MySQL with mocked OSS signing. No links were sent to real recipients; this is not production or external-network acceptance evidence.
 

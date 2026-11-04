@@ -37,7 +37,8 @@ const folder = ref<any>(),
   detail = ref<number | null>(null),
   moving = ref(false),
   renaming = ref(false),
-  name = ref("");
+  name = ref(""),
+  shareAllowed = ref(true);
 const draggedMediaIds = computed(() =>
   dragged.value === null
     ? []
@@ -132,7 +133,10 @@ function toggle(m: any) {
 async function rename() {
   busy.value = true;
   try {
-    await put(`/folders/${props.id}`, { name: name.value.trim() });
+    await put(`/folders/${props.id}`, {
+      name: name.value.trim(),
+      share_allowed: shareAllowed.value,
+    });
     renaming.value = false;
     await load();
     emit("changed");
@@ -230,9 +234,10 @@ async function changed() {
           @click="
             renaming = true;
             name = folder.name;
+            shareAllowed = folder.share_allowed;
           "
         >
-          <Pencil :size="14" /> {{ t("重命名") }}</button
+          <Pencil :size="14" /> {{ t("编辑文件夹") }}</button
         ><button class="text-button" @click="sorting = !sorting">
           <GripVertical :size="14" />{{
             sorting ? t("完成排序") : t("排序")
@@ -381,16 +386,24 @@ async function changed() {
     />
     <ElDialog
       v-model="renaming"
-      :title="t('重命名文件夹')"
+      :title="t('编辑文件夹')"
       width="440px"
       append-to-body
       ><form @submit.prevent="rename">
         <label>
           {{ t("文件夹名称") }} <input v-model="name" maxlength="255"
         /></label>
+        <label class="checkbox-label"
+          ><input v-model="shareAllowed" type="checkbox" />{{
+            t("允许分享")
+          }}</label
+        >
+        <p class="muted">
+          {{ t("关闭后，此文件夹及其内容不会出现在任何分享链接中。") }}
+        </p>
         <div class="dialog-actions">
           <button class="button primary" :disabled="busy || !name.trim()">
-            {{ t("保存名称") }}
+            {{ t("保存设置") }}
           </button>
         </div>
       </form></ElDialog

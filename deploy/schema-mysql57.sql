@@ -300,10 +300,17 @@ CREATE TABLE timeline_share (
   title VARCHAR(120) NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
-  exclusions JSON NOT NULL,
   expires_at DATETIME(3) NOT NULL,
   revoked BOOLEAN NOT NULL,
   created_at DATETIME(3) NOT NULL,
   INDEX ix_timeline_share_created_by (created_by),
   FOREIGN KEY (created_by) REFERENCES sys_user (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE media ADD COLUMN share_allowed BOOLEAN NOT NULL DEFAULT 1;
+ALTER TABLE timeline_folder ADD COLUMN share_allowed BOOLEAN NOT NULL DEFAULT 1;
+ALTER TABLE timeline_event ADD COLUMN share_allowed BOOLEAN NOT NULL DEFAULT 1;
+CREATE TABLE timeline_day (
+  timeline_date DATE NOT NULL PRIMARY KEY,
+  share_allowed BOOLEAN NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

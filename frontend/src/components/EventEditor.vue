@@ -57,6 +57,7 @@ watch(
           .sort();
         form.value = {
           title: "",
+          share_allowed: true,
           content: "",
           child_ids: [...yearly.selected],
           media_ids: [...(props.mediaIds || [])],
@@ -79,6 +80,7 @@ async function save() {
   try {
     const data = {
       title: form.value.title,
+      share_allowed: form.value.share_allowed,
       content: form.value.content,
       start_at: form.value.start_at || null,
       end_at: form.value.end_at || null,
@@ -160,6 +162,14 @@ async function trash() {
             :disabled="!yearly.canEdit"
         /></label>
       </div>
+      <label class="checkbox-label"
+        ><input
+          v-model="form.share_allowed"
+          type="checkbox"
+          :disabled="!yearly.canEdit"
+        />{{ t("允许分享") }}</label
+      >
+      <p class="muted">{{ t("关闭后，此日记不会出现在任何分享链接中。") }}</p>
       <div class="field-group">
         <span> {{ t("一起经历的孩子") }} </span
         ><ChildPicker v-model="form.child_ids" :disabled="!yearly.canEdit" />

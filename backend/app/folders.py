@@ -22,6 +22,10 @@ class FolderName(BaseModel):
         return value.strip()
 
 
+class FolderEdit(FolderName):
+    share_allowed: bool = True
+
+
 class FolderCreate(FolderName):
     timeline_date: date
 
@@ -47,6 +51,7 @@ def folder_data(folder, count=0):
     return {
         "id": folder.id,
         "name": folder.name,
+        "share_allowed": folder.share_allowed,
         "timeline_day": folder.timeline_date,
         "sort_order": folder.sort_order,
         "media_count": count,
@@ -113,9 +118,11 @@ def folder_detail(fid: int, db=Depends(get_db), user=Depends(current_user)):
 
 
 @router.put("/{fid}")
-def rename_folder(fid: int, data: FolderName, db=Depends(get_db), user=Depends(editor)):
+def rename_folder(fid: int, data: FolderEdit, db=Depends(get_db), user=Depends(editor)):
     folder = active_folder(db, fid)
     folder.name = data.name
+    if "share_allowed" in data.model_fields_set:
+        folder.share_allowed = data.share_allowed
     db.commit()
     return folder_data(folder)
 
@@ -168,9 +175,7 @@ def reorder_day_entries(db, moving_keys, target_key, placement):
         or target_key in moving
         or any(key not in entries for key in moving)
     ):
-        raise HTTPException(
-            422, "只能调整同一天根目录的文件夹和影像，放置位置不能是已选项目"
-        )
+        raise HTTPException(422, "只能调整同一天根目录的文件夹和影像，放置位置不能是已选项目")
     ordered = sorted(
         entries,
         key=lambda key: (

@@ -2,28 +2,38 @@
 
 [简体中文](../sharing.md) | **English** · [Home](../../README.en.md)
 
-Click **Share timeline** at the top of the timeline. Admins and members can create links; viewers cannot create or revoke them.
+Set **Allow sharing** during normal content editing. Creating a link only requires a timeline date range and a lifetime.
 
-1. Optionally enter a title and choose an inclusive start and end date. Sharing follows archive dates, independently of capture dates.
-2. Choose **1–168 hours (up to 7 days)**, measured from successful creation.
-3. Click **Review content in range** and select entire days, folders, individual files, or diaries to exclude. Expand a folder to exclude individual files. Excluding a day or folder hides everything inside it.
-4. Create and copy the link, or preview it first. Save the full link before closing the dialog; it is only returned on creation.
-5. Revoke links early under **Manage recent shares**. Members manage their own links; admins manage all links. The list shows the most recent 100.
+- **File:** open its details, change **Allow sharing** in the existing edit form, and save.
+- **Folder:** open it, choose **Edit folder**, change **Allow sharing**, and save. Disabling a folder hides all its contents too.
+- **Timeline day:** toggle **Allow sharing this day** in the date action bar. It saves immediately and controls all files, folders, and diaries on that day.
+- **Diary:** change **Allow sharing** in its editor and save.
 
-Each link stores its own range and exclusions. It includes all children in those dates and does not inherit the main timeline's child, search, or media-type filters. Shares update with the timeline: new content in range appears unless excluded. To change a published link's scope, revoke it and create a new one.
+Sharing is allowed by default. These persistent settings apply to **all existing and new links**. A file is hidden if its parent folder or day disallows sharing, even when the file itself allows it. Enabling this option does not publish a link. Normal family browsing, editing, and original downloads remain available.
+
+Click **Share timeline**:
+
+1. Choose inclusive start and end archive dates. Main-page child, search, and media-type filters do not scope the share.
+2. Choose **1–168 hours (up to 7 days)** from successful creation.
+3. Create, copy, or preview the link. There is no file picker: the server automatically filters content using its saved permissions. Save the full link before closing the dialog.
+4. Revoke links under **Manage recent shares**. Members manage their own links; admins manage all links. The list shows the latest 100. Viewers cannot create or modify sharing settings.
+
+Shares update with the timeline and saved permissions, including new content allowed for sharing. To change a link's date range, revoke it and create a new link.
 
 Recipients need no account and read a separate, read-only timeline. Each day initially shows eight entries, with more available on demand. Folders and media retain their mixed order. Readers can open folders and diaries, zoom images, and play compressed videos and Live Photos. Undated files are outside date-range shares. The signed-in mobile timeline also folds entries beyond eight per day; selection and sorting modes show all entries for editing.
 
 ## Preview
 
-This 2× lossless PNG shows the Chinese read-only view with fictional data only. The interface also supports English.
+These 2× lossless PNGs use fictional data only. The creation dialog only asks for dates and lifetime; file permissions belong in their editors. The interface also supports English.
+
+![Fictional example: date-only sharing dialog](../images/demo-share-create.png)
 
 ![Fictional example: read-only shared timeline](../images/demo-share.png)
 
 ## Privacy and bandwidth
 
 - Anyone with a link can read it. Share only with trusted recipients. This does not prevent screenshots or saving visible content.
-- Public lists, folder thumbnails, counts, and media URLs enforce scope, exclusions, expiry, revocation, and creator permissions on the server.
+- Public lists, folder thumbnails, counts, and media URLs enforce scope, content permissions, expiry, revocation, and creator permissions on the server.
 - Only compressed thumbnails and previews are served. There is no original-download entry point. Unavailable video previews ask readers to retry; they never fall back to originals.
 - Regular list payloads omit accounts, child profiles, original filenames, GPS, EXIF, and storage details. OSS previews use short-lived signed URLs; recipients can see the domain and object path, with the signature limited to that preview.
 - **Custom titles and diary text are shared content.** Review private writing before sharing. Diaries do not expose original media associations or covers that could reveal excluded files.
@@ -33,7 +43,7 @@ This 2× lossless PNG shows the Chinese read-only view with fictional data only.
 
 ## Migration
 
-Alembic revision `0007` creates `timeline_share`; manual initialization SQL is also updated. Migrate test and production separately:
+Alembic revision `0008` adds `share_allowed` to media, folders, and diaries, and stores day permissions in `timeline_day`. It removes per-link file selections and revokes old links with nonempty exclusions so their scope cannot silently expand. Portable backups retain these permissions and remain compatible with older backups. Manual initialization SQL is updated too. Migrate test and production separately:
 
 ```bash
 ./scripts/manage.sh test migrate

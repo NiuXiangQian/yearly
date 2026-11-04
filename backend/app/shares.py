@@ -2,35 +2,35 @@
 import hashlib
 import secrets
 from datetime import date, timedelta
-from typing import Annotated, Literal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, func, literal, union_all, or_
 
 from .db import get_db, now
-from .models import TimelineShare, Media, TimelineFolder, Event, User, VideoPreview
+from .models import (
+    TimelineShare,
+    Media,
+    TimelineFolder,
+    Event,
+    User,
+    VideoPreview,
+    TimelineDay,
+)
 from .security import editor
 from .services import timeline_time
 from .storage import get_storage
 
 router = APIRouter(prefix="/api", tags=["sharing"])
-PositiveId = Annotated[int, Field(gt=0)]
-
-
-class Exclusions(BaseModel):
-    days: list[date] = Field(default_factory=list, max_length=10000)
-    folders: list[PositiveId] = Field(default_factory=list, max_length=10000)
-    media: list[PositiveId] = Field(default_factory=list, max_length=10000)
-    events: list[PositiveId] = Field(default_factory=list, max_length=10000)
 
 
 class ShareCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(default="", max_length=120)
     start_date: date
     end_date: date
     hours: int = Field(default=24, ge=1, le=168)
-    exclusions: Exclusions = Field(default_factory=Exclusions)
 
     @model_validator(mode="after")
     def date_order(self):
@@ -60,7 +60,6 @@ def create_share(data: ShareCreate, db=Depends(get_db), user=Depends(editor)):
         title=data.title.strip(),
         start_date=data.start_date,
         end_date=data.end_date,
-        exclusions=data.exclusions.model_dump(mode="json"),
         expires_at=now() + timedelta(hours=data.hours),
     )
     db.add(share)
@@ -105,28 +104,47 @@ def public_share(token: str, response: Response, db=Depends(get_db)):
     return share
 
 
+class DaySharing(BaseModel):
+    share_allowed: bool
+
+
+@router.put("/timeline/days/{day}/sharing")
+def update_day_sharing(
+    day: date, data: DaySharing, db=Depends(get_db), user=Depends(editor)
+):
+    preference = db.get(TimelineDay, day)
+    if preference is None:
+        preference = TimelineDay(timeline_date=day)
+        db.add(preference)
+    preference.share_allowed = data.share_allowed
+    db.commit()
+    return {"day": day, "share_allowed": preference.share_allowed}
+
+
 def shared_queries(share):
     """Apply the same scope to listing, folder previews and direct media access."""
-    excluded = share.exclusions
+    blocked_days = select(TimelineDay.timeline_date).where(
+        TimelineDay.share_allowed.is_(False)
+    )
     day = func.date(timeline_time())
 
     def in_range(column):
         return (
             column >= share.start_date,
             column <= share.end_date,
-            column.not_in(excluded["days"]),
+            column.not_in(blocked_days),
         )
 
     folders = select(TimelineFolder).where(
         TimelineFolder.status == "active",
         *in_range(TimelineFolder.timeline_date),
-        TimelineFolder.id.not_in(excluded["folders"]),
+        TimelineFolder.share_allowed.is_(True),
     )
     media = select(Media).where(
         Media.status == "active",
         Media.purpose == "memory",
         *in_range(day),
-        Media.id.not_in(excluded["media"]),
+        Media.share_allowed.is_(True),
         or_(
             Media.folder_id.is_(None),
             Media.folder_id.in_(folders.with_only_columns(TimelineFolder.id)),
@@ -135,7 +153,7 @@ def shared_queries(share):
     events = select(Event).where(
         Event.status == "active",
         *in_range(func.date(Event.start_at)),
-        Event.id.not_in(excluded["events"]),
+        Event.share_allowed.is_(True),
     )
     return media, folders, events
 

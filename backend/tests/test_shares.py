@@ -68,7 +68,7 @@ def test_duration_boundaries_and_token_not_exported(context, hours):
     )
 
 
-def test_scope_exclusions_and_direct_access(context):
+def test_content_permissions_and_direct_access(context):
     visible = upload(context)["media_id"]
     blocked = upload(context)["media_id"]
     outside = upload(context, taken="2024-04-03T12:00:00")["media_id"]
@@ -83,10 +83,25 @@ def test_scope_exclusions_and_direct_access(context):
     with context.db() as db:
         db.get(Media, avatar).purpose = "avatar"
         db.commit()
-    data = share(
-        context,
-        exclusions={"days": ["2024-04-01"], "media": [blocked], "folders": [f["id"]]},
+    assert (
+        context.client.put(
+            f"/api/media/{blocked}", json={"share_allowed": False}
+        ).status_code
+        == 200
     )
+    assert (
+        context.client.put(
+            f"/api/folders/{f['id']}", json={"name": f["name"], "share_allowed": False}
+        ).status_code
+        == 200
+    )
+    assert (
+        context.client.put(
+            "/api/timeline/days/2024-04-01/sharing", json={"share_allowed": False}
+        ).status_code
+        == 200
+    )
+    data = share(context)
     base = public(context, data)
     response = context.client.get(base)
     assert response.status_code == 200
@@ -136,7 +151,14 @@ def test_folder_previews_counts_paging_and_event_cover_exclusion(context):
         },
     )
     assert event.status_code == 200, event.text
-    data = share(context, exclusions={"media": ids[:2]})
+    for mid in ids[:2]:
+        assert (
+            context.client.put(
+                f"/api/media/{mid}", json={"share_allowed": False}
+            ).status_code
+            == 200
+        )
+    data = share(context)
     base = public(context, data)
     items = context.client.get(base).json()["days"][0]["items"]
     folder_item = next(m for m in items if m["kind"] == "folder")
@@ -268,12 +290,18 @@ def test_day_pagination_and_diary_exclusion(context):
             )
         db.commit()
         hidden = db.scalar(select(Event.id).where(Event.title == "Day 5"))
-    data = share(
-        context,
-        start_date="2024-04-01",
-        end_date="2024-04-09",
-        exclusions={"events": [hidden]},
+    assert (
+        context.client.put(
+            f"/api/events/{hidden}",
+            json={
+                "title": "Day 5",
+                "start_at": "2024-04-05T00:00:00",
+                "share_allowed": False,
+            },
+        ).status_code
+        == 200
     )
+    data = share(context, start_date="2024-04-01", end_date="2024-04-09")
     base = public(context, data)
     first = context.client.get(base).json()
     assert len(first["days"]) == 7
@@ -283,3 +311,119 @@ def test_day_pagination_and_diary_exclusion(context):
     assert [d["day"] for d in second["days"]] == ["2024-04-01"]
     assert second["next_before"] is None
     assert context.client.get(base + "/days/2024-04-05").json()["items"] == []
+
+
+def test_permissions_apply_to_existing_links_and_survive_other_edits(context):
+    mid = upload(context)["media_id"]
+    f = folder(context)
+    context.client.post(
+        "/api/folders/move-media", json={"folder_id": f["id"], "media_ids": [mid]}
+    )
+    links = [share(context), share(context)]
+    bases = ["/api/public/shares/" + item["token"] for item in links]
+    for base in bases:
+        assert context.client.get(f"{base}/media/{mid}/url").status_code == 200
+    result = context.client.put(f"/api/media/{mid}", json={"share_allowed": False})
+    assert result.status_code == 200 and result.json()["share_allowed"] is False
+    # Editing another field with an older client must not re-enable sharing.
+    assert (
+        context.client.put(f"/api/media/{mid}", json={"title": "Still private"}).json()[
+            "share_allowed"
+        ]
+        is False
+    )
+    for base in bases:
+        assert context.client.get(f"{base}/media/{mid}/url").status_code == 404
+        data = context.client.get(f'{base}/folders/{f["id"]}').json()
+        assert data["total"] == 0 and data["items"] == []
+    assert context.client.get(f"/api/media/{mid}").status_code == 200
+    context.client.put(f"/api/media/{mid}", json={"share_allowed": True})
+    context.client.put(
+        f'/api/folders/{f["id"]}', json={"name": f["name"], "share_allowed": False}
+    )
+    assert (
+        context.client.put(f'/api/folders/{f["id"]}', json={"name": "New name"}).json()[
+            "share_allowed"
+        ]
+        is False
+    )
+    for base in bases:
+        assert context.client.get(f"{base}/media/{mid}/url").status_code == 404
+        assert context.client.get(f'{base}/folders/{f["id"]}').status_code == 404
+    context.client.put(
+        f'/api/folders/{f["id"]}', json={"name": f["name"], "share_allowed": True}
+    )
+    context.client.put(
+        "/api/timeline/days/2024-03-31/sharing", json={"share_allowed": False}
+    )
+    assert context.client.get("/api/timeline").json()["day_sharing"] == {
+        "2024-03-31": False
+    }
+    for base in bases:
+        assert context.client.get(base).json()["days"] == []
+        assert context.client.get(f"{base}/media/{mid}/url").status_code == 404
+    context.client.put(
+        "/api/timeline/days/2024-03-31/sharing", json={"share_allowed": True}
+    )
+    for base in bases:
+        assert context.client.get(f"{base}/media/{mid}/url").status_code == 200
+
+
+def test_day_permissions_and_removed_selection_contract(context):
+    client = context.client
+    assert (
+        client.post(
+            "/api/shares",
+            json={
+                "start_date": "2024-03-31",
+                "end_date": "2024-04-02",
+                "exclusions": {"media": [1]},
+            },
+        ).status_code
+        == 422
+    )
+    client.cookies.set("yearly_session", "viewer")
+    client.headers["X-CSRF-Token"] = "csrf-viewer"
+    assert (
+        client.put(
+            "/api/timeline/days/2024-03-31/sharing", json={"share_allowed": False}
+        ).status_code
+        == 403
+    )
+    client.cookies.clear()
+    assert (
+        client.put(
+            "/api/timeline/days/2024-03-31/sharing", json={"share_allowed": False}
+        ).status_code
+        == 401
+    )
+
+
+def test_backup_preserves_content_and_day_sharing_permissions(context):
+    import json
+    from sqlalchemy import delete
+    from app.backup import TABLES, restore_manifest
+    from app.models import UploadTask
+
+    mid = upload(context)["media_id"]
+    context.client.put(f"/api/media/{mid}", json={"share_allowed": False})
+    context.client.put(
+        "/api/timeline/days/2024-03-31/sharing", json={"share_allowed": False}
+    )
+    document = context.client.get("/api/export/manifest").json()
+    assert document["tables"]["media"][0]["share_allowed"] is False
+    assert document["tables"]["timeline_day"] == [
+        {"timeline_date": "2024-03-31", "share_allowed": False}
+    ]
+    target = context.tmp_path / "sharing-backup.json"
+    target.write_text(json.dumps(document))
+    with context.db() as db:
+        db.execute(delete(UploadTask))
+        for model in reversed(TABLES):
+            db.execute(delete(model))
+        db.commit()
+    restore_manifest(target, 1)
+    assert context.client.get(f"/api/media/{mid}").json()["share_allowed"] is False
+    assert (
+        context.client.get("/api/timeline").json()["day_sharing"]["2024-03-31"] is False
+    )

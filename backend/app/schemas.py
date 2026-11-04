@@ -24,6 +24,7 @@ class ChildIn(BaseModel):
 
 
 class MediaEdit(BaseModel):
+    share_allowed: bool = True
     batch_name: str = Field(default="", max_length=255)
     timeline_date: date | None = None
     time_unknown: bool = False
@@ -106,9 +107,7 @@ class UploadIn(BaseModel):
             or self.child_ids
             or self.folder_id
         ):
-            raise ValueError(
-                "独立头像需为 1 MiB 以内的 JPG、PNG 或 WebP 图片，不能归入时间线或文件夹"
-            )
+            raise ValueError("独立头像需为 1 MiB 以内的 JPG、PNG 或 WebP 图片，不能归入时间线或文件夹")
         roles = [f.file_role for f in self.files]
         if roles.count("original") != 1 or len(roles) != len(set(roles)):
             raise ValueError("每个逻辑媒体必须有且只有一份静态或视频原件")
@@ -128,6 +127,7 @@ class UploadIn(BaseModel):
 
 
 class EventIn(BaseModel):
+    share_allowed: bool = True
     title: str = Field(min_length=1, max_length=255)
     content: str = Field(default="", max_length=50000)
     start_at: datetime | None = None

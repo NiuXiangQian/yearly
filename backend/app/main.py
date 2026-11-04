@@ -24,6 +24,7 @@ from .models import (
     Media,
     MediaFile,
     TimelineFolder,
+    TimelineDay,
     VideoPreview,
     MediaChild,
     Event,
@@ -127,9 +128,7 @@ def oss_error(request, exc):
         type(exc).__name__,
         getattr(exc, "status", None),
     )
-    return JSONResponse(
-        {"detail": "OSS 请求失败，请检查配置或稍后重试"}, status_code=502
-    )
+    return JSONResponse({"detail": "OSS 请求失败，请检查配置或稍后重试"}, status_code=502)
 
 
 @app.exception_handler(IntegrityError)
@@ -429,7 +428,9 @@ def edit_media(mid: int, data: MediaEdit, db=Depends(get_db), user=Depends(edito
         media.taken_at_local.date() if media.taken_at_local else None
     )
     set_children(db, mid, data.child_ids, MediaChild)
-    excluded = {"child_ids"} | ({"batch_name", "timeline_date"} - data.model_fields_set)
+    excluded = {"child_ids"} | (
+        {"batch_name", "timeline_date", "share_allowed"} - data.model_fields_set
+    )
     for key, value in data.model_dump(exclude=excluded).items():
         setattr(media, key, value)
     apply_time(media)
@@ -1017,4 +1018,14 @@ def timeline(
         "page": page,
         "page_size": page_size,
         "next_cursor": next_cursor,
+        "day_sharing": {
+            row.timeline_date.isoformat(): row.share_allowed
+            for row in db.scalars(
+                select(TimelineDay).where(
+                    TimelineDay.timeline_date.in_(
+                        [item["timeline_day"] for item in items if item["timeline_day"]]
+                    )
+                )
+            )
+        },
     }

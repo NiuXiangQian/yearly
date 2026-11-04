@@ -21,12 +21,14 @@ from .models import (
     EventMedia,
     EventChild,
     TimelineFolder,
+    TimelineDay,
 )
 
 # Share links, upload authorizations, sessions, captcha and password hashes never enter portable exports.
 TABLES = [
     Child,
     TimelineFolder,
+    TimelineDay,
     Media,
     MediaFile,
     MediaMetadata,
@@ -164,7 +166,7 @@ def restore_manifest(path, owner_id, storage=None, object_directory=None):
             if prefix == "tables" and event == "map_key"
         }
     expected = {m.__tablename__ for m in TABLES}
-    if names not in (expected, expected - {"timeline_folder"}):
+    if not expected - {"timeline_folder", "timeline_day"} <= names <= expected:
         raise ValueError("清单表不完整")
     from sqlalchemy import Date, DateTime, Time
 
@@ -193,9 +195,7 @@ def restore_manifest(path, owner_id, storage=None, object_directory=None):
                     or source.stat().st_size != row["file_size"]
                     or hash_file(source) != row["sha256"]
                 ):
-                    raise ValueError(
-                        f"备份原件缺失或 SHA-256 不一致 file_id={row['id']}"
-                    )
+                    raise ValueError(f"备份原件缺失或 SHA-256 不一致 file_id={row['id']}")
                 file = MediaFile(**row)
                 file.oss_bucket = storage.bucket.bucket_name
                 import oss2

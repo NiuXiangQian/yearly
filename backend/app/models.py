@@ -77,6 +77,9 @@ class MediaChild(Base):
 
 
 class TimelineFolder(Base, Timestamp):
+    share_allowed: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1"
+    )
     __tablename__ = "timeline_folder"
     id: Mapped[int] = mapped_column(ID, primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
@@ -86,6 +89,9 @@ class TimelineFolder(Base, Timestamp):
 
 
 class Media(Base, Timestamp):
+    share_allowed: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1"
+    )
     __tablename__ = "media"
     __table_args__ = (Index("ix_media_status_taken", "status", "taken_at_local", "id"),)
     id: Mapped[int] = mapped_column(ID, primary_key=True)
@@ -172,6 +178,9 @@ class MediaMetadata(Base):
 
 
 class Event(Base, Timestamp):
+    share_allowed: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1"
+    )
     __tablename__ = "timeline_event"
     id: Mapped[int] = mapped_column(ID, primary_key=True)
     title: Mapped[str] = mapped_column(String(255))
@@ -230,6 +239,14 @@ class Captcha(Base):
     expires_at: Mapped[datetime] = mapped_column(DT, index=True)
 
 
+class TimelineDay(Base):
+    __tablename__ = "timeline_day"
+    timeline_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    share_allowed: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1"
+    )
+
+
 class TimelineShare(Base):
     __tablename__ = "timeline_share"
     id: Mapped[int] = mapped_column(ID, primary_key=True)
@@ -238,7 +255,6 @@ class TimelineShare(Base):
     title: Mapped[str] = mapped_column(String(120))
     start_date: Mapped[date] = mapped_column(Date)
     end_date: Mapped[date] = mapped_column(Date)
-    exclusions: Mapped[dict] = mapped_column(JSON)
     expires_at: Mapped[datetime] = mapped_column(DT)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DT, default=now)
