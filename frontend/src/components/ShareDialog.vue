@@ -7,6 +7,28 @@ import { t, locale } from "../lib/i18n";
 import DateField from "./DateField.vue";
 const props = defineProps<{ open: boolean; initialDate?: string }>();
 const emit = defineEmits(["close"]);
+const startMode = ref("earliest"),
+  earliest = ref("");
+function dateString(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function chooseStart() {
+  if (startMode.value === "custom") return;
+  if (startMode.value === "earliest") {
+    start.value = earliest.value;
+    return;
+  }
+  const today = new Date();
+  const months = startMode.value === "year" ? 12 : 6;
+  const date = new Date(today.getFullYear(), today.getMonth() - months, 1);
+  date.setDate(
+    Math.min(
+      today.getDate(),
+      new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate(),
+    ),
+  );
+  start.value = dateString(date);
+}
 const start = ref(""),
   end = ref(""),
   hours = ref(24);
@@ -29,11 +51,19 @@ watch(
       link.value = "";
       return;
     }
-    if (!start.value) start.value = props.initialDate || "";
-    if (!end.value)
-      end.value = props.initialDate || new Date().toLocaleDateString("en-CA");
+    if (!start.value && props.initialDate) {
+      startMode.value = "custom";
+      start.value = props.initialDate;
+    }
+    if (!end.value) end.value = props.initialDate || dateString(new Date());
     try {
-      history.value = await api("/shares");
+      const [links, bounds] = await Promise.all([
+        api("/shares"),
+        api("/shares/bounds"),
+      ]);
+      history.value = links;
+      earliest.value = bounds.earliest || "";
+      chooseStart();
     } catch (e) {
       notify(e);
     }
@@ -85,11 +115,40 @@ async function revoke(item: any) {
   >
     <p class="muted">{{ t("选择时间线范围，自动分享其中允许分享的内容。") }}</p>
     <form @submit.prevent="create">
+      <label
+        >{{ t("开始时间")
+        }}<select
+          v-model="startMode"
+          @change="chooseStart"
+          :aria-label="t('开始时间快捷选择')"
+        >
+          <option value="earliest">{{ t("最早") }}</option>
+          <option value="year">{{ t("一年前") }}</option>
+          <option value="halfYear">{{ t("六个月前") }}</option>
+          <option value="custom">{{ t("自选日期") }}</option>
+        </select></label
+      >
+      <p v-if="startMode === 'earliest' && !earliest" class="muted">
+        {{ t("暂无有日期且允许分享的内容，可选择自选日期。") }}
+      </p>
       <div class="share-fields">
-        <label>{{ t("开始日期") }}<DateField v-model="start" required /></label>
         <label
-          >{{ t("结束日期（含当天）") }}<DateField v-model="end" required
+          >{{ t("开始日期")
+          }}<DateField
+            v-model="start"
+            required
+            :disabled="startMode !== 'custom'"
         /></label>
+        <label
+          >{{ t("结束日期（含当天）")
+          }}<DateField v-model="end" required /><button
+            type="button"
+            class="text-button"
+            @click="end = dateString(new Date())"
+          >
+            {{ t("今天") }}
+          </button></label
+        >
       </div>
       <label
         >{{ t("有效时长（小时）")

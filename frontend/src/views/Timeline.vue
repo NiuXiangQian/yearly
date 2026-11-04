@@ -41,6 +41,12 @@ const yearly = useYearly(),
   route = useRoute(),
   router = useRouter();
 const shareOpen = ref(false);
+const timelineOrder = ref(
+  localStorage.getItem("yearly-timeline-order") === "asc" ? "asc" : "desc",
+);
+watch(timelineOrder, (value) =>
+  localStorage.setItem("yearly-timeline-order", value),
+);
 const daySharing = ref<Record<string, boolean>>({});
 const savingDaySharing = ref("");
 async function saveDaySharing(date: string, event: Event) {
@@ -284,6 +290,7 @@ async function load(reset = true, preserveLoaded = false) {
   try {
     const params = new URLSearchParams({
       page_size: "40",
+      order: timelineOrder.value,
       match: match.value,
       status: trash.value ? "deleted" : "active",
       q: q.value,
@@ -331,6 +338,7 @@ watch(
     type,
     match,
     view,
+    timelineOrder,
     stage,
     () => route.path,
   ],
@@ -789,6 +797,14 @@ function saveStages() {
           </button>
         </div>
         <div class="filter-tools">
+          <select
+            v-model="timelineOrder"
+            class="compact-select"
+            :aria-label="t('时间顺序')"
+          >
+            <option value="desc">{{ t("倒序 · 最新在前") }}</option>
+            <option value="asc">{{ t("正序 · 最早在前") }}</option>
+          </select>
           <div class="search-box">
             <Search :size="16" /><input
               v-model="q"

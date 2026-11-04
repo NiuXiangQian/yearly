@@ -129,11 +129,8 @@ def shared_queries(share):
     day = func.date(timeline_time())
 
     def in_range(column):
-        return (
-            column >= share.start_date,
-            column <= share.end_date,
-            column.not_in(blocked_days),
-        )
+        limits = (column >= share.start_date, column <= share.end_date) if share else ()
+        return (*limits, column.not_in(blocked_days))
 
     folders = select(TimelineFolder).where(
         TimelineFolder.status == "active",
@@ -188,6 +185,15 @@ def root_query(share):
     ).subquery()
 
 
+@router.get("/shares/bounds")
+def sharing_bounds(db=Depends(get_db), user=Depends(editor)):
+    root = root_query(None)
+    earliest, latest = db.execute(
+        select(func.min(root.c.day), func.max(root.c.day))
+    ).one()
+    return {"earliest": earliest, "latest": latest}
+
+
 def public_media(media):
     # No filenames, GPS, EXIF, account/child IDs, storage keys or original URLs.
     return {
@@ -198,7 +204,7 @@ def public_media(media):
     }
 
 
-def entries(db, share, day, offset=0, limit=8):
+def entries(db, share, day, offset=0, limit=8, order="desc"):
     root = root_query(share)
     query = select(root).where(root.c.day == day)
     total = db.scalar(select(func.count()).select_from(query.subquery()))
@@ -207,7 +213,8 @@ def entries(db, share, day, offset=0, limit=8):
             query.order_by(
                 root.c.position.desc(),
                 root.c.group_order.desc(),
-                root.c.taken.desc(),
+                root.c.taken.is_(None).asc(),
+                root.c.taken.asc() if order == "asc" else root.c.taken.desc(),
                 root.c.id.desc(),
                 root.c.kind.desc(),
             )
@@ -277,17 +284,28 @@ def entries(db, share, day, offset=0, limit=8):
 
 @router.get("/public/shares/{token}")
 def read_share(
-    before: date | None = None, share=Depends(public_share), db=Depends(get_db)
+    before: date | None = None,
+    after: date | None = None,
+    order: Literal["asc", "desc"] = "desc",
+    share=Depends(public_share),
+    db=Depends(get_db),
 ):
     root = root_query(share)
     query = select(root.c.day).distinct()
-    if before:
+    if order == "desc" and before:
         query = query.where(root.c.day < before)
-    days = db.scalars(query.order_by(root.c.day.desc()).limit(8)).all()
+    if order == "asc" and after:
+        query = query.where(root.c.day > after)
+    days = db.scalars(
+        query.order_by(root.c.day.asc() if order == "asc" else root.c.day.desc()).limit(
+            8
+        )
+    ).all()
     return {
         "share": share_info(share),
-        "days": [entries(db, share, d) for d in days[:7]],
-        "next_before": days[6] if len(days) > 7 else None,
+        "days": [entries(db, share, d, order=order) for d in days[:7]],
+        "next_before": days[6] if len(days) > 7 and order == "desc" else None,
+        "next_after": days[6] if len(days) > 7 and order == "asc" else None,
     }
 
 
@@ -295,16 +313,18 @@ def read_share(
 def read_day(
     day: date,
     offset: int = Query(default=0, ge=0, le=1000000),
+    order: Literal["asc", "desc"] = "desc",
     share=Depends(public_share),
     db=Depends(get_db),
 ):
-    return entries(db, share, day, offset, 40)
+    return entries(db, share, day, offset, 40, order=order)
 
 
 @router.get("/public/shares/{token}/folders/{fid}")
 def read_folder(
     fid: int,
     offset: int = Query(default=0, ge=0, le=1000000),
+    order: Literal["asc", "desc"] = "desc",
     share=Depends(public_share),
     db=Depends(get_db),
 ):
@@ -316,7 +336,14 @@ def read_folder(
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     rows = db.execute(
         query.with_only_columns(Media.id, Media.title, Media.media_type)
-        .order_by(Media.sort_order.desc(), Media.taken_at_local.desc(), Media.id.desc())
+        .order_by(
+            Media.sort_order.desc(),
+            Media.taken_at_local.is_(None).asc(),
+            Media.taken_at_local.asc()
+            if order == "asc"
+            else Media.taken_at_local.desc(),
+            Media.id.desc(),
+        )
         .offset(offset)
         .limit(40)
     )

@@ -427,3 +427,45 @@ def test_backup_preserves_content_and_day_sharing_permissions(context):
     assert (
         context.client.get("/api/timeline").json()["day_sharing"]["2024-03-31"] is False
     )
+
+
+def test_public_signing_cannot_cross_share_ranges_or_choose_another_object(
+    context, monkeypatch
+):
+    from unittest.mock import Mock
+
+    allowed = upload(context)
+    other = upload(context, taken="2024-04-02T12:00:00")
+    one = share(context, start_date="2024-03-31", end_date="2024-03-31")
+    two = share(context, start_date="2024-04-02", end_date="2024-04-02")
+    signer = Mock(wraps=context.storage.image_url)
+    monkeypatch.setattr(context.storage, "image_url", signer)
+    base = public(context, one)
+    for suffix in ["", "?purpose=thumbnail", "?live=true"]:
+        assert (
+            context.client.get(
+                f'{base}/media/{other["media_id"]}/url{suffix}'
+            ).status_code
+            == 404
+        )
+    assert signer.call_count == 0
+    # Client-supplied file identifiers, object paths and download flags cannot choose the signed object.
+    result = context.client.get(
+        f'{base}/media/{allowed["media_id"]}/url?fid={other["tasks"][0]["file_id"]}&object_key=elsewhere.jpg&download=true'
+    )
+    assert result.status_code == 200
+    assert signer.call_args.args[0].id == allowed["tasks"][0]["file_id"]
+    assert signer.call_args.args[1] == "preview"
+    assert signer.call_args.kwargs["expires"] <= 60
+    other_base = "/api/public/shares/" + two["token"]
+    assert (
+        context.client.get(f'{other_base}/media/{allowed["media_id"]}/url').status_code
+        == 404
+    )
+    # A share token never authenticates the private original-download route.
+    assert (
+        context.client.get(
+            f'/api/media/{allowed["media_id"]}/files/{allowed["tasks"][0]["file_id"]}/url?purpose=original&token={one["token"]}'
+        ).status_code
+        == 401
+    )

@@ -180,6 +180,7 @@ class UserIn(BaseModel):
 
 
 class TimelineCursor(BaseModel):
+    order: Literal["asc", "desc"] = "desc"
     id: int = Field(ge=1)
     kind: Literal["media", "event", "folder"]
     sort_at: datetime | None = None

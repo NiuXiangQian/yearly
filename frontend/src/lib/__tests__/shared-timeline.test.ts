@@ -53,20 +53,23 @@ afterEach(() => {
   app?.unmount();
   document.body.innerHTML = "";
   vi.clearAllMocks();
+  localStorage.clear();
 });
 it("shows eight entries per day and keeps the next day readable; expands and collapses", async () => {
   await mount();
   await vi.waitFor(() =>
     expect(host.querySelectorAll(".shared-card")).toHaveLength(9),
   );
-  expect(vi.mocked(api)).toHaveBeenCalledWith("/public/shares/virtual");
+  expect(vi.mocked(api)).toHaveBeenCalledWith(
+    "/public/shares/virtual?order=desc",
+  );
   vi.mocked(api).mockResolvedValueOnce({ items: items.slice(8), total: 12 });
   button("展开更多").click();
   await vi.waitFor(() =>
     expect(host.querySelectorAll(".shared-card")).toHaveLength(13),
   );
   expect(vi.mocked(api)).toHaveBeenLastCalledWith(
-    "/public/shares/virtual/days/2024-01-02?offset=8",
+    "/public/shares/virtual/days/2024-01-02?offset=8&order=desc",
   );
   button("收起").click();
   await vi.waitFor(() =>
@@ -100,4 +103,41 @@ it("clears content once the link expires while the page remains open", async () 
     expect(host.textContent).toContain("分享已失效或不存在"),
   );
   expect(host.querySelectorAll(".shared-card")).toHaveLength(0);
+});
+
+it("switches chronological direction and paginates using the corresponding day cursor", async () => {
+  await mount();
+  await vi.waitFor(() =>
+    expect(host.querySelectorAll(".shared-day")).toHaveLength(2),
+  );
+  const reversed = response();
+  reversed.days.reverse();
+  vi.mocked(api).mockResolvedValueOnce({
+    ...reversed,
+    next_before: null,
+    next_after: "2024-01-02",
+  });
+  const select = host.querySelector<HTMLSelectElement>(
+    'select[aria-label="时间顺序"]',
+  )!;
+  select.value = "asc";
+  select.dispatchEvent(new Event("change"));
+  await vi.waitFor(() =>
+    expect(host.querySelector(".shared-day h2")?.textContent).toBe(
+      "2024.01.01",
+    ),
+  );
+  expect(api).toHaveBeenLastCalledWith("/public/shares/virtual?order=asc");
+  expect(localStorage.getItem("yearly-shared-order")).toBe("asc");
+  vi.mocked(api).mockResolvedValueOnce({
+    ...reversed,
+    days: [],
+    next_after: null,
+  });
+  button("更晚的日子").click();
+  await vi.waitFor(() =>
+    expect(api).toHaveBeenLastCalledWith(
+      "/public/shares/virtual?order=asc&after=2024-01-02",
+    ),
+  );
 });

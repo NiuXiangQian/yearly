@@ -619,5 +619,16 @@
   "关闭后，这一天的全部内容不会出现在任何分享链接中。": "When disabled, everything on this day is hidden from all share links.",
   "选择时间线范围，自动分享其中允许分享的内容。": "Choose a timeline date range. Only content allowed for sharing will appear.",
   "是否允许分享，请在文件、文件夹或当天时间线中设置。关闭后，已有和新建的分享都会隐藏对应内容。": "Set sharing permission on each file, folder, or timeline day. Disabling it hides that content from both existing and new links.",
-  "范围包含全部孩子的内容，并随时间线更新；仅展示允许分享的影像与日记。": "The range includes all children and updates with the timeline. Only photos, videos, and diaries allowed for sharing are shown."
+  "范围包含全部孩子的内容，并随时间线更新；仅展示允许分享的影像与日记。": "The range includes all children and updates with the timeline. Only photos, videos, and diaries allowed for sharing are shown.",
+  "时间顺序": "Timeline order",
+  "倒序 · 最新在前": "Newest first",
+  "正序 · 最早在前": "Oldest first",
+  "更晚的日子": "Later days",
+  "开始时间快捷选择": "Start date preset",
+  "最早": "Earliest available",
+  "一年前": "One year ago",
+  "六个月前": "Six months ago",
+  "自选日期": "Custom date",
+  "暂无有日期且允许分享的内容，可选择自选日期。": "No dated content is currently allowed for sharing. You can choose a custom date.",
+  "切换时间顺序后请重新加载": "Reload after changing the timeline order."
 }

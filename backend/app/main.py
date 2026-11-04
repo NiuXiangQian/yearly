@@ -794,6 +794,7 @@ def timeline(
     page_size: int = Query(default=40, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=512),
     date_basis: Literal["timeline", "capture"] = "timeline",
+    order: Literal["asc", "desc"] = "desc",
     db=Depends(get_db),
     user=Depends(current_user),
 ):
@@ -892,11 +893,14 @@ def timeline(
         ]
     mixed = union_all(*queries).subquery()
     total = db.scalar(select(func.count()).select_from(mixed))
+    chronological = lambda column: column.asc() if order == "asc" else column.desc()
     query = select(mixed).order_by(
-        mixed.c.sort_day.desc(),
+        mixed.c.sort_day.is_(None).asc(),
+        chronological(mixed.c.sort_day),
         mixed.c.sort_order.desc(),
         mixed.c.sort_group.desc(),
-        mixed.c.sort_at.desc(),
+        mixed.c.sort_at.is_(None).asc(),
+        chronological(mixed.c.sort_at),
         mixed.c.id.desc(),
         mixed.c.kind.desc(),
     )
@@ -907,22 +911,30 @@ def timeline(
             )
         except ValueError:
             raise HTTPException(422, "分页游标无效")
+        if position.order != order:
+            raise HTTPException(422, "切换时间顺序后请重新加载")
         # Old cursors only contain sort_at; derive their day for compatibility.
         sort_day = position.sort_day or (
             position.sort_at.date() if position.sort_at else None
         )
         prefix, alternatives = [], []
-        for column, value in [
-            (mixed.c.sort_day, sort_day),
-            (mixed.c.sort_order, position.sort_order),
-            (mixed.c.sort_group, position.sort_group),
-            (mixed.c.sort_at, position.sort_at),
-            (mixed.c.id, position.id),
-            (mixed.c.kind, position.kind),
+        for column, value, ascending in [
+            (mixed.c.sort_day, sort_day, order == "asc"),
+            (mixed.c.sort_order, position.sort_order, False),
+            (mixed.c.sort_group, position.sort_group, False),
+            (mixed.c.sort_at, position.sort_at, order == "asc"),
+            (mixed.c.id, position.id, False),
+            (mixed.c.kind, position.kind, False),
         ]:
             if value is not None:
                 alternatives.append(
-                    and_(*prefix, or_(column < value, column.is_(None)))
+                    and_(
+                        *prefix,
+                        or_(
+                            column > value if ascending else column < value,
+                            column.is_(None),
+                        ),
+                    )
                 )
                 prefix.append(column == value)
             else:
@@ -935,7 +947,7 @@ def timeline(
     rows = rows[:page_size]
     next_cursor = None
     if has_more:
-        position = TimelineCursor(**dict(rows[-1]))
+        position = TimelineCursor(**dict(rows[-1]), order=order)
         next_cursor = base64.urlsafe_b64encode(
             position.model_dump_json().encode()
         ).decode()

@@ -21,12 +21,17 @@ vi.mock("element-plus/es/components/base/style/css", () => ({}));
 vi.mock("element-plus/es/components/dialog/style/css", () => ({}));
 let app: ReturnType<typeof createApp>;
 afterEach(() => {
+  vi.useRealTimers();
   app?.unmount();
   document.body.innerHTML = "";
   vi.clearAllMocks();
 });
 it("creates a link from dates and lifetime without selecting or loading files", async () => {
-  vi.mocked(api).mockResolvedValue([]);
+  vi.mocked(api).mockImplementation(async (path) =>
+    path === "/shares/bounds"
+      ? { earliest: "2020-01-01", latest: "2024-03-31" }
+      : [],
+  );
   vi.mocked(post).mockResolvedValue({
     id: 1,
     token: "demo",
@@ -62,6 +67,49 @@ it("creates a link from dates and lifetime without selecting or loading files", 
       hours: 24,
     }),
   );
-  expect(api).toHaveBeenCalledTimes(1);
+  expect(api).toHaveBeenCalledTimes(2);
+  expect(api).toHaveBeenCalledWith("/shares/bounds");
   expect(api).toHaveBeenCalledWith("/shares");
+});
+
+it("uses the earliest shareable day and calendar presets, with custom dates retained", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2024, 1, 29, 12));
+  vi.mocked(api).mockImplementation(async (path) =>
+    path === "/shares/bounds"
+      ? { earliest: "2020-05-12", latest: "2024-02-29" }
+      : [],
+  );
+  const open = ref(false),
+    host = document.createElement("div");
+  document.body.append(host);
+  app = createApp({
+    components: { ShareDialog },
+    setup: () => ({ open }),
+    template: '<ShareDialog :open="open" />',
+  });
+  app.mount(host);
+  open.value = true;
+  const start = () =>
+    document.querySelectorAll<HTMLInputElement>('input[type="date"]')[0];
+  await vi.waitFor(() => expect(start()?.value).toBe("2020-05-12"));
+  const preset = document.querySelector<HTMLSelectElement>(
+    'select[aria-label="开始时间快捷选择"]',
+  )!;
+  preset.value = "year";
+  preset.dispatchEvent(new Event("change"));
+  await nextTick();
+  expect(start().value).toBe("2023-02-28");
+  preset.value = "halfYear";
+  preset.dispatchEvent(new Event("change"));
+  await nextTick();
+  expect(start().value).toBe("2023-08-29");
+  preset.value = "custom";
+  preset.dispatchEvent(new Event("change"));
+  await nextTick();
+  start().value = "2022-06-15";
+  start().dispatchEvent(new Event("input"));
+  await nextTick();
+  expect(start().value).toBe("2022-06-15");
+  vi.useRealTimers();
 });

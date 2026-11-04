@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount } from "vue";
+import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRoute } from "vue-router";
 import { Leaf, Folder, ChevronDown, ShieldCheck } from "lucide-vue-next";
 import { api, notify } from "../lib/api";
@@ -10,9 +10,12 @@ import ImageViewer from "../components/ImageViewer.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 const route = useRoute();
 const base = `/public/shares/${encodeURIComponent(String(route.params.token))}`;
+const timelineOrder = ref(
+  localStorage.getItem("yearly-shared-order") === "asc" ? "asc" : "desc",
+);
 const share = ref<any>(null),
   days = ref<any[]>([]),
-  nextBefore = ref<string | null>(null);
+  nextDate = ref<string | null>(null);
 const loading = ref(false),
   error = ref(""),
   folder = ref<any>(null),
@@ -29,6 +32,7 @@ const video = computed(
 );
 let expiryTimer: ReturnType<typeof setTimeout>;
 let previewGeneration = 0;
+let loadGeneration = 0;
 function expire() {
   error.value = t("分享已失效或不存在");
   share.value = null;
@@ -39,24 +43,36 @@ function expire() {
   previewGeneration++;
 }
 async function load(more = false) {
-  if (loading.value) return;
+  if (more && loading.value) return;
+  const generation = ++loadGeneration;
+  const order = timelineOrder.value;
   loading.value = true;
+  error.value = "";
+  if (!more) {
+    days.value = [];
+    nextDate.value = null;
+    expanded.value = {};
+    folder.value = null;
+  }
   try {
-    const data = await api(
-      base + (more && nextBefore.value ? `?before=${nextBefore.value}` : ""),
-    );
+    const params = new URLSearchParams({ order });
+    if (more && nextDate.value)
+      params.set(order === "asc" ? "after" : "before", nextDate.value);
+    const data = await api(`${base}?${params}`);
+    if (generation !== loadGeneration) return;
     share.value = data.share;
     days.value = more ? [...days.value, ...data.days] : data.days;
-    nextBefore.value = data.next_before;
+    nextDate.value = order === "asc" ? data.next_after : data.next_before;
     clearTimeout(expiryTimer);
     expiryTimer = setTimeout(
       expire,
       Math.max(0, new Date(data.share.expires_at).getTime() - Date.now()),
     );
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t("请求失败");
+    if (generation === loadGeneration)
+      error.value = e instanceof Error ? e.message : t("请求失败");
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) loading.value = false;
   }
 }
 async function expand(day: any) {
@@ -66,7 +82,7 @@ async function expand(day: any) {
   busyDay.value = day.day;
   try {
     const data = await api(
-      `${base}/days/${day.day}?offset=${day.items.length}`,
+      `${base}/days/${day.day}?offset=${day.items.length}&order=${timelineOrder.value}`,
     );
     day.items.push(...data.items);
     day.total = data.total;
@@ -81,7 +97,7 @@ async function openFolder(item: any, more = false) {
   folderBusy.value = true;
   try {
     const data = await api(
-      `${base}/folders/${item.id}?offset=${more ? folder.value.items.length : 0}`,
+      `${base}/folders/${item.id}?offset=${more ? folder.value.items.length : 0}&order=${timelineOrder.value}`,
     );
     folder.value = more
       ? { ...data, items: [...folder.value.items, ...data.items] }
@@ -121,6 +137,10 @@ async function videoSource() {
   if (!data.url) throw new Error(t("压缩预览仍在准备，请稍后再试"));
   return data.url;
 }
+watch(timelineOrder, (value) => {
+  localStorage.setItem("yearly-shared-order", value);
+  load();
+});
 onMounted(() => load());
 onBeforeUnmount(() => clearTimeout(expiryTimer));
 </script>
@@ -149,6 +169,19 @@ onBeforeUnmount(() => clearTimeout(expiryTimer));
           }}</small
         >
       </section>
+      <div class="shared-sort">
+        <label
+          >{{ t("时间顺序")
+          }}<select
+            v-model="timelineOrder"
+            :disabled="!!busyDay || folderBusy"
+            :aria-label="t('时间顺序')"
+          >
+            <option value="desc">{{ t("倒序 · 最新在前") }}</option>
+            <option value="asc">{{ t("正序 · 最早在前") }}</option>
+          </select></label
+        >
+      </div>
       <section v-for="day in days" :key="day.day" class="shared-day">
         <header>
           <h2>{{ day.day.replaceAll("-", ".") }}</h2>
@@ -214,17 +247,23 @@ onBeforeUnmount(() => clearTimeout(expiryTimer));
           </button>
         </div>
       </section>
-      <div v-if="!days.length" class="shared-empty">
+      <div v-if="!days.length && !loading" class="shared-empty">
         {{ t("这个范围还没有可分享的回忆") }}
       </div>
       <footer class="shared-footer">
         <button
-          v-if="nextBefore"
+          v-if="nextDate"
           class="button"
           :disabled="loading"
           @click="load(true)"
         >
-          {{ loading ? t("正在加载…") : t("更早的日子") }}</button
+          {{
+            loading
+              ? t("正在加载…")
+              : timelineOrder === "asc"
+                ? t("更晚的日子")
+                : t("更早的日子")
+          }}</button
         ><span v-else>{{ t("— 这些日子，都在这里 —") }}</span>
       </footer>
     </template>
@@ -310,6 +349,22 @@ onBeforeUnmount(() => clearTimeout(expiryTimer));
   </main>
 </template>
 <style scoped>
+.shared-sort {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+.shared-sort label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+.shared-sort select {
+  width: auto;
+}
 .shared-page {
   max-width: 1040px;
   margin: auto;

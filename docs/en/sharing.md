@@ -13,7 +13,7 @@ Sharing is allowed by default. These persistent settings apply to **all existing
 
 Click **Share timeline**:
 
-1. Choose inclusive start and end archive dates. Main-page child, search, and media-type filters do not scope the share.
+1. Choose **Earliest, One year ago, Six months ago, or Custom date** for the start. Earliest uses the first archive date among currently shareable content. Relative dates use the local calendar and clamp to valid month-end dates (February 29 becomes February 28 one year earlier). The end date is inclusive, with a Today shortcut. Main-page child, search, and media-type filters do not scope the share.
 2. Choose **1–168 hours (up to 7 days)** from successful creation.
 3. Create, copy, or preview the link. There is no file picker: the server automatically filters content using its saved permissions. Save the full link before closing the dialog.
 4. Revoke links under **Manage recent shares**. Members manage their own links; admins manage all links. The list shows the latest 100. Viewers cannot create or modify sharing settings.
@@ -21,6 +21,8 @@ Click **Share timeline**:
 Shares update with the timeline and saved permissions, including new content allowed for sharing. To change a link's date range, revoke it and create a new link.
 
 Recipients need no account and read a separate, read-only timeline. Each day initially shows eight entries, with more available on demand. Folders and media retain their mixed order. Readers can open folders and diaries, zoom images, and play compressed videos and Live Photos. Undated files are outside date-range shares. The signed-in mobile timeline also folds entries beyond eight per day; selection and sorting modes show all entries for editing.
+
+Both family and shared timelines offer **Newest first / Oldest first**. Newest first is the default; each view remembers its preference in this browser. Dates and capture times follow the selected direction while manual mixed ordering retains priority. Undated family entries stay last. Switching resets pagination so cursors from the previous direction are not reused.
 
 ## Preview
 
@@ -33,7 +35,7 @@ These 2× lossless PNGs use fictional data only. The creation dialog only asks f
 ## Privacy and bandwidth
 
 - Anyone with a link can read it. Share only with trusted recipients. This does not prevent screenshots or saving visible content.
-- Public lists, folder thumbnails, counts, and media URLs enforce scope, content permissions, expiry, revocation, and creator permissions on the server.
+- Public lists, folder thumbnails, counts, and media URLs enforce scope, content permissions, expiry, revocation, and creator permissions on the server. The server selects the signed object from the authorized media record; client-supplied object paths, other file IDs, or download flags cannot expand access. Share tokens do not authenticate private original-download endpoints.
 - Only compressed thumbnails and previews are served. There is no original-download entry point. Unavailable video previews ask readers to retry; they never fall back to originals.
 - Regular list payloads omit accounts, child profiles, original filenames, GPS, EXIF, and storage details. OSS previews use short-lived signed URLs; recipients can see the domain and object path, with the signature limited to that preview.
 - **Custom titles and diary text are shared content.** Review private writing before sharing. Diaries do not expose original media associations or covers that could reveal excluded files.
@@ -50,5 +52,7 @@ Alembic revision `0008` adds `share_allowed` to media, folders, and diaries, and
 # Back up production first; run during deployment:
 ./scripts/manage.sh production migrate
 ```
+
+Ordering and date presets require no new migration; the current revision remains `0008`.
 
 Deploy the backend, frontend build, and Nginx changes together. A link pointing to your own localhost is not reachable by external recipients; use a publicly reachable HTTPS deployment domain for real sharing.

@@ -6,12 +6,13 @@ This document records only publicly shareable functional verification. It contai
 
 ## Timeline-sharing verification (2026-11-04)
 
-- Frontend: 47 Vitest tests passed, including date-and-duration-only creation without loading file lists, expansion, collapse, and expiration cleanup.
-- Backend: 35 relevant tests passed across persistent content permissions, existing-link enforcement, folders, organization, and backup restoration. Editing unrelated fields does not reset sharing permission.
-- Type checking and production build passed. Test MySQL reports migration `0008 (head)`; production was not migrated or deployed in this task.
-- Browser checks covered permission saving in file and folder editors, the day permission toggle, and the simplified date-only sharing dialog. The reading page remains unchanged.
+- Frontend: 49 Vitest tests passed, including date-only share creation, date presets and leap days, public sort order and pagination, expansion, collapse, and expiration cleanup.
+- Backend: 43 relevant tests passed across private/public ascending and descending pagination, undated entries, manual ordering, content permissions, cross-share signing rejection, folders, and compressed previews.
+- Type checking and production build passed. Test MySQL previously reported `0008 (head)`; this update needs no new migration. Production was not migrated or deployed.
+- Browser checks covered sorting and refresh persistence, start-date presets, public-page expansion/collapse, and 390px Chinese and English layouts.
+- Real test OSS: an authorized compressed preview returned 200. Unsigned original access, removed or changed processing parameters, changed object paths, and expired signatures returned 403. The bucket was private; the temporary synthetic image was removed.
 
-Screenshots use a separate virtual API with no family MySQL or OSS connection. API tests use test MySQL with mocked OSS signing. No links were sent to real recipients; this is not production or external-network acceptance evidence.
+Screenshots use a separate virtual API with no family MySQL or OSS connection. API tests use test MySQL with mocked signing; the separate real OSS check used a synthetic image with the test configuration. No family photos were used or links sent to real recipients. This does not establish production, external-network, or all-configuration acceptance.
 
 ## Previous date and language verification
 
