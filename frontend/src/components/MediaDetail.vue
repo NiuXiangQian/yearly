@@ -120,7 +120,8 @@ async function trash() {
         </p>
         <div class="age-labels">
           <span v-for="c in media.children" :key="c.id"
-            >{{ c.name }} · {{ ageLabel(c.age) }}</span
+            >{{ c.name
+            }}<template v-if="c.age"> · {{ ageLabel(c.age) }}</template></span
           >
         </div>
         <form @submit.prevent="save">
@@ -166,7 +167,7 @@ async function trash() {
             />
           </label>
           <div class="field-group">
-            <span> {{ t("关联孩子") }} </span
+            <span> {{ t("关联孩子与宠物") }} </span
             ><ChildPicker
               v-model="form.child_ids"
               :disabled="!yearly.canEdit"

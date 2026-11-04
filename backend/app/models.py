@@ -55,7 +55,12 @@ class Child(Base, Timestamp):
     avatar_media_id: Mapped[int | None] = mapped_column(
         ForeignKey("media.id", use_alter=True, name="fk_child_avatar")
     )
-    birthday: Mapped[date] = mapped_column(Date)
+    profile_type: Mapped[str] = mapped_column(
+        String(16), default="child", server_default="child"
+    )
+    species: Mapped[str] = mapped_column(String(80), default="", server_default="")
+    breed: Mapped[str] = mapped_column(String(80), default="", server_default="")
+    birthday: Mapped[date | None] = mapped_column(Date)
     birth_time: Mapped[time | None] = mapped_column(Time)
     gender: Mapped[str | None] = mapped_column(String(24))
     description: Mapped[str] = mapped_column(Text, default="")

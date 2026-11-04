@@ -49,7 +49,7 @@ export PYTHONPATH="$PWD/backend"
 .venv/bin/python -m app.cli create-admin your-admin-name
 ```
 
-Alternatively, import `deploy/schema-mysql57.sql` manually and then run `alembic -c backend/alembic.ini stamp 0008`. Choose one initialization method. For an existing database, run `./scripts/manage.sh production migrate` to upgrade to `0008` before starting the new backend. Tables use InnoDB / utf8mb4, BIGINT IDs, DATETIME(3) timestamps, DECIMAL coordinates, and JSON metadata. The models do not rely on MySQL 8-only SQL.
+Alternatively, import `deploy/schema-mysql57.sql` manually and then run `alembic -c backend/alembic.ini stamp 0009`. Choose one initialization method. For an existing database, run `./scripts/manage.sh production migrate` to upgrade to `0009` before starting the new backend. Tables use InnoDB / utf8mb4, BIGINT IDs, DATETIME(3) timestamps, DECIMAL coordinates, and JSON metadata. The models do not rely on MySQL 8-only SQL.
 
 ## 3. Configure private OSS
 

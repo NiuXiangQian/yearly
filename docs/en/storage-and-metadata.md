@@ -2,6 +2,10 @@
 
 [简体中文](../storage-and-metadata.md) | **English** · [Home](../../README.en.md)
 
+## Child and pet relationships
+
+Profiles support children and pets, and either can share the same media or journal. The child association rules below also apply to pets; see [Children & pets](pets.md).
+
 ## Data flow and integrity
 
 The browser selects originals → reads metadata ranges → calculates SHA-256 and CRC64/XZ in 4 MiB chunks → the user confirms → the API creates logical media, child associations, and upload tasks → the API signs each part → the browser sends PUT requests to OSS → the API obtains the authoritative part list from OSS and completes the upload → HEAD verifies size and CRC64 → media is published only after all required resources are complete.

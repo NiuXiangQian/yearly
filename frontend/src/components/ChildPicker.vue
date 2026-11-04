@@ -29,7 +29,7 @@ function toggle(id: number) {
       @click="emit('update:modelValue', [])"
     >
       <span class="child-avatar all-avatar"> {{ t("全") }} </span>
-      {{ t("全部孩子") }}</button
+      {{ t("全部孩子与宠物") }}</button
     ><button
       type="button"
       :disabled="disabled"
@@ -40,7 +40,8 @@ function toggle(id: number) {
       @click="toggle(c.id)"
     >
       <ChildAvatar :child="c" />{{ c.nickname || c.name
-      }}<small v-if="c.status === 'archived'"> {{ t("已归档") }} </small
+      }}<small v-if="c.profile_type === 'pet'">{{ t("宠物") }}</small
+      ><small v-if="c.status === 'archived'"> {{ t("已归档") }} </small
       ><span v-if="modelValue.includes(c.id)" class="selection-dot"
         >✓</span
       ></button

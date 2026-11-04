@@ -478,7 +478,7 @@ onBeforeUnmount(() => {
           <small class="muted">{{
             kids.length
               ? t("已自动应用到所选待上传文件")
-              : t("未关联孩子：仅出现在全部孩子中")
+              : t("未关联孩子与宠物：仅出现在全部孩子与宠物中")
           }}</small>
         </div>
       </section>
@@ -653,7 +653,7 @@ onBeforeUnmount(() => {
                         .filter((c) => item.child_ids.includes(c.id))
                         .map((c) => c.nickname || c.name)
                         .join("、")
-                    : t("家庭时光 · 未关联孩子")
+                    : t("家庭时光 · 未关联孩子与宠物")
                 }}
               </p>
             </div>

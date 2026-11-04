@@ -110,12 +110,12 @@ async function changePassword() {
       <p class="muted">
         {{
           t(
-            "家庭空间内共享内容。成员可编辑影像和日记，访客只读，管理员负责账户、孩子删除与备份导出。",
+            "家庭空间内共享内容。成员可编辑影像和日记，访客只读，管理员负责账户、档案删除与备份导出。",
           )
         }}
       </p>
       <RouterLink to="/children" class="setting-link"
-        ><Baby :size="17" /> {{ t("孩子档案") }}
+        ><Baby :size="17" /> {{ t("孩子与宠物") }}
         <ArrowUpRight :size="16" /></RouterLink
       ><RouterLink to="/trash" class="setting-link"
         ><Trash2 :size="17" /> {{ t("回收站") }}

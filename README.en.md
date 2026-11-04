@@ -4,9 +4,9 @@
 
 **Keep every chapter of growing up.**
 
-A self-hosted, private family photo and video archive. Organize photos, videos, and growth journals by date and child, so the moments that matter remain easy to find years later.
+A self-hosted, private family photo and video archive. Organize photos, videos, and growth journals by date, child, and pet, so the moments that matter remain easy to find years later.
 
-Daily timeline · Expiring read-only shares · Multiple child profiles · Drag-and-drop folders · Compressed previews · Original-file backups
+Daily timeline · Expiring read-only shares · Child and pet profiles · Drag-and-drop folders · Compressed previews · Original-file backups
 
 [Screenshots](#screenshots) · [Sharing page](#share-a-read-only-timeline) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
 
@@ -24,7 +24,7 @@ Drag photos, videos, and folders into any order within a day. Folders display sm
 
 ### Organize a whole batch before uploading
 
-Name a batch, select children, and choose an archive date. The compact file list supports bulk selection, drag-to-reorder, and file details.
+Name a batch, select children and pets, and choose an archive date. The compact file list supports bulk selection, drag-to-reorder, and file details.
 
 ![Fictional demo: batch naming and upload queue](docs/images/demo-upload-en.png)
 
@@ -54,7 +54,7 @@ Dragging previews the date; releasing loads the target content on demand.
 </details>
 
 <details>
-<summary>View folder organization and child profiles</summary>
+<summary>View folder organization and child / pet profiles</summary>
 
 ### Keep a story together in a folder
 
@@ -62,11 +62,11 @@ Select multiple items, append uploads, drag items into or out of folders, reorde
 
 ![Fictional demo: folder contents and organization controls](docs/images/demo-folder-en.png)
 
-### A profile for every child
+### Children and pets, growing together
 
-Set an individual avatar, birthday, and introduction for each child, then filter shared memories by child.
+Create individual child and pet profiles with avatars and introductions. Pets can have species and breed details, with an optional birthday. Link the same photo, video, or journal to children and pets so it appears in each timeline while keeping one original. See [Children & pets](docs/en/pets.md).
 
-![Fictional demo: child profiles with individual avatars](docs/images/demo-children-en.png)
+![Fictional demo: child and pet profiles](docs/images/demo-pets-en.png)
 
 </details>
 
@@ -75,7 +75,7 @@ Set an individual avatar, birthday, and introduction for each child, then filter
 | Use case | Capabilities |
 | --- | --- |
 | Organize memories | Daily grouping, named folders, mixed folder/media ordering, bulk selection and moves, default-order reset |
-| Record growth | Multiple child profiles, individual avatars, age-based browsing, one-month / 100-day / birthday navigation, shared growth journals |
+| Record growth | Child and pet profiles, individual avatars, age-based browsing, one-month / 100-day / birthday navigation, shared growth journals |
 | Upload in batches | Batch names, EXIF / QuickTime date parsing, date checks when appending, cross-batch deduplication, multipart uploads and retries |
 | Browse efficiently | Image thumbnails, HEIC / HEIF previews, image zoom and pan, compressed video copies, originals on demand |
 | Preserve originals | Direct uploads to private OSS, paired Live Photo resources, original metadata, backups and integrity checks |
@@ -96,11 +96,11 @@ Browsing uses compressed previews by default. Originals are loaded only when exp
 
 ## Interface language and date selection
 
-Simplified Chinese is the default. Switch to English on the login page, in the top-right header, or in family settings. The choice is saved in the current browser and survives refreshes. Menus, forms, messages, and calendars switch together; child names, filenames, and journal content remain unchanged.
+Simplified Chinese is the default. Switch to English on the login page, in the top-right header, or in family settings. The choice is saved in the current browser and survives refreshes. Menus, forms, messages, and calendars switch together; child and pet names, filenames, and journal content remain unchanged.
 
 Long timelines support collapsible months, individual expansion, and Collapse all / Expand all in both family and shared views. Shared views also offer a draggable timeline on the left with date previews and direct jumps.
 
-The timeline offers Day / Month / Year filters, previous/next period buttons, and All time / Today / This month / Day of birth shortcuts (the birthday shortcut appears when one child is selected). Type dates directly or click the calendar's year/month heading to navigate quickly. Child birthdays, upload archive dates, and journal times use the same date controls.
+The timeline offers Day / Month / Year filters, previous/next period buttons, and All time / Today / This month / Day of birth shortcuts (the birthday shortcut appears when one child or pet with a birthday is selected). Type dates directly or click the calendar's year/month heading to navigate quickly. Child and pet birthdays, upload archive dates, and journal times use the same date controls.
 
 ## Quick start
 
@@ -184,7 +184,7 @@ See [verification notes](docs/en/verification.md) for coverage and remaining acc
 
 ## Data boundaries and privacy
 
-- Members can edit the entire family archive; guests are read-only. Administrators manage accounts, child deletion, and exports. Accounts do not have separate private spaces.
+- Members can edit the entire family archive; guests are read-only. Administrators manage accounts, profile deletion, and exports. Accounts do not have separate private spaces.
 - The application preserves the bytes selected in the browser. Phone photo pickers may convert formats or omit Live Photo resources; check how originals are exported before importing.
 - Original capture times and manual corrections are stored separately. Missing times, time zones, or GPS data are not fabricated.
 - Deleted media and journals enter the recycle bin. Deleting a folder only removes its classification. Originals are never automatically permanently deleted.
@@ -195,6 +195,7 @@ See [verification notes](docs/en/verification.md) for coverage and remaining acc
 
 | Document | Contents |
 | --- | --- |
+| [Children & pets](docs/en/pets.md) | Pet profiles, shared timelines, and compatible upgrades |
 | [Deployment](docs/en/deployment.md) | MySQL, HTTPS, Nginx, systemd, and the video preview worker |
 | [Storage and metadata](docs/en/storage-and-metadata.md) | OSS, direct uploads, compressed previews, capture times, and organization rules |
 | [Backup and restore](docs/en/backup-restore.md) | Database, manifests, original-file backups, and restoration |

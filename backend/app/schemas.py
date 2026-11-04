@@ -6,7 +6,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class ChildIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     nickname: str = Field(default="", max_length=80)
-    birthday: date
+    profile_type: Literal["child", "pet"] = "child"
+    species: str = Field(default="", max_length=80)
+    breed: str = Field(default="", max_length=80)
+    birthday: date | None = None
     birth_time: time | None = None
     gender: str | None = Field(default=None, max_length=24)
     description: str = Field(default="", max_length=10000)
@@ -18,9 +21,15 @@ class ChildIn(BaseModel):
     @field_validator("birthday")
     @classmethod
     def birthday_valid(cls, value):
-        if value > date.today():
+        if value is not None and value > date.today():
             raise ValueError("出生日期不能晚于今天")
         return value
+
+    @model_validator(mode="after")
+    def require_child_birthday(self):
+        if self.profile_type == "child" and self.birthday is None:
+            raise ValueError("孩子档案需要填写出生日期")
+        return self
 
 
 class MediaEdit(BaseModel):

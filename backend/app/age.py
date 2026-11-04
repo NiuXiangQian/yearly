@@ -2,8 +2,10 @@ from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 
 
-def age_at(birthday: date, taken: date | None, detailed: bool = False) -> str | None:
-    if taken is None:
+def age_at(
+    birthday: date | None, taken: date | None, detailed: bool = False
+) -> str | None:
+    if birthday is None or taken is None:
         return None
     if taken < birthday:
         return "出生前"
@@ -18,7 +20,9 @@ def age_at(birthday: date, taken: date | None, detailed: bool = False) -> str | 
     return label + (f" {age.days} 天" if detailed and age.days else "")
 
 
-def milestones(birthday: date, through: date):
+def milestones(birthday: date | None, through: date):
+    if birthday is None:
+        return []
     markers = [
         ("出生", birthday),
         ("满月", birthday + relativedelta(months=1)),

@@ -135,3 +135,37 @@ it("does not change the saved avatar when upload fails, and lets the user retry"
     .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   await vi.waitFor(() => expect(put).toHaveBeenCalled());
 });
+it("creates a pet without a birthday and preserves its species and breed", async () => {
+  button("取消").click();
+  await nextTick();
+  button("添加宠物").click();
+  await nextTick();
+  for (const [placeholder, value] of [
+    ["宠物的名字", "团子"],
+    ["例如：猫、狗、兔子", "猫"],
+    ["例如：英短、金毛", "英短"],
+  ]) {
+    const input = document.querySelector(
+      `input[placeholder="${placeholder}"]`,
+    ) as HTMLInputElement;
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  document
+    .querySelector("form")!
+    .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/children",
+      expect.objectContaining({
+        profile_type: "pet",
+        name: "团子",
+        species: "猫",
+        breed: "英短",
+        birthday: null,
+      }),
+    ),
+  );
+  expect(put).not.toHaveBeenCalled();
+  expect(family.load).toHaveBeenCalled();
+});

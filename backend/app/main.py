@@ -316,10 +316,16 @@ def create_child(data: ChildIn, db=Depends(get_db), user=Depends(editor)):
 def update_child(cid: int, data: ChildIn, db=Depends(get_db), user=Depends(editor)):
     child = require_row(db, Child, cid)
     if child.status == "deleted":
-        raise HTTPException(404, "孩子档案已删除")
+        raise HTTPException(404, "档案已删除")
     if data.avatar_media_id and data.avatar_media_id != child.avatar_media_id:
         require_avatar_image(db, data.avatar_media_id)
     for key, value in data.model_dump().items():
+        # Older clients omit these fields; preserve the existing profile type and details.
+        if (
+            key in {"profile_type", "species", "breed"}
+            and key not in data.model_fields_set
+        ):
+            continue
         setattr(child, key, value)
     db.commit()
     return child_data(child)
@@ -329,7 +335,7 @@ def update_child(cid: int, data: ChildIn, db=Depends(get_db), user=Depends(edito
 def delete_child(cid: int, confirm_name: str, db=Depends(get_db), user=Depends(admin)):
     child = require_row(db, Child, cid)
     if confirm_name != child.name:
-        raise HTTPException(422, "请输入孩子名字确认删除")
+        raise HTTPException(422, "请输入名字确认删除")
     child.status = "deleted"
     db.execute(delete(MediaChild).where(MediaChild.child_id == cid))
     db.execute(delete(EventChild).where(EventChild.child_id == cid))
@@ -727,7 +733,14 @@ def stats(db=Depends(get_db), user=Depends(current_user)):
             )
         ),
         "children": db.scalar(
-            select(func.count(Child.id)).where(Child.status == "active")
+            select(func.count(Child.id)).where(
+                Child.status == "active", Child.profile_type == "child"
+            )
+        ),
+        "pets": db.scalar(
+            select(func.count(Child.id)).where(
+                Child.status == "active", Child.profile_type == "pet"
+            )
         ),
         "events": db.scalar(
             select(func.count(Event.id)).where(Event.status == "active")

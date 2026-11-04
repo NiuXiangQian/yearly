@@ -6,9 +6,8 @@ import { useRouter } from "vue-router";
 import {
   Plus,
   ArrowUpRight,
-  Baby,
+  PawPrint,
   CalendarDays,
-  Heart,
   Pencil,
   Upload,
 } from "lucide-vue-next";
@@ -94,12 +93,15 @@ async function chooseAvatar(event: Event) {
     avatarPreparing.value = false;
   }
 }
-function edit(c?: any) {
+function edit(c?: any, profileType = "child") {
   clearAvatarDraft();
   editing.value = c?.id || null;
   form.value = c
-    ? { ...c }
+    ? { profile_type: "child", species: "", breed: "", ...c }
     : {
+        profile_type: profileType,
+        species: "",
+        breed: "",
         name: "",
         nickname: "",
         birthday: "",
@@ -153,7 +155,11 @@ async function save() {
       form.value.avatar_media_id = result.media_id;
       avatarFile.value = null;
     }
-    const data = { ...form.value, birth_time: form.value.birth_time || null };
+    const data = {
+      ...form.value,
+      birthday: form.value.birthday || null,
+      birth_time: form.value.birth_time || null,
+    };
     editing.value
       ? await put("/children/" + editing.value, data)
       : await post("/children", data);
@@ -187,13 +193,20 @@ function browse(id: number) {
 <template>
   <div class="page-heading">
     <div>
-      <span class="eyebrow">SMALL PEOPLE, BIG WORLDS</span>
-      <h1>{{ t("每个孩子，独一份成长。") }}</h1>
-      <p>{{ t("生日是故事的起点，每一段时光都有自己的名字。") }}</p>
+      <span class="eyebrow">LITTLE LIVES, SHARED STORIES</span>
+      <h1>{{ t("孩子与宠物，一起长大。") }}</h1>
+      <p>
+        {{ t("为孩子和宠物建立档案，共同回忆可以同时出现在各自的时间线。") }}
+      </p>
     </div>
-    <button v-if="yearly.canEdit" class="button primary" @click="edit()">
-      <Plus :size="17" /> {{ t("添加孩子") }}
-    </button>
+    <div v-if="yearly.canEdit" class="profile-create-actions">
+      <button class="button" @click="edit(undefined, 'pet')">
+        <PawPrint :size="17" /> {{ t("添加宠物") }}
+      </button>
+      <button class="button primary" @click="edit()">
+        <Plus :size="17" /> {{ t("添加孩子") }}
+      </button>
+    </div>
   </div>
   <div v-if="yearly.children.length" class="children-grid">
     <article
@@ -204,18 +217,31 @@ function browse(id: number) {
     >
       <div class="child-card-top">
         <ChildAvatar class="big-child-avatar" :child="c" /><span class="chip">{{
-          c.status === "archived" ? t("已归档") : t("正在长大")
+          c.status === "archived"
+            ? t("已归档")
+            : c.profile_type === "pet"
+              ? t("宠物")
+              : t("孩子")
         }}</span>
       </div>
       <h2>
         {{ c.nickname || c.name }}<small v-if="c.nickname">{{ c.name }}</small>
       </h2>
       <p>
-        <CalendarDays :size="15" />{{ localDate(c.birthday)
+        <CalendarDays :size="15" />{{
+          c.birthday ? localDate(c.birthday) : t("生日待补充")
         }}<span v-if="c.birth_time">{{ c.birth_time }}</span>
       </p>
+      <p
+        v-if="c.profile_type === 'pet' && (c.species || c.breed)"
+        class="pet-details"
+      >
+        <PawPrint :size="15" />{{
+          [c.species, c.breed].filter(Boolean).join(" · ")
+        }}
+      </p>
       <p class="child-description">
-        {{ c.description || t("小小的你，正在创造大大的世界。") }}
+        {{ c.description || t("每一份陪伴，都值得珍藏。") }}
       </p>
       <div class="child-card-actions">
         <button class="text-button" @click="browse(c.id)">
@@ -223,7 +249,9 @@ function browse(id: number) {
         ><button
           v-if="yearly.canEdit"
           class="icon-button"
-          :aria-label="t('编辑孩子档案')"
+          :aria-label="
+            t(c.profile_type === 'pet' ? '编辑宠物档案' : '编辑孩子档案')
+          "
           @click="edit(c)"
         >
           <Pencil :size="16" />
@@ -234,14 +262,18 @@ function browse(id: number) {
   <EmptyState
     v-else
     :title="t('从一个名字，开始一段故事')"
-    :description="t('添加孩子的名字和生日，照片便能标记当时的年龄。')"
+    :description="t('添加孩子或宠物，同一张照片可以记录彼此陪伴的时光。')"
     ><button v-if="yearly.canEdit" class="button primary" @click="edit()">
       <Plus :size="16" /> {{ t("创建孩子档案") }}
     </button></EmptyState
   >
   <ElDialog
     v-model="open"
-    :title="editing ? t('编辑孩子档案') : t('认识一个小小的你')"
+    :title="
+      form.profile_type === 'pet'
+        ? t(editing ? '编辑宠物档案' : '添加宠物')
+        : t(editing ? '编辑孩子档案' : '认识一个小小的你')
+    "
     width="660px"
     :close-on-click-modal="!busy && !avatarPreparing"
     :close-on-press-escape="!busy && !avatarPreparing"
@@ -304,7 +336,9 @@ function browse(id: number) {
             v-model="form.name"
             maxlength="80"
             required
-            :placeholder="t('孩子的名字')" /></label
+            :placeholder="
+              t(form.profile_type === 'pet' ? '宠物的名字' : '孩子的名字')
+            " /></label
         ><label>
           {{ t("昵称") }}
           <input
@@ -313,10 +347,29 @@ function browse(id: number) {
             :placeholder="t('家里怎么称呼 TA')"
         /></label>
       </div>
+      <div v-if="form.profile_type === 'pet'" class="form-row">
+        <label
+          >{{ t("种类（可选）")
+          }}<input
+            v-model="form.species"
+            maxlength="80"
+            :placeholder="t('例如：猫、狗、兔子')"
+        /></label>
+        <label
+          >{{ t("品种（可选）")
+          }}<input
+            v-model="form.breed"
+            maxlength="80"
+            :placeholder="t('例如：英短、金毛')"
+        /></label>
+      </div>
       <div class="form-row">
         <label>
-          {{ t("出生日期") }}
-          <DateField v-model="form.birthday" type="date" required /></label
+          {{ t(form.profile_type === "pet" ? "出生日期（可选）" : "出生日期") }}
+          <DateField
+            v-model="form.birthday"
+            type="date"
+            :required="form.profile_type !== 'pet'" /></label
         ><label>
           {{ t("出生时刻（可选）") }}
           <input v-model="form.birth_time" type="time" step="1"
@@ -327,8 +380,12 @@ function browse(id: number) {
           {{ t("性别（可选）") }}
           <select v-model="form.gender">
             <option :value="null">{{ t("暂不填写") }}</option>
-            <option :value="t('男')">{{ t("男") }}</option>
-            <option :value="t('女')">{{ t("女") }}</option>
+            <option :value="t('男')">
+              {{ t(form.profile_type === "pet" ? "公" : "男") }}
+            </option>
+            <option :value="t('女')">
+              {{ t(form.profile_type === "pet" ? "母" : "女") }}
+            </option>
             <option :value="t('其他')">{{ t("其他") }}</option>
           </select></label
         ><label>
@@ -337,7 +394,7 @@ function browse(id: number) {
         /></label>
       </div>
       <label>
-        {{ t("关于孩子") }}
+        {{ t(form.profile_type === "pet" ? "关于宠物" : "关于孩子") }}
         <textarea
           v-model="form.description"
           rows="3"
@@ -379,6 +436,9 @@ function browse(id: number) {
           </select></label
         >
       </div>
+      <p v-if="form.profile_type === 'pet' && !form.birthday" class="muted">
+        {{ t("不知道生日也可以记录；补充生日后即可按年龄浏览。") }}
+      </p>
       <p class="muted">
         {{ t("修改生日后，历史影像上的年龄会自动重新计算。") }}
       </p>
@@ -401,15 +461,14 @@ function browse(id: number) {
         >
           {{ t("取消") }}</button
         ><button class="button primary" :disabled="busy || avatarPreparing">
-          {{ busy ? t("正在保存…") : t("保存孩子档案") }}
+          {{ busy ? t("正在保存…") : t("保存档案") }}
         </button>
       </div>
     </form></ElDialog
-  ><ElDialog v-model="deleteOpen" :title="t('确认删除孩子档案')" width="480px"
+  ><ElDialog v-model="deleteOpen" :title="t('确认删除档案')" width="480px"
     ><p>{{ t("删除会解除 TA 与照片、日记的关联。家庭原件会继续保留。") }}</p>
     <label>
-      {{ t("再次输入孩子名字「") }} {{ form.name }}」<input
-        v-model="confirmation"
+      {{ t("再次输入名字「") }} {{ form.name }}」<input v-model="confirmation"
     /></label>
     <div class="dialog-actions">
       <button class="button" @click="deleteOpen = false">{{ t("取消") }}</button
@@ -425,6 +484,34 @@ function browse(id: number) {
 </template>
 
 <style scoped>
+.child-profile-card {
+  display: flex;
+  flex-direction: column;
+}
+.child-profile-card .child-description {
+  flex: 1;
+}
+.form-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.form-row > label {
+  min-width: 0;
+}
+
+.profile-create-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.profile-create-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pet-details {
+  color: var(--muted);
+}
+
 .avatar-editor {
   display: flex;
   gap: 20px;
@@ -451,6 +538,10 @@ function browse(id: number) {
   line-height: 1.6;
 }
 @media (max-width: 600px) {
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
   .avatar-editor {
     align-items: flex-start;
     gap: 12px;

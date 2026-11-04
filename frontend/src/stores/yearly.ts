@@ -6,7 +6,7 @@ export const useYearly = defineStore("yearly", () => {
   const user = ref<any>(null),
     children = ref<any[]>([]),
     selected = ref<number[]>([]);
-  const stats = ref({ media: 0, children: 0, events: 0, bytes: 0 });
+  const stats = ref({ media: 0, children: 0, pets: 0, events: 0, bytes: 0 });
   const canEdit = computed(() =>
     ["admin", "member"].includes(user.value?.role),
   );

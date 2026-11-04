@@ -231,6 +231,13 @@ const activeChild = computed(() =>
     ? yearly.children.find((c) => c.id === yearly.selected[0])
     : null,
 );
+watch(
+  activeChild,
+  (profile) => {
+    if (!profile?.birthday && view.value === "age") view.value = "calendar";
+  },
+  { flush: "sync" },
+);
 const groups = computed(() => {
   const map = new Map<string, any[]>();
   for (const item of items.value) {
@@ -256,7 +263,7 @@ function calendarMonth(birth: string, months: number) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}T00:00:00`;
 }
 function range() {
-  if (view.value === "age" && activeChild.value && stage.value >= 0) {
+  if (view.value === "age" && activeChild.value?.birthday && stage.value >= 0) {
     const s = stages.value[stage.value];
     return {
       start: calendarMonth(activeChild.value.birthday, s.start),
@@ -356,7 +363,7 @@ watch(q, () => {
   searchTimer = setTimeout(() => load(), 350);
 });
 async function loadMarkers() {
-  if (activeChild.value) {
+  if (activeChild.value?.birthday) {
     try {
       markers.value = await api(`/children/${activeChild.value.id}/milestones`);
     } catch (e) {
@@ -754,8 +761,8 @@ function saveStages() {
       <div>
         <span class="summary-icon sand"><Users :size="21" /></span
         ><span
-          ><b>{{ yearly.stats.children }}</b
-          ><small> {{ t("正在长大的小小人") }} </small></span
+          ><b>{{ yearly.stats.children + (yearly.stats.pets || 0) }}</b
+          ><small> {{ t("一起长大的孩子与宠物") }} </small></span
         >
       </div>
       <p>
@@ -769,16 +776,16 @@ function saveStages() {
             v-if="yearly.canEdit"
             to="/children"
             class="add-child-link"
-            ><Plus :size="15" /> {{ t("添加孩子") }}
+            ><Plus :size="15" /> {{ t("添加档案") }}
           </RouterLink></ChildPicker
         ><select
           v-if="yearly.selected.length > 1"
           v-model="match"
           class="compact-select"
-          :aria-label="t('多孩子匹配方式')"
+          :aria-label="t('档案匹配方式')"
         >
-          <option value="any">{{ t("包含任意孩子") }}</option>
-          <option value="all">{{ t("同时包含全部孩子") }}</option>
+          <option value="any">{{ t("包含任意所选档案") }}</option>
+          <option value="all">{{ t("同时包含全部所选档案") }}</option>
         </select>
       </div>
       <div class="view-bar">
@@ -790,8 +797,8 @@ function saveStages() {
             <CalendarDays :size="15" /> {{ t("按日历") }}</button
           ><button
             :class="{ active: view === 'age' }"
-            :disabled="!activeChild"
-            :title="t('选择一个孩子后浏览年龄阶段')"
+            :disabled="!activeChild?.birthday"
+            :title="t('选择一个已填写生日的档案后浏览年龄阶段')"
             @click="view = 'age'"
           >
             {{ t("按年龄") }}
@@ -884,7 +891,11 @@ function saveStages() {
           <button class="chip" @click="quickDate('month')">
             {{ t("本月") }}
           </button>
-          <button v-if="activeChild" class="chip" @click="birthdayDate">
+          <button
+            v-if="activeChild?.birthday"
+            class="chip"
+            @click="birthdayDate"
+          >
             {{ t("出生当天") }}
           </button>
         </div>
@@ -954,7 +965,7 @@ function saveStages() {
           batchOpen = true;
         "
       >
-        {{ t("关联孩子") }}</button
+        {{ t("关联孩子与宠物") }}</button
       ><button
         class="button small"
         :disabled="!selected.length"
@@ -1261,8 +1272,10 @@ function saveStages() {
                 >
                 <div class="age-labels">
                   <span v-for="c in m.children" :key="c.id"
-                    >{{ c.name }} · {{ ageLabel(c.age_start)
-                    }}<template v-if="c.age_end && c.age_end !== c.age_start">
+                    >{{ c.name
+                    }}<template v-if="c.age_start">
+                      · {{ ageLabel(c.age_start) }}</template
+                    ><template v-if="c.age_end && c.age_end !== c.age_start">
                       ～ {{ ageLabel(c.age_end) }}</template
                     ></span
                   >
@@ -1324,10 +1337,10 @@ function saveStages() {
             ? t('每一份回忆，都在好好收藏。')
             : yearly.selected.length && !q && !year && !day && !type
               ? t(
-                  '这个孩子还没有关联影像。可在“全部孩子”中多选已有影像后关联，也可以直接上传。',
+                  '这个档案还没有关联影像。可在“全部孩子与宠物”中多选已有影像后关联，也可以直接上传。',
                 )
               : q || yearly.selected.length || year || day || type
-                ? t('换个筛选条件，或为这个孩子上传新的成长影像。')
+                ? t('换个筛选条件，或为这个档案上传新的成长影像。')
                 : undefined
         "
         ><RouterLink
@@ -1419,7 +1432,7 @@ function saveStages() {
         </div>
       </form></ElDialog
     >
-    <ElDialog v-model="batchOpen" :title="t('批量关联孩子')" width="540px"
+    <ElDialog v-model="batchOpen" :title="t('批量关联孩子与宠物')" width="540px"
       ><p class="muted">
         {{ t("将调整已选") }} {{ selected.length }}
         {{ t("份回忆的关联，原文件保持独立保存。") }}
@@ -1428,8 +1441,8 @@ function saveStages() {
         {{ t("操作方式") }}
         <select v-model="batchMode">
           <option value="add">{{ t("追加关联") }}</option>
-          <option value="remove">{{ t("解除选中的孩子关联") }}</option>
-          <option value="replace">{{ t("替换为所选孩子（可清空）") }}</option>
+          <option value="remove">{{ t("解除所选档案的关联") }}</option>
+          <option value="replace">{{ t("替换为所选档案（可清空）") }}</option>
         </select></label
       ><ChildPicker v-model="batchKids" />
       <div class="dialog-actions">

@@ -4,6 +4,14 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
+## Pet profile verification (2026-11-04)
+
+- All 58 frontend tests, type checking, the production build, and 24 relevant backend tests passed. Coverage includes shared child/pet photos and journals, any/all deduplication, unknown birthdays, avatars, archiving, deletion preserving originals, and new/legacy backup restoration.
+- Role and public-sharing boundaries passed: viewers cannot edit pets, members cannot delete profiles, public responses omit profiles and associations, and anonymous access to private profiles and media is denied.
+- Browser checks used isolated fictional data for pet creation, mixed selection, unavailable age filtering with unknown birthdays, switching from age view to pets, Chinese/English labels, and 390px layouts. README profile screenshots use 2× resolution.
+- Test MySQL was upgraded to `0009 (head)` and local services resumed. Production was neither migrated nor deployed. OSS was mocked in this round; real OSS acceptance was not repeated.
+
+
 ## Shared timeline scrubbing verification (2026-11-04)
 
 - All 56 frontend tests, type checking, and the production build passed. All 24 relevant backend sharing/ordering tests passed. Cases cover date previews during dragging, release/cancel, single dates, keyboard controls, folded months, and unloaded-date jumps.
