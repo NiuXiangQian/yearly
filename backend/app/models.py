@@ -76,13 +76,31 @@ class MediaChild(Base):
     created_at: Mapped[datetime] = mapped_column(DT, default=now)
 
 
+class TimelineFolder(Base, Timestamp):
+    __tablename__ = "timeline_folder"
+    id: Mapped[int] = mapped_column(ID, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    timeline_date: Mapped[date] = mapped_column(Date, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+
+
 class Media(Base, Timestamp):
     __tablename__ = "media"
     __table_args__ = (Index("ix_media_status_taken", "status", "taken_at_local", "id"),)
     id: Mapped[int] = mapped_column(ID, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"))
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("timeline_folder.id"), index=True
+    )
+    purpose: Mapped[str] = mapped_column(
+        String(16), default="memory", server_default="memory"
+    )
     media_type: Mapped[str] = mapped_column(String(16))
     title: Mapped[str] = mapped_column(String(255), default="")
+    batch_name: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    timeline_date: Mapped[date | None] = mapped_column(Date)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     remark: Mapped[str] = mapped_column(Text, default="")
     tags: Mapped[list] = mapped_column(JSON, default=list)
     original_taken_at_local: Mapped[datetime | None] = mapped_column(DT)
@@ -131,6 +149,15 @@ class MediaFile(Base):
     crc64: Mapped[str] = mapped_column(String(20))
     upload_status: Mapped[str] = mapped_column(String(16), default="pending")
     created_at: Mapped[datetime] = mapped_column(DT, default=now)
+
+
+class VideoPreview(Base, Timestamp):
+    __tablename__ = "video_preview"
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), default="processing")
+    object_key: Mapped[str] = mapped_column(String(191), default="")
+    file_size: Mapped[int] = mapped_column(ID, default=0)
+    error: Mapped[str] = mapped_column(String(255), default="")
 
 
 class MediaMetadata(Base):

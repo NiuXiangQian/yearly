@@ -69,6 +69,13 @@ def create_upload(
     storage=Depends(get_storage),
 ):
     cfg = settings()
+    if data.folder_id:
+        from .folders import active_folder
+
+        folder = active_folder(db, data.folder_id)
+        if data.timeline_date and data.timeline_date != folder.timeline_date:
+            raise HTTPException(422, "文件夹与归档日期不一致")
+        data.timeline_date = folder.timeline_date
     validate_children(db, data.child_ids)
     if len(json.dumps(data.metadata, ensure_ascii=False)) > 1024 * 1024:
         raise HTTPException(413, "元数据超过 1 MiB 限制")
@@ -90,6 +97,51 @@ def create_upload(
             "mp4",
         }:
             raise HTTPException(422, "兼容预览格式不受支持")
+    # Match the complete original resource set, including both Live Photo resources.
+    # Preview files and filenames do not change the identity of an original.
+    original = next(f for f in data.files if f.file_role == "original")
+    signature = sorted(
+        (f.file_role, f.sha256, f.file_size)
+        for f in data.files
+        if f.file_role != "preview"
+    )
+    candidates = db.scalars(
+        select(Media)
+        .join(MediaFile, MediaFile.media_id == Media.id)
+        .where(
+            Media.status == "active",
+            Media.purpose == data.purpose,
+            Media.media_type == data.media_type,
+            MediaFile.file_role == "original",
+            MediaFile.sha256 == original.sha256,
+            MediaFile.upload_status == "complete",
+        )
+        .order_by(Media.id)
+    ).unique()
+    for existing in candidates:
+        if (
+            sorted(
+                (f.file_role, f.sha256, f.file_size)
+                for f in existing.files
+                if f.file_role != "preview" and f.upload_status == "complete"
+            )
+            != signature
+        ):
+            continue
+        child_ids = sorted({c.id for c in existing.children} | set(data.child_ids))
+        set_children(db, existing.id, child_ids, MediaChild)
+        db.commit()
+        notice = "已存在，已跳过重复上传；保留已有日期和信息"
+        if any(f.file_role == "preview" for f in data.files):
+            notice += "；此次附带的预览未重新保存"
+        return {
+            "media_id": existing.id,
+            "timeline_day": existing.timeline_date
+            or (existing.taken_at_local.date() if existing.taken_at_local else None),
+            "tasks": [],
+            "duplicate": True,
+            "notice": notice,
+        }
     fields = data.model_dump(exclude={"files", "metadata", "child_ids", "time_source"})
     media = Media(**fields, owner_id=user.id, original_time_source=data.time_source)
     apply_time(media)
@@ -123,7 +175,7 @@ def create_upload(
             **{**f.model_dump(), "mime_type": mime},
             media_id=media.id,
             oss_bucket=cfg.oss_bucket,
-            oss_object_key=f"{'previews' if f.file_role == 'preview' else 'originals'}/{now():%Y/%m}/{uuid4().hex}{ext}",
+            oss_object_key=f"{'avatars' if data.purpose == 'avatar' else 'previews' if f.file_role == 'preview' else 'originals'}/{now():%Y/%m}/{uuid4().hex}{ext}",
         )
         db.add(file)
         db.flush()
@@ -140,7 +192,12 @@ def create_upload(
         tasks.append(task_data(task, file))
     # Initiation is lazy, so a partially failed create never leaves untracked OSS uploads.
     db.commit()
-    return {"media_id": media.id, "tasks": tasks}
+    return {
+        "media_id": media.id,
+        "timeline_day": media.timeline_date
+        or (media.taken_at_local.date() if media.taken_at_local else None),
+        "tasks": tasks,
+    }
 
 
 @router.get("")

@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { api, post, setCSRF } from "../lib/api";
+import { clearMediaResources } from "../lib/media-resource";
 export const useYearly = defineStore("yearly", () => {
   const user = ref<any>(null),
     children = ref<any[]>([]),
@@ -27,6 +28,7 @@ export const useYearly = defineStore("yearly", () => {
   }
   async function logout() {
     await post("/auth/logout");
+    clearMediaResources();
     user.value = null;
     setCSRF("");
   }

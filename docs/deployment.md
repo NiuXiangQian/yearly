@@ -8,7 +8,7 @@
 
 Linux、Python 3.12、Node.js 22.12+、已有 MySQL 5.7.8+、已有 Nginx。JSON 字段要求 MySQL 至少 5.7.8，推荐最新 5.7 补丁版本。无需 Docker，也无需新建 MySQL / Nginx 容器。建议数据库时间保持 UTC，拍摄当地时间单独按 DATETIME 保存。
 
-将仓库放在 `/opt/yearly`，创建系统用户 `yearly`。Nginx 运行用户需能读取 `frontend/dist`，`.env.production` 权限设为 600、归 `yearly` 所有。应用源码与 venv 为只读运行，不在后端落地媒体。
+将仓库放在 `/opt/yearly`，创建系统用户 `yearly`。Nginx 运行用户需能读取 `frontend/dist`，`.env.production` 权限设为 600、归 `yearly` 所有。应用源码与 venv 为只读运行，API 不落地媒体；视频预览工作进程需要临时目录空间（至少容纳当前原件与压缩副本），处理后自动清理。
 
 ```bash
 cd /opt/yearly
@@ -46,7 +46,7 @@ export PYTHONPATH="$PWD/backend"
 .venv/bin/python -m app.cli create-admin your-admin-name
 ```
 
-也可手动导入 `deploy/schema-mysql57.sql`，之后执行 `alembic -c backend/alembic.ini stamp 0002`。两个入口任选其一。所有表为 InnoDB / utf8mb4，ID 使用 BIGINT，时间为 DATETIME(3)，坐标为 DECIMAL，原始元数据为 JSON。模型没有 MySQL 8 专属 SQL。
+也可手动导入 `deploy/schema-mysql57.sql`，之后执行 `alembic -c backend/alembic.ini stamp 0006`。两个入口任选其一。已有库执行 `./scripts/manage.sh production migrate` 升级到 0006 后再启动新版后端。所有表为 InnoDB / utf8mb4，ID 使用 BIGINT，时间为 DATETIME(3)，坐标为 DECIMAL，原始元数据为 JSON。模型没有 MySQL 8 专属 SQL。
 
 ## 3. 配置私有 OSS
 
@@ -67,16 +67,28 @@ cd ..
 ## 5. 启动 systemd
 
 ```bash
-sudo cp deploy/yearly.service /etc/systemd/system/
+sudo cp deploy/yearly.service deploy/yearly-previews.service /etc/systemd/system/
 sudo cp deploy/yearly-cleanup.service deploy/yearly-cleanup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now yearly.service yearly-cleanup.timer
+sudo systemctl enable --now yearly.service yearly-previews.service yearly-cleanup.timer
 sudo systemctl status yearly.service
 ```
 
 单 worker 默认避免在小内存机器重复常驻 Python 进程，所有阻塞 SDK 与 SQL 调用由 FastAPI 同步路由线程池处理。任务状态与登录限制持久化在 MySQL，重启不会丢失已签发任务。按实际 CPU / 内存测量后再调整 worker。
 
 服务仅监听 127.0.0.1。`--forwarded-allow-ips=127.0.0.1` 只信任本机 Nginx 的代理头。禁止将 8000 端口直接暴露公网。
+
+`yearly-previews.service` 必须一起启用，否则新视频会保持「预览正在准备」。它每 15 秒发现已完成上传的历史或新视频，串行转码并按 SHA-256 复用副本。`imageio-ffmpeg` 提供独立 FFmpeg 可执行文件；无对应平台 wheel 时可安装系统 FFmpeg，并通过 `IMAGEIO_FFMPEG_EXE=/绝对路径/ffmpeg` 指定。需包含 libx264、AAC、zscale、tonemap。转码使用两个编码线程，部署前确认临时空间和 CPU 配额。
+
+```bash
+# 一次性处理历史记录（与常驻进程二选一，同库只允许一个生成进程）
+./scripts/manage.sh production generate-previews
+# 重试失败任务前先停常驻进程
+sudo systemctl stop yearly-previews.service
+./scripts/manage.sh production generate-previews --retry-failed
+sudo systemctl start yearly-previews.service
+journalctl -u yearly-previews.service
+```
 
 ## 6. 现有 Nginx 配置
 

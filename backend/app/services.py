@@ -1,5 +1,5 @@
 from datetime import timedelta
-from sqlalchemy import select, delete, or_
+from sqlalchemy import select, delete, or_, func, cast, DateTime
 from fastapi import HTTPException
 from .models import Child, Media, MediaChild, Event, EventMedia, EventChild
 from .age import age_at
@@ -56,6 +56,9 @@ def child_data(child):
 
 def media_data(media, child_ids=None, detail=False):
     data = {c.name: getattr(media, c.name) for c in Media.__table__.columns}
+    data["timeline_day"] = media.timeline_date or (
+        media.taken_at_local.date() if media.taken_at_local else None
+    )
     children = [c for c in media.children if c.status != "deleted"]
     data["children"] = [
         {
@@ -84,6 +87,10 @@ def media_data(media, child_ids=None, detail=False):
             for c in media.metadata_record.__table__.columns
         }
     return data
+
+
+def timeline_time():
+    return func.coalesce(cast(Media.timeline_date, DateTime), Media.taken_at_local)
 
 
 def event_data(event, child_ids=None):

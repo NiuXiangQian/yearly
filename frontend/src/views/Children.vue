@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   Plus,
@@ -8,11 +8,14 @@ import {
   CalendarDays,
   Heart,
   Pencil,
+  Upload,
 } from "lucide-vue-next";
 import { useYearly } from "../stores/yearly";
 import { api, post, put, del, notify, localDate } from "../lib/api";
 import EmptyState from "../components/EmptyState.vue";
 import ChildAvatar from "../components/ChildAvatar.vue";
+import { inspectFile } from "../lib/metadata";
+import { directUpload } from "../lib/upload";
 const yearly = useYearly(),
   router = useRouter(),
   open = ref(false),
@@ -22,7 +25,75 @@ const yearly = useYearly(),
   deleteOpen = ref(false),
   busy = ref(false),
   avatarOptions = ref<any[]>([]);
+const avatarInput = ref<HTMLInputElement>(),
+  avatarFile = ref<File | null>(null),
+  avatarPreview = ref(""),
+  avatarPreparing = ref(false),
+  avatarProgress = ref<number | null>(null);
+function clearAvatarDraft() {
+  avatarFile.value = null;
+  if (avatarPreview.value) URL.revokeObjectURL(avatarPreview.value);
+  avatarPreview.value = "";
+}
+watch(open, (value) => {
+  if (!value) clearAvatarDraft();
+});
+async function chooseAvatar(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  avatarPreparing.value = true;
+  try {
+    if (file.size > 20 * 1024 * 1024)
+      throw new Error("请选择 20 MB 以内的头像图片");
+    if (!/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name))
+      throw new Error("请选择 JPG、PNG、WebP 或 HEIC 图片");
+    let source: Blob = file;
+    if (/\.hei[cf]$/i.test(file.name)) {
+      const { heicTo } = await import("heic-to/csp");
+      source = await heicTo({ blob: file, type: "image/jpeg", quality: 0.9 });
+    }
+    const image = await createImageBitmap(source);
+    const side = Math.min(image.width, image.height);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = Math.min(512, side);
+    canvas
+      .getContext("2d")!
+      .drawImage(
+        image,
+        (image.width - side) / 2,
+        (image.height - side) / 2,
+        side,
+        side,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+    image.close();
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (value) =>
+          value
+            ? resolve(value)
+            : reject(new Error("头像处理失败，请换一张图片")),
+        "image/jpeg",
+        0.85,
+      ),
+    );
+    if (!open.value) return;
+    clearAvatarDraft();
+    avatarFile.value = new File([blob], "avatar.jpg", { type: "image/jpeg" });
+    avatarPreview.value = URL.createObjectURL(blob);
+  } catch (e) {
+    notify(e);
+  } finally {
+    avatarPreparing.value = false;
+  }
+}
 function edit(c?: any) {
+  clearAvatarDraft();
   editing.value = c?.id || null;
   form.value = c
     ? { ...c }
@@ -54,8 +125,32 @@ async function searchAvatar(q: string) {
   }
 }
 async function save() {
+  if (busy.value || avatarPreparing.value) return;
   busy.value = true;
   try {
+    if (avatarFile.value) {
+      avatarProgress.value = 0;
+      const item = await inspectFile(avatarFile.value);
+      const result = await post("/uploads", {
+        purpose: "avatar",
+        media_type: "photo",
+        files: [
+          {
+            original_filename: item.file.name,
+            mime_type: item.file.type,
+            file_size: item.file.size,
+            ...item.hash,
+            file_role: "original",
+          },
+        ],
+      });
+      for (const task of result.tasks)
+        await directUpload(task, item, (value) => {
+          avatarProgress.value = value;
+        });
+      form.value.avatar_media_id = result.media_id;
+      avatarFile.value = null;
+    }
     const data = { ...form.value, birth_time: form.value.birth_time || null };
     editing.value
       ? await put("/children/" + editing.value, data)
@@ -66,6 +161,7 @@ async function save() {
     notify(e);
   } finally {
     busy.value = false;
+    avatarProgress.value = null;
   }
 }
 async function remove() {
@@ -145,7 +241,58 @@ function browse(id: number) {
     v-model="open"
     :title="editing ? '编辑孩子档案' : '认识一个小小的你'"
     width="660px"
+    :close-on-click-modal="!busy && !avatarPreparing"
+    :close-on-press-escape="!busy && !avatarPreparing"
+    :show-close="!busy && !avatarPreparing"
     ><form @submit.prevent="save">
+      <div class="avatar-editor">
+        <span v-if="avatarPreview" class="child-avatar big-child-avatar"
+          ><img :src="avatarPreview" alt="新头像预览"
+        /></span>
+        <ChildAvatar v-else class="big-child-avatar" :child="form" />
+        <div>
+          <input
+            ref="avatarInput"
+            type="file"
+            accept=".jpg,.jpeg,.png,.webp,.heic,.heif"
+            hidden
+            @change="chooseAvatar"
+          />
+          <div class="avatar-actions">
+            <button
+              type="button"
+              class="button"
+              :disabled="busy || avatarPreparing"
+              @click="avatarInput?.click()"
+            >
+              <Upload :size="16" />{{
+                avatarPreparing ? "正在处理…" : "上传头像"
+              }}
+            </button>
+            <button
+              v-if="avatarPreview || form.avatar_media_id"
+              type="button"
+              class="text-button"
+              :disabled="busy || avatarPreparing"
+              @click="
+                clearAvatarDraft();
+                form.avatar_media_id = null;
+              "
+            >
+              清除头像
+            </button>
+          </div>
+          <p class="muted">
+            自动居中裁剪，压缩至最长 512 像素。仅用作头像，不加入时间线。
+          </p>
+          <small class="muted"
+            >JPG / PNG / WebP / HEIC，最大 20 MB；保存档案后生效。</small
+          >
+          <p v-if="avatarProgress !== null" role="status">
+            头像上传 {{ avatarProgress }}%
+          </p>
+        </div>
+      </div>
       <div class="form-row">
         <label
           >名字<input
@@ -189,12 +336,14 @@ function browse(id: number) {
           placeholder="性格、爱好，或你想对 TA 说的话…"
         /></label
       ><label
-        >头像媒体<ElSelect
+        >或从已有照片选择<ElSelect
           v-model="form.avatar_media_id"
           filterable
           remote
           clearable
           :remote-method="searchAvatar"
+          :disabled="busy || avatarPreparing"
+          @change="clearAvatarDraft"
           placeholder="搜索已上传照片标题"
           @visible-change="(v: boolean) => v && searchAvatar('')"
           ><ElOption
@@ -233,8 +382,14 @@ function browse(id: number) {
           "
         >
           删除档案</button
-        ><button type="button" class="button" @click="open = false">取消</button
-        ><button class="button primary" :disabled="busy">
+        ><button
+          type="button"
+          class="button"
+          :disabled="busy || avatarPreparing"
+          @click="open = false"
+        >
+          取消</button
+        ><button class="button primary" :disabled="busy || avatarPreparing">
           {{ busy ? "正在保存…" : "保存孩子档案" }}
         </button>
       </div>
@@ -256,3 +411,37 @@ function browse(id: number) {
     </div></ElDialog
   >
 </template>
+
+<style scoped>
+.avatar-editor {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  margin: 4px 0 24px;
+}
+.avatar-editor .big-child-avatar {
+  flex: 0 0 80px;
+  width: 80px;
+  height: 80px;
+}
+.avatar-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.avatar-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.avatar-editor p {
+  margin: 10px 0 6px;
+  line-height: 1.6;
+}
+@media (max-width: 600px) {
+  .avatar-editor {
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+</style>

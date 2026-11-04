@@ -9,9 +9,14 @@
 - 独立逻辑媒体与物理文件，多孩子共享照片和共同成长日记，EXISTS 筛选去重，时间线游标分页。
 - 拍摄当地日期动态日历年龄、出生前 / 未知时间标签、满月 / 百天 / 生日导航、自定义月龄阶段。
 - 浏览器 EXIF / GPS / 设备参数解析、分段 QuickTime 元数据读取、4 MiB 增量 SHA-256 / CRC64，上传前确认及手动修正。
+- 相同原件跨批次导入自动复用已有记录并合并孩子关联，避免重复卡片和重复 OSS 上传。
 - OSS V4 分片签名直传、分片重试、重新选择原件恢复任务、服务端大小 / CRC64 / 声明 SHA-256 元数据核验。原件不经 API / Nginx。
 - Live Photo 可靠标识配对及手动 HEIC/JPEG + MOV 双文件导入，一条逻辑媒体，分别下载原件。可独立导入兼容预览。
-- 瀑布流、私有媒体详情、原始元数据、修正时间、GPS、备注、标签、批量孩子关联、回收站。
+- 按天影像网格、日期节点追加；可直接拖动排序或批量拖入当天文件夹，移动端可前移 / 后移。当天和文件夹内均可恢复默认拍摄时间排序（从新到旧）。
+- 孩子头像可单独上传、预览、更换和清除，也可从已有照片选择。独立头像自动居中裁剪压缩，保存档案时上传，不计入时间线回忆。
+- 每天可创建命名文件夹，支持重命名、文件夹排序、批量移入 / 移出、文件夹内排序与追加上传。删除文件夹会将内容移回当天时间线，不删除原件。
+- 上传批次命名、可勾选的紧凑文件列表、队列拖动排序、按需展开文件详情。归档日期独立于原始拍摄时间，支持批量命名和调整日期。
+- 私有媒体详情、原始元数据、修正时间、GPS、备注、标签、批量孩子关联、回收站，HEIC / HEIF 压缩预览、图片缩放拖动，视频压缩副本与按需播放。
 - Shift 连选、PC 框选模式、移动端长按多选。日记明确保存媒体顺序、封面、孩子和起止时间，支持纯文字。
 - JSON / CSV 清单、MySQL 备份恢复、低内存 OSS 原件备份与 SHA-256 校验、稳定 ID 及关系恢复。
 - 浅深主题、响应式布局、无第三方照片分析 / 字体请求。
@@ -43,9 +48,9 @@ chmod 600 .env.test
 ./scripts/start-local.sh
 ```
 
-`start-local.sh` 先迁移测试库，再同时启动 FastAPI 热更新与 Vite，按 Ctrl+C 结束两者。访问 <http://127.0.0.1:5173/>，健康检查为 `/api/health`，返回当前 environment。
+`start-local.sh` 先迁移测试库，再同时启动 FastAPI 热更新、Vite 与视频预览工作进程，按 Ctrl+C 一起结束。访问 <http://127.0.0.1:5173/>，健康检查为 `/api/health`，返回当前 environment。
 
-也可分开启动，后端使用 `./scripts/start-api.sh test --reload`，前端使用 `cd frontend && npm run dev -- --port 5173`。
+也可分开启动，后端使用 `./scripts/start-api.sh test --reload`，前端使用 `cd frontend && npm run dev -- --port 5173`；视频预览进程使用 `./scripts/manage.sh test generate-previews --watch`。
 
 ## 正式环境运行
 
@@ -83,7 +88,7 @@ chmod 600 .env.production
 - [Nginx 配置](deploy/nginx.conf)
 - [systemd 服务](deploy/yearly.service)
 
-新库推荐 Alembic。手工建表脚本是替代入口，使用它后执行 `alembic ... stamp 0002`，不要重复建表。
+新库推荐 Alembic。手工建表脚本是替代入口，使用它后执行 `alembic ... stamp 0006`，不要重复建表。已有数据库通过 `./scripts/manage.sh test migrate` 或 `./scripts/manage.sh production migrate` 升级，0003 添加批次名称、归档日期和排序字段，0004 添加可重建的视频预览缓存表，0005 添加每日文件夹和影像归属，0006 区分独立头像与时间线影像。
 
 ## 数据与运行约定
 

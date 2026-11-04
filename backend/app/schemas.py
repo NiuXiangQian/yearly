@@ -24,6 +24,8 @@ class ChildIn(BaseModel):
 
 
 class MediaEdit(BaseModel):
+    batch_name: str = Field(default="", max_length=255)
+    timeline_date: date | None = None
     time_unknown: bool = False
     title: str = Field(default="", max_length=255)
     remark: str = Field(default="", max_length=20000)
@@ -67,6 +69,10 @@ class FileIn(BaseModel):
 
 
 class UploadIn(BaseModel):
+    purpose: Literal["memory", "avatar"] = "memory"
+    folder_id: int | None = Field(default=None, ge=1)
+    batch_name: str = Field(default="", max_length=255)
+    timeline_date: date | None = None
     time_unknown: bool = False
     media_type: Literal["photo", "video", "live_photo"]
     files: list[FileIn] = Field(min_length=1, max_length=3)
@@ -91,6 +97,18 @@ class UploadIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_files(self):
+        if self.purpose == "avatar" and (
+            self.media_type != "photo"
+            or len(self.files) != 1
+            or self.files[0].file_size > 1024 * 1024
+            or self.files[0].original_filename.rsplit(".", 1)[-1].lower()
+            not in {"jpg", "jpeg", "png", "webp"}
+            or self.child_ids
+            or self.folder_id
+        ):
+            raise ValueError(
+                "独立头像需为 1 MiB 以内的 JPG、PNG 或 WebP 图片，不能归入时间线或文件夹"
+            )
         roles = [f.file_role for f in self.files]
         if roles.count("original") != 1 or len(roles) != len(set(roles)):
             raise ValueError("每个逻辑媒体必须有且只有一份静态或视频原件")
@@ -136,6 +154,18 @@ class BatchChildren(BaseModel):
     mode: Literal["replace", "add", "remove"] = "add"
 
 
+class BatchOrganize(BaseModel):
+    media_ids: list[int] = Field(min_length=1, max_length=1000)
+    batch_name: str | None = Field(default=None, max_length=255)
+    timeline_date: date | None = None
+
+
+class MediaReorder(BaseModel):
+    media_ids: list[int] = Field(min_length=1, max_length=1000)
+    target_id: int = Field(ge=1)
+    placement: Literal["before", "after"] = "before"
+
+
 class LoginIn(BaseModel):
     username: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=1, max_length=256)
@@ -151,8 +181,11 @@ class UserIn(BaseModel):
 
 class TimelineCursor(BaseModel):
     id: int = Field(ge=1)
-    kind: Literal["media", "event"]
+    kind: Literal["media", "event", "folder"]
     sort_at: datetime | None = None
+    sort_day: date | None = None
+    sort_order: int = 0
+    sort_group: int = 0
 
     @field_validator("sort_at")
     @classmethod

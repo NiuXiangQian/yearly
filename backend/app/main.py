@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Response, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete, func, or_
+from sqlalchemy import select, delete, update, func, or_
 from sqlalchemy.exc import IntegrityError
 from argon2.exceptions import VerificationError
 from .config import settings
@@ -23,12 +23,23 @@ from .models import (
     Child,
     Media,
     MediaFile,
+    TimelineFolder,
+    VideoPreview,
     MediaChild,
     Event,
     EventChild,
     EventMedia,
 )
-from .schemas import ChildIn, MediaEdit, EventIn, BatchChildren, LoginIn, UserIn
+from .schemas import (
+    ChildIn,
+    MediaEdit,
+    EventIn,
+    BatchChildren,
+    BatchOrganize,
+    MediaReorder,
+    LoginIn,
+    UserIn,
+)
 from .security import (
     current_user,
     editor,
@@ -48,10 +59,17 @@ from .services import (
     save_event,
     filter_children,
     validate_children,
+    timeline_time,
 )
 from .age import milestones
 from .storage import get_storage
 from .uploads import router as upload_router
+from .folders import (
+    router as folder_router,
+    folder_data,
+    active_folder,
+    reorder_day_entries,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -79,6 +97,7 @@ app = FastAPI(
     openapi_url="/api/openapi.json" if settings().app_env == "test" else None,
 )
 app.include_router(upload_router)
+app.include_router(folder_router)
 
 
 @app.middleware("http")
@@ -285,7 +304,7 @@ def children(db=Depends(get_db), user=Depends(current_user)):
 @app.post("/api/children")
 def create_child(data: ChildIn, db=Depends(get_db), user=Depends(editor)):
     if data.avatar_media_id:
-        require_active_media(db, data.avatar_media_id)
+        require_avatar_image(db, data.avatar_media_id)
     child = Child(**data.model_dump())
     db.add(child)
     db.commit()
@@ -298,7 +317,7 @@ def update_child(cid: int, data: ChildIn, db=Depends(get_db), user=Depends(edito
     if child.status == "deleted":
         raise HTTPException(404, "孩子档案已删除")
     if data.avatar_media_id and data.avatar_media_id != child.avatar_media_id:
-        require_active_media(db, data.avatar_media_id)
+        require_avatar_image(db, data.avatar_media_id)
     for key, value in data.model_dump().items():
         setattr(child, key, value)
     db.commit()
@@ -330,8 +349,16 @@ def require_active_media(db, mid):
     return media
 
 
+def require_avatar_image(db, mid):
+    media = require_active_media(db, mid)
+    if media.media_type != "photo":
+        raise HTTPException(422, "头像需要选择静态照片")
+    return media
+
+
 @app.get("/api/media")
 def media_list(
+    folder_id: int | None = Query(default=None, ge=1),
     child_id: list[int] = Query(default=[]),
     match: Literal["any", "all"] = "any",
     start: datetime | None = None,
@@ -345,25 +372,38 @@ def media_list(
     user=Depends(current_user),
 ):
     query = filter_children(
-        select(Media).where(Media.status == status), MediaChild, Media, child_id, match
+        select(Media).where(Media.status == status, Media.purpose == "memory"),
+        MediaChild,
+        Media,
+        child_id,
+        match,
     )
+    if folder_id is not None:
+        active_folder(db, folder_id)
+        query = query.where(Media.folder_id == folder_id)
     if start:
-        query = query.where(Media.taken_at_local >= start)
+        query = query.where(timeline_time() >= start)
     if end:
-        query = query.where(Media.taken_at_local < end)
+        query = query.where(timeline_time() < end)
     if media_type:
         query = query.where(Media.media_type == media_type)
     if q:
         query = query.where(
             or_(
                 Media.title.contains(q, autoescape=True),
+                Media.batch_name.contains(q, autoescape=True),
                 Media.remark.contains(q, autoescape=True),
                 Media.location_name.contains(q, autoescape=True),
             )
         )
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     rows = db.scalars(
-        query.order_by(Media.taken_at_local.desc(), Media.id.desc())
+        query.order_by(
+            func.date(timeline_time()).desc(),
+            Media.sort_order.desc(),
+            Media.taken_at_local.desc(),
+            Media.id.desc(),
+        )
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -383,10 +423,20 @@ def media_detail(mid: int, db=Depends(get_db), user=Depends(current_user)):
 @app.put("/api/media/{mid}")
 def edit_media(mid: int, data: MediaEdit, db=Depends(get_db), user=Depends(editor)):
     media = require_active_media(db, mid)
+    previous_day = media.timeline_date or (
+        media.taken_at_local.date() if media.taken_at_local else None
+    )
     set_children(db, mid, data.child_ids, MediaChild)
-    for key, value in data.model_dump(exclude={"child_ids"}).items():
+    excluded = {"child_ids"} | ({"batch_name", "timeline_date"} - data.model_fields_set)
+    for key, value in data.model_dump(exclude=excluded).items():
         setattr(media, key, value)
     apply_time(media)
+    current_day = media.timeline_date or (
+        media.taken_at_local.date() if media.taken_at_local else None
+    )
+    if current_day != previous_day:
+        media.sort_order = 0
+        media.folder_id = None
     db.commit()
     db.expire_all()
     return media_data(db.get(Media, mid), detail=True)
@@ -408,6 +458,133 @@ def batch_children(data: BatchChildren, db=Depends(get_db), user=Depends(editor)
         set_children(db, mid, ids, MediaChild)
     db.commit()
     return {"ok": True}
+
+
+@app.post("/api/media/batch-organize")
+def organize_media(data: BatchOrganize, db=Depends(get_db), user=Depends(editor)):
+    changes = data.model_dump(exclude={"media_ids"}, exclude_unset=True)
+    if not changes:
+        raise HTTPException(422, "请选择批次名称或归档日期")
+    rows = [require_active_media(db, mid) for mid in set(data.media_ids)]
+    for media in rows:
+        if "batch_name" in changes:
+            media.batch_name = (data.batch_name or "").strip()
+        if "timeline_date" in changes:
+            media.timeline_date = data.timeline_date
+            media.sort_order = 0
+            if media.folder_id:
+                folder = db.get(TimelineFolder, media.folder_id)
+                current_day = media.timeline_date or (
+                    media.taken_at_local.date() if media.taken_at_local else None
+                )
+                if current_day != folder.timeline_date:
+                    media.folder_id = None
+    db.commit()
+    return {"ok": True, "count": len(rows)}
+
+
+class TimelineEntryRef(BaseModel):
+    kind: Literal["media", "folder"]
+    id: int = Field(ge=1)
+
+
+class TimelineReorder(BaseModel):
+    items: list[TimelineEntryRef] = Field(min_length=1, max_length=1000)
+    target: TimelineEntryRef
+    placement: Literal["before", "after"] = "before"
+
+
+@app.post("/api/timeline/reorder")
+def reorder_timeline(data: TimelineReorder, db=Depends(get_db), user=Depends(editor)):
+    ordered = reorder_day_entries(
+        db,
+        [(item.kind, item.id) for item in data.items],
+        (data.target.kind, data.target.id),
+        data.placement,
+    )
+    db.commit()
+    return {"items": [{"kind": kind, "id": id} for kind, id in ordered]}
+
+
+class ResetMediaOrder(BaseModel):
+    day: date | None
+    folder_id: int | None = Field(default=None, ge=1)
+
+
+@app.post("/api/media/reset-order")
+def reset_media_order(data: ResetMediaOrder, db=Depends(get_db), user=Depends(editor)):
+    if data.folder_id:
+        folder = active_folder(db, data.folder_id)
+        if folder.timeline_date != data.day:
+            raise HTTPException(422, "文件夹与日期不一致")
+    day_column = func.date(timeline_time())
+    query = update(Media).where(
+        Media.status == "active",
+        Media.purpose == "memory",
+        day_column == data.day if data.day else day_column.is_(None),
+    )
+    if data.folder_id:
+        query = query.where(Media.folder_id == data.folder_id)
+    result = db.execute(query.values(sort_order=0))
+    if not data.folder_id and data.day:
+        db.execute(
+            update(TimelineFolder)
+            .where(
+                TimelineFolder.status == "active",
+                TimelineFolder.timeline_date == data.day,
+            )
+            .values(sort_order=0)
+        )
+    db.commit()
+    return {"ok": True, "count": result.rowcount}
+
+
+@app.post("/api/media/reorder")
+def reorder_media(data: MediaReorder, db=Depends(get_db), user=Depends(editor)):
+    target = require_active_media(db, data.target_id)
+    if not target.folder_id:
+        ordered = reorder_day_entries(
+            db,
+            [("media", mid) for mid in data.media_ids],
+            ("media", data.target_id),
+            data.placement,
+        )
+        db.commit()
+        return {"media_ids": [id for kind, id in ordered if kind == "media"]}
+    day = target.timeline_date or (
+        target.taken_at_local.date() if target.taken_at_local else None
+    )
+    day_column = func.date(timeline_time())
+    rows = list(
+        db.scalars(
+            select(Media)
+            .where(
+                Media.status == "active",
+                day_column == day if day else day_column.is_(None),
+                Media.folder_id == target.folder_id
+                if target.folder_id
+                else Media.folder_id.is_(None),
+            )
+            .order_by(
+                Media.sort_order.desc(), Media.taken_at_local.desc(), Media.id.desc()
+            )
+            .with_for_update()
+        )
+    )
+    moving_ids = set(data.media_ids)
+    if data.target_id in moving_ids or not moving_ids.issubset({m.id for m in rows}):
+        raise HTTPException(422, "只能调整同一天的影像，放置位置不能是已选影像")
+    by_id = {m.id: m for m in rows}
+    moving = [by_id[mid] for mid in dict.fromkeys(data.media_ids)]
+    remaining = [m for m in rows if m.id not in moving_ids]
+    index = next(i for i, m in enumerate(remaining) if m.id == data.target_id)
+    if data.placement == "after":
+        index += 1
+    ordered = remaining[:index] + moving + remaining[index:]
+    for index, media in enumerate(ordered):
+        media.sort_order = len(ordered) - index
+    db.commit()
+    return {"media_ids": [m.id for m in ordered]}
 
 
 @app.delete("/api/media/{mid}")
@@ -432,6 +609,7 @@ def file_url(
     mid: int,
     fid: int,
     download: bool = False,
+    purpose: Literal["thumbnail", "preview", "original"] = "preview",
     db=Depends(get_db),
     user=Depends(current_user),
     storage=Depends(get_storage),
@@ -442,7 +620,33 @@ def file_url(
     )
     if not file:
         raise HTTPException(404, "原件不存在")
-    return {"url": storage.download_url(file, download), "expires_in": 300}
+    if download or purpose == "original":
+        return {
+            "url": storage.download_url(file, download),
+            "expires_in": 300,
+            "mime_type": file.mime_type,
+            "file_size": file.file_size,
+            "status": "ready",
+        }
+    if purpose == "preview" and file.mime_type.startswith("video/"):
+        preview = db.get(VideoPreview, file.sha256)
+        if not preview or preview.status != "ready":
+            return {"url": None, "status": preview.status if preview else "pending"}
+        return {
+            "url": storage.video_url(preview),
+            "expires_in": 300,
+            "mime_type": "video/mp4",
+            "file_size": preview.file_size,
+            "status": "ready",
+        }
+    return {
+        "url": storage.image_url(file, purpose),
+        "expires_in": 300,
+        "mime_type": "image/jpeg"
+        if file.mime_type.startswith("video/")
+        else "image/webp",
+        "status": "ready",
+    }
 
 
 @app.get("/api/events")
@@ -515,7 +719,9 @@ def restore_event(eid: int, db=Depends(get_db), user=Depends(editor)):
 def stats(db=Depends(get_db), user=Depends(current_user)):
     return {
         "media": db.scalar(
-            select(func.count(Media.id)).where(Media.status == "active")
+            select(func.count(Media.id)).where(
+                Media.status == "active", Media.purpose == "memory"
+            )
         ),
         "children": db.scalar(
             select(func.count(Child.id)).where(Child.status == "active")
@@ -573,6 +779,7 @@ def export_csv(user=Depends(admin)):
 
 @app.get("/api/timeline")
 def timeline(
+    group_folders: bool = False,
     child_id: list[int] = Query(default=[]),
     match: Literal["any", "all"] = "any",
     start: datetime | None = None,
@@ -583,6 +790,7 @@ def timeline(
     page: int = Query(default=1, ge=1, le=1000000),
     page_size: int = Query(default=40, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=512),
+    date_basis: Literal["timeline", "capture"] = "timeline",
     db=Depends(get_db),
     user=Depends(current_user),
 ):
@@ -594,7 +802,10 @@ def timeline(
             literal("media").label("kind"),
             Media.id.label("id"),
             Media.taken_at_local.label("sort_at"),
-        ).where(Media.status == status),
+            func.date(timeline_time()).label("sort_day"),
+            Media.sort_order.label("sort_order"),
+            literal(0).label("sort_group"),
+        ).where(Media.status == status, Media.purpose == "memory"),
         MediaChild,
         Media,
         child_id,
@@ -605,22 +816,27 @@ def timeline(
             literal("event").label("kind"),
             Event.id.label("id"),
             Event.start_at.label("sort_at"),
+            func.date(Event.start_at).label("sort_day"),
+            literal(0).label("sort_order"),
+            literal(0).label("sort_group"),
         ).where(Event.status == status),
         EventChild,
         Event,
         child_id,
         match,
     )
+    filter_time = Media.taken_at_local if date_basis == "capture" else timeline_time()
     if start:
-        media_query = media_query.where(Media.taken_at_local >= start)
+        media_query = media_query.where(filter_time >= start)
         event_query = event_query.where(Event.start_at >= start)
     if end:
-        media_query = media_query.where(Media.taken_at_local < end)
+        media_query = media_query.where(filter_time < end)
         event_query = event_query.where(Event.start_at < end)
     if q:
         media_query = media_query.where(
             or_(
                 Media.title.contains(q, autoescape=True),
+                Media.batch_name.contains(q, autoescape=True),
                 Media.remark.contains(q, autoescape=True),
                 Media.location_name.contains(q, autoescape=True),
             )
@@ -634,10 +850,52 @@ def timeline(
     if media_type:
         media_query = media_query.where(Media.media_type == media_type)
         event_query = event_query.where(literal(False))
-    mixed = union_all(media_query, event_query).subquery()
+    queries = [media_query, event_query]
+    if group_folders and status == "active" and date_basis == "timeline":
+        # Reuse the already-filtered media query so folders respect child, search and type filters.
+        matching = select(Media.folder_id).where(
+            Media.id.in_(media_query.with_only_columns(Media.id))
+        )
+        folder_query = select(
+            literal("folder").label("kind"),
+            TimelineFolder.id.label("id"),
+            literal(None).label("sort_at"),
+            TimelineFolder.timeline_date.label("sort_day"),
+            TimelineFolder.sort_order.label("sort_order"),
+            literal(1).label("sort_group"),
+        ).where(TimelineFolder.status == "active")
+        if start:
+            folder_query = folder_query.where(
+                TimelineFolder.timeline_date >= start.date()
+            )
+        if end:
+            folder_query = folder_query.where(TimelineFolder.timeline_date < end.date())
+        if child_id or q or media_type:
+            visible = TimelineFolder.id.in_(matching)
+            if not q and not media_type:
+                visible = or_(
+                    visible,
+                    ~select(Media.id)
+                    .where(
+                        Media.folder_id == TimelineFolder.id, Media.status == "active"
+                    )
+                    .exists(),
+                )
+            folder_query = folder_query.where(visible)
+        queries = [
+            media_query.where(Media.folder_id.is_(None)),
+            event_query,
+            folder_query,
+        ]
+    mixed = union_all(*queries).subquery()
     total = db.scalar(select(func.count()).select_from(mixed))
     query = select(mixed).order_by(
-        mixed.c.sort_at.desc(), mixed.c.id.desc(), mixed.c.kind.desc()
+        mixed.c.sort_day.desc(),
+        mixed.c.sort_order.desc(),
+        mixed.c.sort_group.desc(),
+        mixed.c.sort_at.desc(),
+        mixed.c.id.desc(),
+        mixed.c.kind.desc(),
     )
     if cursor:
         try:
@@ -646,20 +904,27 @@ def timeline(
             )
         except ValueError:
             raise HTTPException(422, "分页游标无效")
-        earlier_id = or_(
-            mixed.c.id < position.id,
-            and_(mixed.c.id == position.id, mixed.c.kind < position.kind),
+        # Old cursors only contain sort_at; derive their day for compatibility.
+        sort_day = position.sort_day or (
+            position.sort_at.date() if position.sort_at else None
         )
-        if position.sort_at is None:
-            query = query.where(mixed.c.sort_at.is_(None), earlier_id)
-        else:
-            query = query.where(
-                or_(
-                    mixed.c.sort_at < position.sort_at,
-                    mixed.c.sort_at.is_(None),
-                    and_(mixed.c.sort_at == position.sort_at, earlier_id),
+        prefix, alternatives = [], []
+        for column, value in [
+            (mixed.c.sort_day, sort_day),
+            (mixed.c.sort_order, position.sort_order),
+            (mixed.c.sort_group, position.sort_group),
+            (mixed.c.sort_at, position.sort_at),
+            (mixed.c.id, position.id),
+            (mixed.c.kind, position.kind),
+        ]:
+            if value is not None:
+                alternatives.append(
+                    and_(*prefix, or_(column < value, column.is_(None)))
                 )
-            )
+                prefix.append(column == value)
+            else:
+                prefix.append(column.is_(None))
+        query = query.where(or_(*alternatives))
     else:
         query = query.offset((page - 1) * page_size)
     rows = db.execute(query.limit(page_size + 1)).mappings().all()
@@ -673,6 +938,46 @@ def timeline(
         ).decode()
     media_ids = [r["id"] for r in rows if r["kind"] == "media"]
     event_ids = [r["id"] for r in rows if r["kind"] == "event"]
+    folder_ids = [r["id"] for r in rows if r["kind"] == "folder"]
+    folder_map = {
+        f.id: f
+        for f in db.scalars(
+            select(TimelineFolder).where(TimelineFolder.id.in_(folder_ids))
+        )
+    }
+    folder_counts = dict(
+        db.execute(
+            select(Media.folder_id, func.count())
+            .where(Media.folder_id.in_(folder_ids), Media.status == "active")
+            .group_by(Media.folder_id)
+        ).all()
+    )
+    # Fetch at most four matching thumbnails per visible folder in one MySQL 5.7 query.
+    folder_previews = {fid: [] for fid in folder_ids}
+    if folder_ids:
+        preview_queries = []
+        for fid in folder_ids:
+            limited = (
+                media_query.with_only_columns(Media.id)
+                .where(Media.folder_id == fid)
+                .order_by(
+                    Media.sort_order.desc(),
+                    Media.taken_at_local.desc(),
+                    Media.id.desc(),
+                )
+                .limit(4)
+                .subquery()
+            )
+            preview_queries.append(select(limited.c.id))
+        preview_ids = union_all(*preview_queries).subquery()
+        for media in db.scalars(
+            select(Media)
+            .join(preview_ids, Media.id == preview_ids.c.id)
+            .order_by(
+                Media.sort_order.desc(), Media.taken_at_local.desc(), Media.id.desc()
+            )
+        ).unique():
+            folder_previews[media.folder_id].append(media_data(media, child_id))
     media_map = {
         m.id: m for m in db.scalars(select(Media).where(Media.id.in_(media_ids)))
     }
@@ -685,6 +990,15 @@ def timeline(
             items.append(
                 {**media_data(media_map[row["id"]], child_id), "kind": "media"}
             )
+        elif row["kind"] == "folder":
+            items.append(
+                {
+                    **folder_data(
+                        folder_map[row["id"]], folder_counts.get(row["id"], 0)
+                    ),
+                    "previews": folder_previews[row["id"]],
+                }
+            )
         else:
             event = event_map[row["id"]]
             items.append(
@@ -692,6 +1006,7 @@ def timeline(
                     **event_data(event, child_id),
                     "kind": "event",
                     "taken_at_local": event.start_at,
+                    "timeline_day": event.start_at.date() if event.start_at else None,
                 }
             )
     return {

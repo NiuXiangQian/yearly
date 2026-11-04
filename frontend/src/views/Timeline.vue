@@ -17,6 +17,12 @@ import {
   ChevronDown,
   MousePointer2,
   Leaf,
+  GripVertical,
+  ArrowLeft,
+  ArrowRight,
+  FolderInput,
+  Pencil,
+  Folder,
 } from "lucide-vue-next";
 import { api, post, notify, localDate } from "../lib/api";
 import { useYearly } from "../stores/yearly";
@@ -26,14 +32,58 @@ import MediaCard from "../components/MediaCard.vue";
 import MediaDetail from "../components/MediaDetail.vue";
 import EventEditor from "../components/EventEditor.vue";
 import EventCover from "../components/EventCover.vue";
+import FolderPanel from "../components/FolderPanel.vue";
+import FolderMoveDialog from "../components/FolderMoveDialog.vue";
 const yearly = useYearly(),
   route = useRoute(),
   router = useRouter();
 const nextCursor = ref<string | null>(null);
+const folderId = ref<number | null>(null),
+  folderCreate = ref(false),
+  folderName = ref(""),
+  folderDay = ref(""),
+  folderBusy = ref(false),
+  folderMoving = ref(false),
+  folderMoveDay = ref(""),
+  folderDrag = ref<number | null>(null),
+  dragDay = ref(""),
+  dragFromFolder = ref<number | null>(null),
+  dropFolder = ref<number | null>(null);
+function newFolder(date: string) {
+  folderDay.value = date;
+  folderName.value = "";
+  folderCreate.value = true;
+}
+async function saveFolder() {
+  folderBusy.value = true;
+  try {
+    await post("/folders", {
+      name: folderName.value.trim(),
+      timeline_date: folderDay.value,
+    });
+    folderCreate.value = false;
+    await load(true, true);
+  } catch (e) {
+    notify(e);
+  } finally {
+    folderBusy.value = false;
+  }
+}
+function moveIntoFolder() {
+  const dates = new Set(
+    items.value
+      .filter((m) => m.kind === "media" && selected.value.includes(m.id))
+      .map((m) => m.timeline_day),
+  );
+  if (dates.size !== 1 || ![...dates][0]) {
+    notify(new Error("请先选择同一天且日期已知的影像"));
+    return;
+  }
+  folderMoveDay.value = [...dates][0];
+  folderMoving.value = true;
+}
 const items = ref<any[]>([]),
-  events = ref<any[]>([]),
   total = ref(0),
-  page = ref(1),
   loading = ref(false),
   error = ref(""),
   selection = ref(false),
@@ -46,7 +96,7 @@ const q = ref(""),
   type = ref(""),
   year = ref(""),
   month = ref(""),
-  day = ref(""),
+  day = ref(typeof route.query.day === "string" ? route.query.day : ""),
   match = ref("any"),
   view = ref("calendar"),
   stages = ref([
@@ -63,6 +113,22 @@ const q = ref(""),
   batchKids = ref<number[]>([]),
   batchMode = ref("add"),
   stageDialog = ref(false);
+const sortDate = ref(""),
+  orderSaving = ref(false),
+  draggedIds = ref<number[]>([]),
+  dropTarget = ref<{
+    id: number;
+    kind: "media" | "folder";
+    placement: "before" | "after";
+  } | null>(null),
+  organizeOpen = ref(false),
+  organizeAction = ref<"name" | "date">("name"),
+  organizeName = ref(""),
+  organizeDate = ref(""),
+  resetDate = ref(false),
+  organizeSaving = ref(false),
+  dateDialog = ref(false),
+  newDate = ref("");
 const grid = ref<HTMLElement>(),
   rect = ref<any>(null),
   anchor = ref(0),
@@ -81,11 +147,20 @@ const activeChild = computed(() =>
 const groups = computed(() => {
   const map = new Map<string, any[]>();
   for (const item of items.value) {
-    const key = (item.taken_at_local || "unknown").slice(0, 10);
+    const key =
+      item.timeline_day || (item.taken_at_local || "unknown").slice(0, 10);
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(item);
   }
-  return [...map].map(([date, media]) => ({ date, media }));
+  return [...map].map(([date, media]) => ({
+    date,
+    media,
+    files: media.filter((item) => item.kind === "media"),
+    folders: media.filter((item) => item.kind === "folder"),
+    orderable: media.filter(
+      (item) => item.kind === "folder" || item.kind === "media",
+    ),
+  }));
 });
 function calendarMonth(birth: string, months: number) {
   const [y, m, d] = birth.split("-").map(Number);
@@ -120,32 +195,40 @@ function range() {
   }
   return {};
 }
-async function load(reset = true) {
+async function load(reset = true, preserveLoaded = false) {
   const ticket = ++generation;
-  if (reset) {
-    page.value = 1;
-    items.value = [];
-    nextCursor.value = null;
-  }
+  const targetCount =
+    reset && preserveLoaded ? Math.max(items.value.length, 40) : 40;
   loading.value = true;
   error.value = "";
   try {
     const params = new URLSearchParams({
-      page: String(page.value),
       page_size: "40",
       match: match.value,
       status: trash.value ? "deleted" : "active",
       q: q.value,
+      group_folders:
+        view.value === "calendar" && !trash.value ? "true" : "false",
     });
-    if (!reset && nextCursor.value) params.set("cursor", nextCursor.value);
     yearly.selected.forEach((id) => params.append("child_id", String(id)));
     if (type.value) params.set("media_type", type.value);
+    if (view.value === "age") params.set("date_basis", "capture");
     Object.entries(range()).forEach(([k, v]) => params.set(k, v!));
-    const data = await api("/timeline?" + params);
-    if (ticket !== generation) return;
-    items.value = reset ? data.items : [...items.value, ...data.items];
-    total.value = data.total;
-    nextCursor.value = data.next_cursor;
+    const loaded: any[] = [];
+    let cursor = reset ? null : nextCursor.value;
+    let result: any;
+    do {
+      if (cursor) params.set("cursor", cursor);
+      else params.delete("cursor");
+      params.set("page", "1");
+      result = await api("/timeline?" + params);
+      if (ticket !== generation) return;
+      loaded.push(...result.items);
+      cursor = result.next_cursor;
+    } while (cursor && loaded.length < targetCount);
+    items.value = reset ? loaded : [...items.value, ...loaded];
+    total.value = result.total;
+    nextCursor.value = cursor;
   } catch (e) {
     if (ticket === generation) {
       error.value = e instanceof Error ? e.message : "加载失败";
@@ -156,7 +239,6 @@ async function load(reset = true) {
 }
 async function next() {
   if (loading.value || !nextCursor.value) return;
-  page.value++;
   await load(false);
 }
 watch(
@@ -173,6 +255,7 @@ watch(
   ],
   () => {
     selected.value = [];
+    sortDate.value = "";
     load();
     loadMarkers();
   },
@@ -253,16 +336,18 @@ function moveDrag(e: PointerEvent) {
   };
   rect.value = r;
   const ids: number[] = [];
-  grid.value.querySelectorAll("[data-media-id]").forEach((el) => {
-    const b = el.getBoundingClientRect();
-    if (
-      b.right > r.left &&
-      b.left < r.left + r.width &&
-      b.bottom > r.top &&
-      b.top < r.top + r.height
-    )
-      ids.push(Number((el as HTMLElement).dataset.mediaId));
-  });
+  grid.value
+    .querySelectorAll(".timeline-entry > [data-media-id]")
+    .forEach((el) => {
+      const b = el.getBoundingClientRect();
+      if (
+        b.right > r.left &&
+        b.left < r.left + r.width &&
+        b.bottom > r.top &&
+        b.top < r.top + r.height
+      )
+        ids.push(Number((el as HTMLElement).dataset.mediaId));
+    });
   selected.value = [...new Set([...dragStart.base, ...ids])];
 }
 function endDrag() {
@@ -270,13 +355,222 @@ function endDrag() {
   setTimeout(() => (rect.value = null), 0);
 }
 function openMedia(m: any) {
-  if (dragEnabled.value && selection.value) return;
+  if (sortDate.value || (dragEnabled.value && selection.value)) return;
   if (!trash.value) detail.value = m.id;
 }
 function newEvent() {
   eventId.value = null;
   eventDate.value = "";
   eventOpen.value = true;
+}
+function appendToDate(date: string) {
+  router.push({ path: "/upload", query: { date } });
+}
+function selectDay(group: any) {
+  selection.value = true;
+  const ids = group.media
+    .filter((m: any) => m.kind === "media")
+    .map((m: any) => m.id);
+  if (ids.every((id: number) => selected.value.includes(id)))
+    selected.value = selected.value.filter((id) => !ids.includes(id));
+  else selected.value = [...new Set([...selected.value, ...ids])];
+}
+function startSort(date: string) {
+  sortDate.value = sortDate.value === date ? "" : date;
+  dragEnabled.value = false;
+}
+function startOrderDrag(event: DragEvent, media: any, group: any) {
+  if (
+    !yearly.canEdit ||
+    trash.value ||
+    view.value !== "calendar" ||
+    orderSaving.value ||
+    dragEnabled.value ||
+    media.kind === "event"
+  ) {
+    event.preventDefault();
+    return;
+  }
+  dragFromFolder.value = media.folder_id || null;
+  dragDay.value = group.date;
+  folderDrag.value = media.kind === "folder" ? media.id : null;
+  draggedIds.value =
+    media.kind === "folder"
+      ? []
+      : selected.value.includes(media.id)
+        ? group.files
+            .filter((m: any) => selected.value.includes(m.id))
+            .map((m: any) => m.id)
+        : [media.id];
+  if (event.dataTransfer) {
+    event.dataTransfer.setData("text/plain", String(media.id));
+    event.dataTransfer.effectAllowed = "move";
+  }
+}
+function dragOver(event: DragEvent, media: any, group: any) {
+  dropFolder.value = null;
+  dropTarget.value = null;
+  if (
+    orderSaving.value ||
+    dragDay.value !== group.date ||
+    media.kind === "event"
+  )
+    return;
+  if (!folderDrag.value && !draggedIds.value.length) return;
+  if (
+    (media.kind === "folder" && media.id === folderDrag.value) ||
+    (media.kind === "media" && draggedIds.value.includes(media.id))
+  )
+    return;
+  const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const position = bounds.width
+    ? (event.clientX - bounds.left) / bounds.width
+    : 0.5;
+  if (
+    media.kind === "folder" &&
+    draggedIds.value.length &&
+    position > 0.25 &&
+    position < 0.75
+  ) {
+    if (media.id === dragFromFolder.value) return;
+    event.preventDefault();
+    dropFolder.value = media.id;
+    return;
+  }
+  event.preventDefault();
+  dropTarget.value = {
+    id: media.id,
+    kind: media.kind,
+    placement: position < 0.5 ? "before" : "after",
+  };
+}
+async function restoreDayOrder(date: string) {
+  orderSaving.value = true;
+  try {
+    await post("/media/reset-order", { day: date === "unknown" ? null : date });
+    await load(true, true);
+  } catch (e) {
+    notify(e);
+  } finally {
+    orderSaving.value = false;
+  }
+}
+async function saveOrder(
+  moving: { id: number; kind: "media" | "folder" }[],
+  target: { id: number; kind: "media" | "folder" },
+  placement: "before" | "after",
+  moveOut = false,
+) {
+  if (orderSaving.value) return;
+  orderSaving.value = true;
+  try {
+    if (moveOut)
+      await post("/folders/move-media", {
+        media_ids: moving.map((item) => item.id),
+        folder_id: null,
+      });
+    await post("/timeline/reorder", { items: moving, target, placement });
+    await load(true, true);
+  } catch (e) {
+    notify(e);
+  } finally {
+    orderSaving.value = false;
+  }
+}
+async function dropOrder(media: any, group: any) {
+  if (orderSaving.value || dragDay.value !== group.date) return;
+  if (
+    draggedIds.value.length &&
+    media.kind === "folder" &&
+    dropFolder.value === media.id
+  ) {
+    const ids = [...draggedIds.value];
+    dropFolder.value = null;
+    draggedIds.value = [];
+    orderSaving.value = true;
+    try {
+      await post("/folders/move-media", {
+        media_ids: ids,
+        folder_id: media.id,
+      });
+      selected.value = selected.value.filter((id) => !ids.includes(id));
+      await load(true, true);
+    } catch (e) {
+      notify(e);
+    } finally {
+      orderSaving.value = false;
+    }
+    return;
+  }
+  if (
+    !dropTarget.value ||
+    dropTarget.value.id !== media.id ||
+    dropTarget.value.kind !== media.kind
+  )
+    return;
+  const { id, kind, placement } = dropTarget.value;
+  const moving: { id: number; kind: "media" | "folder" }[] = folderDrag.value
+    ? [{ id: folderDrag.value, kind: "folder" }]
+    : draggedIds.value.map((id) => ({ id, kind: "media" }));
+  const moveOut = !!dragFromFolder.value;
+  dropTarget.value = null;
+  folderDrag.value = null;
+  draggedIds.value = [];
+  await saveOrder(moving, { id, kind }, placement, moveOut);
+}
+async function dropToDay(date: string) {
+  if (!dragFromFolder.value || dragDay.value !== date || orderSaving.value)
+    return;
+  const ids = [...draggedIds.value];
+  draggedIds.value = [];
+  dragFromFolder.value = null;
+  orderSaving.value = true;
+  try {
+    await post("/folders/move-media", { media_ids: ids, folder_id: null });
+    await load(true, true);
+  } catch (e) {
+    notify(e);
+  } finally {
+    orderSaving.value = false;
+  }
+}
+function moveOne(media: any, group: any, direction: number) {
+  const entries = group.orderable;
+  const index = entries.findIndex(
+    (m: any) => m.id === media.id && m.kind === media.kind,
+  );
+  const target = entries[index + direction];
+  if (target)
+    saveOrder(
+      [{ id: media.id, kind: media.kind }],
+      { id: target.id, kind: target.kind },
+      direction < 0 ? "before" : "after",
+    );
+}
+function openOrganize(action: "name" | "date") {
+  organizeAction.value = action;
+  organizeName.value = "";
+  organizeDate.value = "";
+  resetDate.value = false;
+  organizeOpen.value = true;
+}
+async function saveOrganization() {
+  organizeSaving.value = true;
+  try {
+    await post("/media/batch-organize", {
+      media_ids: selected.value,
+      ...(organizeAction.value === "name"
+        ? { batch_name: organizeName.value.trim() }
+        : { timeline_date: resetDate.value ? null : organizeDate.value }),
+    });
+    organizeOpen.value = false;
+    selected.value = [];
+    await load(true, true);
+  } catch (e) {
+    notify(e);
+  } finally {
+    organizeSaving.value = false;
+  }
 }
 async function batch() {
   try {
@@ -337,12 +631,14 @@ function saveStages() {
           }}
         </p>
       </div>
-      <RouterLink
-        v-if="yearly.canEdit && !trash"
-        to="/upload"
-        class="button primary"
-        ><Plus :size="18" />珍藏新回忆</RouterLink
-      >
+      <div v-if="yearly.canEdit && !trash" class="timeline-heading-actions">
+        <button class="button" @click="dateDialog = true">
+          <CalendarDays :size="16" />添加日期
+        </button>
+        <RouterLink to="/upload" class="button primary"
+          ><Plus :size="18" />珍藏新回忆</RouterLink
+        >
+      </div>
     </div>
     <div v-if="!trash" class="memory-summary">
       <div>
@@ -407,7 +703,7 @@ function saveStages() {
           <div class="search-box">
             <Search :size="16" /><input
               v-model="q"
-              placeholder="搜索标题、备注、地点"
+              placeholder="搜索批次、标题、地点"
               aria-label="搜索回忆"
             />
           </div>
@@ -456,7 +752,7 @@ function saveStages() {
           "
         >
           清除日期</button
-        ><span class="result-count">{{ total }} 条记录 · 按拍摄时间排列</span>
+        ><span class="result-count">{{ total }} 条记录 · 按天归档</span>
       </div>
       <div v-else class="age-stage-list">
         <button
@@ -506,7 +802,10 @@ function saveStages() {
       ><button
         class="button small desktop-only"
         :class="{ pressed: dragEnabled }"
-        @click="dragEnabled = !dragEnabled"
+        @click="
+          sortDate = '';
+          dragEnabled = !dragEnabled;
+        "
       >
         <MousePointer2 :size="14" />框选模式</button
       ><button
@@ -518,6 +817,24 @@ function saveStages() {
         "
       >
         关联孩子</button
+      ><button
+        class="button small"
+        :disabled="!selected.length"
+        @click="openOrganize('name')"
+      >
+        <Pencil :size="14" />批量命名</button
+      ><button
+        class="button small"
+        :disabled="!selected.length"
+        @click="moveIntoFolder"
+      >
+        <Folder :size="14" />移入文件夹</button
+      ><button
+        class="button small"
+        :disabled="!selected.length"
+        @click="openOrganize('date')"
+      >
+        <FolderInput :size="14" />调整日期</button
       ><button
         class="button primary small"
         :disabled="!selected.length"
@@ -558,11 +875,202 @@ function saveStages() {
           </h2>
           <span>{{ group.media.length }} 条记录</span>
           <div class="date-rule"></div>
+          <div v-if="yearly.canEdit && !trash" class="day-actions">
+            <button
+              v-if="group.date !== 'unknown'"
+              class="button small"
+              @click="appendToDate(group.date)"
+            >
+              <Plus :size="14" />追加
+            </button>
+            <button
+              class="text-button"
+              :disabled="!group.files.length"
+              title="选择本日已加载的照片与视频"
+              @click="selectDay(group)"
+            >
+              选本组
+            </button>
+            <button
+              v-if="group.date !== 'unknown'"
+              class="text-button"
+              @click="newFolder(group.date)"
+            >
+              <Folder :size="14" />新建文件夹
+            </button>
+            <button
+              class="text-button"
+              :disabled="
+                orderSaving || (!group.files.length && !group.folders.length)
+              "
+              @click="startSort(group.date)"
+            >
+              <GripVertical :size="14" />{{
+                sortDate === group.date ? "完成排序" : "排序"
+              }}
+            </button>
+            <ElPopconfirm
+              :width="280"
+              title="恢复本日默认排序：文件夹置前，全部影像（含文件夹内）按拍摄时间从新到旧排列。其他日期不受影响。"
+              confirm-button-text="恢复排序"
+              cancel-button-text="取消"
+              @confirm="restoreDayOrder(group.date)"
+              ><template #reference
+                ><button
+                  class="text-button"
+                  :disabled="orderSaving"
+                  title="恢复本日全部影像的拍摄时间排序"
+                >
+                  <RotateCcw :size="14" />恢复默认排序
+                </button></template
+              ></ElPopconfirm
+            >
+          </div>
+        </div>
+        <p v-if="sortDate === group.date" class="sort-instructions">
+          {{
+            orderSaving
+              ? "正在保存顺序…"
+              : "文件夹与影像可自由混排；拖到卡片左右两侧插入排序，拖到文件夹中间移入。多选影像可一起拖动。"
+          }}
+        </p>
+        <div
+          v-if="dragFromFolder && dragDay === group.date && draggedIds.length"
+          class="day-drop-out"
+          @dragover.prevent
+          @drop.prevent.stop="dropToDay(group.date)"
+        >
+          松开移回当天时间线
         </div>
         <div class="media-grid">
-          <div v-for="m in group.media" :key="m.kind + '-' + m.id">
+          <div
+            v-for="m in group.media"
+            :key="m.kind + '-' + m.id"
+            class="timeline-entry"
+            :class="{
+              'sortable-entry':
+                yearly.canEdit &&
+                !trash &&
+                view === 'calendar' &&
+                !dragEnabled &&
+                m.kind !== 'event',
+              'drop-into-folder': m.kind === 'folder' && dropFolder === m.id,
+              'drop-before':
+                dropTarget?.kind === m.kind &&
+                dropTarget?.id === m.id &&
+                dropTarget?.placement === 'before',
+              'drop-after':
+                dropTarget?.kind === m.kind &&
+                dropTarget?.id === m.id &&
+                dropTarget?.placement === 'after',
+            }"
+            :draggable="
+              yearly.canEdit &&
+              !trash &&
+              view === 'calendar' &&
+              !dragEnabled &&
+              m.kind !== 'event' &&
+              !orderSaving
+            "
+            @dragstart="startOrderDrag($event, m, group)"
+            @dragover="dragOver($event, m, group)"
+            @dragleave="
+              if (
+                !($event.currentTarget as HTMLElement).contains(
+                  $event.relatedTarget as Node,
+                )
+              ) {
+                dropFolder = null;
+                dropTarget = null;
+              }
+            "
+            @drop.prevent="dropOrder(m, group)"
+            @dragend="
+              folderDrag = null;
+              dragFromFolder = null;
+              dragDay = '';
+              dropFolder = null;
+              draggedIds = [];
+              dropTarget = null;
+            "
+          >
+            <div
+              v-if="sortDate === group.date && m.kind !== 'event'"
+              class="sort-entry-tools"
+            >
+              <GripVertical :size="16" /><button
+                class="text-button"
+                :disabled="
+                  orderSaving ||
+                  (group.orderable[0]?.id === m.id &&
+                    group.orderable[0]?.kind === m.kind)
+                "
+                @click="moveOne(m, group, -1)"
+              >
+                <ArrowLeft :size="13" />前移</button
+              ><button
+                class="text-button"
+                :disabled="
+                  orderSaving ||
+                  (group.orderable.at(-1)?.id === m.id &&
+                    group.orderable.at(-1)?.kind === m.kind)
+                "
+                @click="moveOne(m, group, 1)"
+              >
+                后移<ArrowRight :size="13" />
+              </button>
+            </div>
+            <div
+              v-if="m.kind === 'folder'"
+              class="day-folder-card"
+              role="button"
+              tabindex="0"
+              :aria-label="`打开文件夹 ${m.name}`"
+              :title="
+                dropFolder === m.id
+                  ? `松开移入 ${draggedIds.length} 份影像`
+                  : yearly.canEdit
+                    ? '拖动标题排序；拖到两侧插入，中间移入影像'
+                    : m.name
+              "
+              @click="folderId = m.id"
+              @keydown.enter.self="folderId = m.id"
+              @keydown.space.prevent.self="folderId = m.id"
+            >
+              <div class="folder-card-body media-visual">
+                <div class="folder-card-heading">
+                  <Folder :size="23" /><b>{{ m.name }}</b>
+                  <span
+                    v-if="yearly.canEdit"
+                    class="folder-drag-handle"
+                    title="拖动文件夹，可放在照片、视频之间"
+                    ><GripVertical :size="15"
+                  /></span>
+                </div>
+                <div v-if="m.previews?.length" class="folder-thumbnails">
+                  <div
+                    v-for="preview in m.previews"
+                    :key="preview.id"
+                    :draggable="yearly.canEdit && !orderSaving && !dragEnabled"
+                    :aria-label="`拖动影像 ${preview.title || preview.id}`"
+                    @dragstart.stop="
+                      startOrderDrag(
+                        $event,
+                        { ...preview, kind: 'media' },
+                        group,
+                      )
+                    "
+                  >
+                    <MediaCard :media="preview" thumbnail />
+                  </div>
+                </div>
+                <div v-else class="folder-empty-preview">
+                  <Folder :size="28" />
+                </div>
+              </div>
+            </div>
             <button
-              v-if="m.kind === 'event'"
+              v-else-if="m.kind === 'event'"
               class="timeline-diary"
               @click="!trash && ((eventId = m.id), (eventOpen = true))"
             >
@@ -608,7 +1116,9 @@ function saveStages() {
         </div>
       </div>
       <div v-if="loading" class="media-grid loading-grid">
-        <div v-for="i in 4" :key="i" class="loading-card skeleton"></div>
+        <div v-for="i in 4" :key="i" class="media-card" aria-hidden="true">
+          <div class="media-visual skeleton"></div>
+        </div>
       </div>
       <EmptyState
         v-if="!items.length && !loading"
@@ -622,9 +1132,11 @@ function saveStages() {
         :description="
           trash
             ? '每一份回忆，都在好好收藏。'
-            : q || yearly.selected.length || year || day || type
-              ? '换个筛选条件，或为这个孩子上传新的成长影像。'
-              : undefined
+            : yearly.selected.length && !q && !year && !day && !type
+              ? '这个孩子还没有关联影像。可在“全部孩子”中多选已有影像后关联，也可以直接上传。'
+              : q || yearly.selected.length || year || day || type
+                ? '换个筛选条件，或为这个孩子上传新的成长影像。'
+                : undefined
         "
         ><RouterLink
           v-if="yearly.canEdit && !trash"
@@ -670,6 +1182,41 @@ function saveStages() {
         load();
       "
     />
+    <FolderPanel
+      :id="folderId"
+      :match="match"
+      @close="folderId = null"
+      @changed="load(true, true)"
+    />
+    <FolderMoveDialog
+      :open="folderMoving"
+      :day="folderMoveDay"
+      :ids="selected"
+      @close="folderMoving = false"
+      @saved="
+        selected = [];
+        load(true, true);
+      "
+    />
+    <ElDialog v-model="folderCreate" title="新建当天文件夹" width="440px"
+      ><form @submit.prevent="saveFolder">
+        <p class="muted">{{ folderDay }} · 文件夹仅用于整理当天影像</p>
+        <label
+          >文件夹名称<input
+            v-model="folderName"
+            maxlength="255"
+            placeholder="例如：出生纪念、家人合影"
+        /></label>
+        <div class="dialog-actions">
+          <button
+            class="button primary"
+            :disabled="folderBusy || !folderName.trim()"
+          >
+            创建文件夹
+          </button>
+        </div>
+      </form></ElDialog
+    >
     <ElDialog v-model="batchOpen" title="批量关联孩子" width="540px"
       ><p class="muted">
         将调整已选 {{ selected.length }} 份回忆的关联，原文件保持独立保存。
@@ -685,6 +1232,61 @@ function saveStages() {
         <button class="button primary" @click="batch">保存关联</button>
       </div></ElDialog
     >
+    <ElDialog v-model="dateDialog" title="添加一个时间节点" width="440px">
+      <p class="muted">选择日期，再把这一天的回忆一起上传。</p>
+      <label>时间节点日期<input v-model="newDate" type="date" /></label>
+      <div class="dialog-actions">
+        <button
+          class="button primary"
+          :disabled="!newDate"
+          @click="appendToDate(newDate)"
+        >
+          选择这一天的文件
+        </button>
+      </div>
+    </ElDialog>
+    <ElDialog
+      v-model="organizeOpen"
+      :title="organizeAction === 'name' ? '给所选回忆命名' : '调整归档日期'"
+      width="480px"
+    >
+      <p class="muted">将应用到已选的 {{ selected.length }} 份回忆。</p>
+      <label v-if="organizeAction === 'name'"
+        >批次名称<input
+          v-model="organizeName"
+          maxlength="255"
+          placeholder="例如：满月纪念；留空可清除批次名"
+      /></label>
+      <template v-else
+        ><label
+          >归档日期<input
+            v-model="organizeDate"
+            type="date"
+            :disabled="resetDate" /></label
+        ><label class="checkbox-label"
+          ><input
+            v-model="resetDate"
+            type="checkbox"
+          />恢复按各文件的拍摄日期归档</label
+        >
+        <p class="muted">
+          归档日期用于时间线分组，拍摄时间和原始元数据单独保留。
+        </p></template
+      >
+      <div class="dialog-actions">
+        <button
+          class="button primary"
+          :disabled="
+            organizeSaving ||
+            !selected.length ||
+            (organizeAction === 'date' && !organizeDate && !resetDate)
+          "
+          @click="saveOrganization"
+        >
+          {{ organizeSaving ? "正在保存…" : "应用到所选回忆" }}
+        </button>
+      </div>
+    </ElDialog>
     <ElDialog v-model="stageDialog" title="自定义年龄阶段" width="600px"
       ><p class="muted">按真实日历月龄筛选，结束月龄不包含在本阶段内。</p>
       <div v-for="(s, i) in stages" :key="i" class="stage-row">
@@ -715,3 +1317,200 @@ function saveStages() {
     >
   </div>
 </template>
+<style scoped>
+.folder-drag-handle {
+  margin-left: auto;
+  display: inline-flex;
+  cursor: grab;
+}
+.sortable-entry .day-folder-card {
+  cursor: grab;
+}
+.folder-card-heading {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.folder-thumbnails {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+  padding: 8px 0;
+}
+.folder-thumbnails > div {
+  cursor: grab;
+  min-width: 0;
+}
+.folder-thumbnails :deep(.media-card) {
+  border-radius: 5px;
+}
+.folder-empty-preview {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.day-drop-out {
+  padding: 16px;
+  margin-bottom: 12px;
+  border: 2px dashed var(--sage);
+  border-radius: 10px;
+  text-align: center;
+  color: var(--sage);
+  background: var(--sage-light);
+}
+
+.drop-into-folder .day-folder-card {
+  border: 1px dashed var(--primary);
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.folder-card-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+}
+.day-folder-card {
+  width: 100%;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: linear-gradient(
+    135deg,
+    var(--surface),
+    color-mix(in srgb, var(--primary) 12%, var(--surface))
+  );
+  color: var(--text);
+  cursor: pointer;
+}
+.day-folder-card svg {
+  color: #87996b;
+}
+.day-folder-card b {
+  font-size: 14px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-card-heading > svg {
+  flex-shrink: 0;
+}
+.day-folder-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.day-folder-card:hover {
+  border-color: #87996b;
+}
+
+.timeline-heading-actions,
+.day-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.day-actions .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.selection-toolbar {
+  flex-wrap: wrap;
+}
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 12px;
+  columns: auto;
+  align-items: start;
+}
+.media-grid > div {
+  margin-bottom: 0;
+  min-width: 0;
+}
+.day-group {
+  margin-bottom: 34px;
+}
+.sort-instructions {
+  margin: -5px 0 16px;
+  font-size: 12px;
+  color: var(--sage);
+}
+.sortable-entry {
+  cursor: grab;
+  border-radius: 9px;
+}
+.sortable-entry :deep(.media-card:hover) {
+  transform: none;
+}
+.sort-entry-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  background: var(--sage-light);
+  color: var(--sage);
+  border-radius: 8px 8px 0 0;
+}
+.sort-entry-tools button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.drop-before {
+  box-shadow: -4px 0 0 var(--sage);
+}
+.drop-after {
+  box-shadow: 4px 0 0 var(--sage);
+}
+@media (max-width: 700px) {
+  .timeline-heading-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .timeline-heading-actions .button {
+    padding: 9px 12px;
+    font-size: 11px;
+  }
+  .media-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .date-heading {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .date-rule {
+    display: none;
+  }
+  .day-actions {
+    margin-left: auto;
+    gap: 10px;
+  }
+  .day-actions .button {
+    padding: 5px 8px;
+  }
+  .day-actions .text-button {
+    font-size: 10px;
+  }
+  .sort-entry-tools {
+    padding: 7px 5px;
+  }
+  .sort-entry-tools > svg {
+    display: none;
+  }
+  .sort-instructions {
+    font-size: 11px;
+    line-height: 1.7;
+  }
+}
+</style>

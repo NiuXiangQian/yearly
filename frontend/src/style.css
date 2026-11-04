@@ -162,7 +162,8 @@ pre {
 pre {
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 360px;
+  aspect-ratio: 4 / 3;
+  max-height: 180px;
   overflow: auto;
   padding: 16px;
   background: var(--bg);
@@ -907,7 +908,8 @@ main {
   position: relative;
   background: var(--sage-light);
   overflow: hidden;
-  max-height: 360px;
+  aspect-ratio: 4 / 3;
+  max-height: 180px;
   display: grid;
   place-items: center;
 }
@@ -1086,10 +1088,6 @@ main {
   );
   background-size: 200% 100%;
   animation: shimmer 1.8s infinite;
-}
-.loading-card {
-  height: 250px;
-  border-radius: 9px;
 }
 .loading-grid {
   margin-top: 20px;
@@ -2757,4 +2755,13 @@ main {
   .private-label {
     font-size: 8px;
   }
+}
+
+.media-batch-name {
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

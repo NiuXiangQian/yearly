@@ -1,6 +1,6 @@
 -- MySQL 5.7.8+ / InnoDB / utf8mb4. Select the target database first.
 
--- Alternative to Alembic. After importing, stamp revision 0002.
+-- Alternative to Alembic. After importing, stamp revision 0006.
 
 SET NAMES utf8mb4;
 
@@ -71,6 +71,9 @@ CREATE TABLE media (
 	owner_id BIGINT NOT NULL,
 	media_type VARCHAR(16) NOT NULL,
 	title VARCHAR(255) NOT NULL,
+	batch_name VARCHAR(255) NOT NULL DEFAULT '',
+	timeline_date DATE,
+	sort_order INTEGER NOT NULL DEFAULT '0',
 	remark TEXT NOT NULL,
 	tags JSON NOT NULL,
 	original_taken_at_local DATETIME(3),
@@ -261,3 +264,31 @@ CREATE INDEX ix_upload_task_owner_id ON upload_task (owner_id);
 CREATE INDEX ix_upload_status_updated ON upload_task (status, updated_at);
 
 ALTER TABLE child ADD CONSTRAINT fk_child_avatar FOREIGN KEY(avatar_media_id) REFERENCES media (id);
+
+CREATE TABLE video_preview (
+  sha256 VARCHAR(64) NOT NULL PRIMARY KEY,
+  status VARCHAR(16) NOT NULL,
+  object_key VARCHAR(191) NOT NULL,
+  file_size BIGINT NOT NULL,
+  error VARCHAR(255) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+CREATE TABLE timeline_folder (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  timeline_date DATE NOT NULL,
+  sort_order INTEGER NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  updated_at DATETIME(3) NOT NULL,
+  INDEX ix_timeline_folder_timeline_date (timeline_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE media ADD COLUMN folder_id BIGINT NULL,
+  ADD INDEX ix_media_folder_id (folder_id),
+  ADD CONSTRAINT fk_media_folder FOREIGN KEY (folder_id) REFERENCES timeline_folder (id);
+
+ALTER TABLE media ADD COLUMN purpose VARCHAR(16) NOT NULL DEFAULT 'memory';

@@ -10,43 +10,33 @@ import {
 import { api, put, del, notify, bytes, localDate } from "../lib/api";
 import { useYearly } from "../stores/yearly";
 import ChildPicker from "./ChildPicker.vue";
+import MediaViewer from "./MediaViewer.vue";
 const props = defineProps<{ id: number | null }>(),
   emit = defineEmits(["close", "saved"]);
 const yearly = useYearly(),
   media = ref<any>(),
   form = ref<any>({}),
-  url = ref(""),
-  live = ref(""),
-  failed = ref(false),
-  playing = ref(false),
   busy = ref(false);
 watch(
   () => props.id,
-  async (id) => {
-    if (!id) return;
+  async (id, _, onCleanup) => {
+    let active = true;
+    onCleanup(() => {
+      active = false;
+    });
     media.value = null;
-    url.value = "";
-    live.value = "";
-    failed.value = false;
-    playing.value = false;
+    if (!id) return;
     try {
-      media.value = await api(`/media/${id}`);
+      const value = await api(`/media/${id}`);
+      if (!active) return;
+      media.value = value;
       form.value = {
         ...media.value,
         corrected_taken_at_local:
           media.value.corrected_taken_at_local?.slice(0, 16) || null,
       };
-      const f =
-        media.value.files.find((f: any) => f.file_role === "preview") ||
-        media.value.files.find((f: any) => f.file_role === "original");
-      if (f) url.value = (await api(`/media/${id}/files/${f.id}/url`)).url;
-      const movie = media.value.files.find(
-        (f: any) => f.file_role === "live_video",
-      );
-      if (movie)
-        live.value = (await api(`/media/${id}/files/${movie.id}/url`)).url;
     } catch (e) {
-      notify(e);
+      if (active) notify(e);
     }
   },
   { immediate: true },
@@ -57,6 +47,8 @@ async function save() {
     await put(`/media/${props.id}`, {
       time_unknown: form.value.time_unknown,
       title: form.value.title,
+      batch_name: form.value.batch_name,
+      timeline_date: form.value.timeline_date || null,
       remark: form.value.remark,
       location_name: form.value.location_name,
       tags: form.value.tags,
@@ -102,49 +94,19 @@ async function trash() {
 </script>
 <template>
   <ElDialog
+    append-to-body
     :model-value="!!id"
     width="1080px"
     class="detail-dialog"
+    destroy-on-close
     @close="emit('close')"
     ><div v-if="media" class="detail-layout">
-      <div
-        class="detail-viewer"
-        @pointerdown="playing = !!live"
-        @pointerup="playing = false"
-        @pointerleave="playing = false"
-      >
-        <video
-          v-if="playing && live"
-          :src="live"
-          autoplay
-          controls
-          playsinline
-        /><video
-          v-else-if="media.media_type === 'video' && url && !failed"
-          :src="url"
-          controls
-          playsinline
-          @error="failed = true"
-        /><img
-          v-else-if="url && !failed"
-          :src="url"
-          :alt="media.title"
-          @error="failed = true"
-        />
-        <div v-else class="viewer-fallback">
-          <ImageOff :size="44" />
-          <h3>原件已安全珍藏</h3>
-          <p>
-            此格式在当前浏览器中无法预览。<br />你可以下载原件，可在导入时额外提供兼容预览。
-          </p>
-        </div>
-        <span v-if="live" class="live-hint"
-          >按住画面播放 LIVE · 也可单独下载 MOV</span
-        >
+      <div class="detail-viewer">
+        <MediaViewer :key="media.id" :media="media" />
       </div>
       <div class="detail-info">
         <span class="eyebrow">A MOMENT TO KEEP</span>
-        <h2>{{ media.title || "珍藏的瞬间" }}</h2>
+        <h2>{{ media.title || media.batch_name || "珍藏的瞬间" }}</h2>
         <p class="muted">
           {{ localDate(media.taken_at_local) }} ·
           {{
@@ -159,6 +121,19 @@ async function trash() {
           >
         </div>
         <form @submit.prevent="save">
+          <div class="form-row">
+            <label
+              >批次名称<input
+                v-model="form.batch_name"
+                :disabled="!yearly.canEdit"
+                maxlength="255" /></label
+            ><label
+              >归档日期<input
+                v-model="form.timeline_date"
+                type="date"
+                :disabled="!yearly.canEdit"
+            /></label>
+          </div>
           <label
             >标题<input
               v-model="form.title"

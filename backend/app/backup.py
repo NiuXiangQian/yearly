@@ -20,11 +20,13 @@ from .models import (
     Event,
     EventMedia,
     EventChild,
+    TimelineFolder,
 )
 
 # Upload authorizations, sessions, captcha and password hashes never enter portable exports.
 TABLES = [
     Child,
+    TimelineFolder,
     Media,
     MediaFile,
     MediaMetadata,
@@ -161,7 +163,8 @@ def restore_manifest(path, owner_id, storage=None, object_directory=None):
             for prefix, event, value in ijson.parse(source)
             if prefix == "tables" and event == "map_key"
         }
-    if names != {m.__tablename__ for m in TABLES}:
+    expected = {m.__tablename__ for m in TABLES}
+    if names not in (expected, expected - {"timeline_folder"}):
         raise ValueError("清单表不完整")
     from sqlalchemy import Date, DateTime, Time
 

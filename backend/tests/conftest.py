@@ -2,6 +2,7 @@ import os
 
 os.environ["APP_ENV"] = "test"
 import hashlib
+from uuid import uuid4
 from datetime import timedelta
 from types import SimpleNamespace
 import pytest
@@ -64,6 +65,12 @@ class FakeStorage:
 
     def download_url(self, file, attachment=False):
         return "https://private.invalid/signed-original"
+
+    def image_url(self, file, purpose):
+        return "https://private.invalid/" + purpose
+
+    def video_url(self, preview):
+        return "https://private.invalid/compressed.mp4"
 
 
 @pytest.fixture(scope="session")
@@ -174,13 +181,17 @@ def file_payload(
 def upload(
     context,
     children=None,
-    content=b"unchanged-camera-original",
+    content=None,
     taken="2024-03-31T10:30:00",
     files=None,
     media_type="photo",
+    **organization,
 ):
+    if content is None:
+        content = b"unchanged-camera-original" if files else uuid4().bytes
     client = context.client
     payload = {
+        **organization,
         "media_type": media_type,
         "files": files or [file_payload(content)],
         "child_ids": children or [],

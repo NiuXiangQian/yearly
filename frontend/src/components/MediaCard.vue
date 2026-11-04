@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from "vue";
-import { Check, Play, ImageOff, MapPin, Layers } from "lucide-vue-next";
-import { api, localDate } from "../lib/api";
+import { Check, Play, ImageOff, Layers } from "lucide-vue-next";
+import { mediaResource } from "../lib/media-resource";
 const props = defineProps<{
   media: any;
   selected?: boolean;
   selection?: boolean;
+  thumbnail?: boolean;
 }>();
 const emit = defineEmits(["open", "select", "longpress"]);
 const root = ref<HTMLElement>(),
@@ -19,9 +20,6 @@ let observer: IntersectionObserver,
 const preview =
   props.media.files.find((f: any) => f.file_role === "preview") ||
   props.media.files.find((f: any) => f.file_role === "original");
-const video =
-  preview?.mime_type?.startsWith("video/") ||
-  /\.(mp4|mov)$/i.test(preview?.original_filename || "");
 onMounted(() => {
   observer = new IntersectionObserver(
     async (entries) => {
@@ -29,9 +27,9 @@ onMounted(() => {
       observer.disconnect();
       if (!preview) return;
       try {
-        url.value = (
-          await api(`/media/${props.media.id}/files/${preview.id}/url`)
-        ).url;
+        url.value =
+          (await mediaResource(props.media.id, preview.id, "thumbnail")).url ||
+          "";
       } catch {
         failed.value = true;
       }
@@ -75,7 +73,7 @@ function click(e: MouseEvent) {
   <article
     ref="root"
     class="media-card"
-    :class="{ chosen: selected }"
+    :class="{ chosen: selected, 'media-thumbnail': thumbnail, 'has-title': !thumbnail && media.title?.trim() }"
     :data-media-id="media.id"
     @click="click"
     @pointerdown="press"
@@ -84,26 +82,11 @@ function click(e: MouseEvent) {
     @pointermove="move"
     @contextmenu.prevent
   >
-    <div
-      class="media-visual"
-      :style="{
-        aspectRatio:
-          media.width && media.height
-            ? `${media.width}/${Math.min(media.height, media.width * 1.5)}`
-            : '4/3',
-      }"
-    >
+    <div class="media-visual">
       <div v-if="!loaded && !failed" class="skeleton"></div>
-      <video
-        v-if="url && video && !failed"
-        :src="url + '#t=0.1'"
-        preload="metadata"
-        muted
-        playsinline
-        @loadeddata="loaded = true"
-        @error="failed = true"
-      /><img
-        v-else-if="url && !failed"
+      <img
+        :draggable="false"
+        v-if="url && !failed"
         :src="url"
         loading="lazy"
         :alt="media.title || '家庭影像'"
@@ -122,32 +105,66 @@ function click(e: MouseEvent) {
       ><span v-if="media.media_type === 'video'" class="media-kind"
         ><Play :size="12" fill="currentColor" />
         {{
-          media.duration_ms
-            ? Math.floor(media.duration_ms / 60000) +
-              ":" +
-              String(Math.floor(media.duration_ms / 1000) % 60).padStart(2, "0")
-            : "视频"
+          thumbnail
+            ? ""
+            : media.duration_ms
+              ? Math.floor(media.duration_ms / 60000) +
+                ":" +
+                String(Math.floor(media.duration_ms / 1000) % 60).padStart(
+                  2,
+                  "0",
+                )
+              : "视频"
         }}</span
       ><span v-if="media.media_type === 'live_photo'" class="media-kind"
-        ><Layers :size="12" /> LIVE</span
+        ><Layers :size="12" /> {{ thumbnail ? "" : "LIVE" }}</span
       >
     </div>
-    <div class="media-caption">
-      <div class="media-caption-title">
-        {{ media.title || localDate(media.taken_at_local) }}
-      </div>
-      <div v-if="media.location_name" class="media-location">
-        <MapPin :size="11" />{{ media.location_name }}
-      </div>
-      <div class="age-labels">
-        <span
-          v-for="c in media.children"
-          :key="c.id"
-          :style="{ '--child-color': c.theme_color }"
-          >{{ c.nickname || c.name
-          }}<template v-if="c.age"> · {{ c.age }}</template></span
-        ><span v-if="!media.children.length" class="yearly-tag">家庭时光</span>
-      </div>
+    <div v-if="!thumbnail && media.title?.trim()" class="media-title-overlay">
+      <span :title="media.title">{{ media.title }}</span>
     </div>
   </article>
 </template>
+
+<style scoped>
+.media-title-overlay {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 28px 11px 10px;
+  background: linear-gradient(transparent, rgb(0 0 0 / 65%));
+  color: #fff;
+  pointer-events: none;
+}
+.media-title-overlay span {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: auto;
+}
+.has-title .media-kind {
+  top: 8px;
+  bottom: auto;
+}
+.media-thumbnail .media-visual {
+  aspect-ratio: 1;
+}
+.media-thumbnail .preview-unavailable {
+  padding: 4px;
+}
+.media-thumbnail .preview-unavailable small,
+.media-thumbnail .preview-unavailable span {
+  display: none;
+}
+.media-thumbnail .media-kind {
+  bottom: 3px;
+  left: 3px;
+  padding: 2px;
+  font-size: 8px;
+}
+</style>

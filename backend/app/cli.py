@@ -18,6 +18,9 @@ def main():
     user.add_argument("username")
     sub.add_parser("cleanup")
     sub.add_parser("verify-oss")
+    previews = sub.add_parser("generate-previews")
+    previews.add_argument("--watch", action="store_true")
+    previews.add_argument("--retry-failed", action="store_true")
     backup = sub.add_parser("backup")
     backup.add_argument("directory")
     restore = sub.add_parser("restore")
@@ -25,7 +28,23 @@ def main():
     restore.add_argument("--owner-id", required=True, type=int)
     restore.add_argument("--objects")
     args = parser.parse_args()
-    if args.command == "create-admin":
+    if args.command == "generate-previews":
+        import logging
+        import signal
+        from .previews import generate_previews
+
+        logging.basicConfig(level=logging.INFO)
+        logging.getLogger("oss2").setLevel(logging.WARNING)
+
+        def stop_worker(signum, frame):
+            raise KeyboardInterrupt
+
+        signal.signal(signal.SIGTERM, stop_worker)
+        try:
+            generate_previews(get_storage(), args.watch, args.retry_failed)
+        except KeyboardInterrupt:
+            pass
+    elif args.command == "create-admin":
         password = getpass.getpass("新管理员密码（至少12位）: ")
         if len(password) < 12 or password != getpass.getpass("再次输入密码: "):
             parser.error("密码长度不足或两次输入不同")
