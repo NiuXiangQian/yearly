@@ -634,5 +634,7 @@
   "按月浏览": "Browse by month",
   "全部收起": "Collapse all",
   "全部展开": "Expand all",
-  "已加载 {p0} 天": "Days loaded: {p0}"
+  "已加载 {p0} 天": "Days loaded: {p0}",
+  "拖动时间轴定位日期": "Drag the timeline to a date",
+  "拖动左侧时间轴，松开跳转到对应日期": "Drag the timeline on the left; release to jump to a date"
 }

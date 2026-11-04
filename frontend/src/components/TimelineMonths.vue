@@ -36,6 +36,11 @@ function setAll(value: boolean) {
   defaultCollapsed.value = value;
   collapsed.value = {};
 }
+defineExpose({
+  reveal(date: string) {
+    collapsed.value[date.slice(0, 7)] = false;
+  },
+});
 </script>
 
 <template>

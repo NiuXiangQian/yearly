@@ -21,6 +21,7 @@ const items = Array.from({ length: 12 }, (_, i) => ({
 }));
 function response() {
   return {
+    dates: ["2024-01-01", "2024-01-02"],
     share: {
       title: "Family",
       start_date: "2024-01-01",
@@ -79,7 +80,7 @@ it("shows eight entries per day and keeps the next day readable; expands and col
   await vi.waitFor(() =>
     expect(host.querySelectorAll(".shared-card")).toHaveLength(13),
   );
-  expect(vi.mocked(api)).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(api)).toHaveBeenCalledTimes(3);
 });
 it("displays an unavailable share without private navigation or sign-in", async () => {
   vi.mocked(api).mockRejectedValue(new Error("分享已失效或不存在"));
@@ -88,7 +89,7 @@ it("displays an unavailable share without private navigation or sign-in", async 
     expect(host.textContent).toContain("请联系分享者获取新的链接"),
   );
   expect(host.querySelectorAll(".shared-card")).toHaveLength(0);
-  expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(api)).toHaveBeenCalledTimes(2);
   expect(host.textContent).not.toContain("上传");
 });
 it("clears content once the link expires while the page remains open", async () => {
@@ -127,7 +128,7 @@ it("switches chronological direction and paginates using the corresponding day c
       "2024.01.01",
     ),
   );
-  expect(api).toHaveBeenLastCalledWith("/public/shares/virtual?order=asc");
+  expect(api).toHaveBeenCalledWith("/public/shares/virtual?order=asc");
   expect(localStorage.getItem("yearly-shared-order")).toBe("asc");
   vi.mocked(api).mockResolvedValueOnce({
     ...reversed,
@@ -155,7 +156,7 @@ it("folds months without fetching media and preserves the fold when loading anot
   await vi.waitFor(() =>
     expect(host.querySelectorAll(".shared-card")).toHaveLength(0),
   );
-  expect(api).toHaveBeenCalledTimes(1);
+  expect(api).toHaveBeenCalledTimes(2);
   vi.mocked(api).mockResolvedValueOnce({
     ...response(),
     days: [{ day: "2023-12-31", total: 1, items: [items[0]] }],
@@ -169,5 +170,52 @@ it("folds months without fetching media and preserves the fold when loading anot
   await vi.waitFor(() =>
     expect(host.querySelectorAll(".shared-card")).toHaveLength(1),
   );
-  expect(api).toHaveBeenCalledTimes(2);
+  expect(api).toHaveBeenCalledTimes(3);
+});
+
+it("reveals a folded date and fetches an unloaded date only on navigation", async () => {
+  const data = {
+    ...response(),
+    dates: ["2023-12-31", "2024-01-01", "2024-01-02"],
+  };
+  vi.mocked(api).mockResolvedValue(data);
+  const scroll = vi.fn();
+  host = document.createElement("div");
+  const original = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = scroll;
+  try {
+    await mount();
+    await vi.waitFor(() =>
+      expect(host.querySelectorAll(".shared-day")).toHaveLength(2),
+    );
+    button("全部收起").click();
+    await vi.waitFor(() =>
+      expect(host.querySelectorAll(".shared-day")).toHaveLength(0),
+    );
+    const rail = host.querySelector('[role="slider"]')!;
+    rail.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+    );
+    await vi.waitFor(() => expect(scroll).toHaveBeenCalled());
+    expect(host.querySelectorAll(".shared-day")).toHaveLength(2);
+    expect(api).toHaveBeenCalledTimes(2);
+    vi.mocked(api).mockResolvedValueOnce({
+      ...data,
+      days: [{ day: "2023-12-31", total: 1, items: [items[0]] }],
+    });
+    rail.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+    );
+    await vi.waitFor(() =>
+      expect(host.querySelector(".shared-day")?.getAttribute("data-day")).toBe(
+        "2023-12-31",
+      ),
+    );
+    expect(api).toHaveBeenCalledWith(
+      "/public/shares/virtual?order=desc&anchor=2023-12-31",
+    );
+    expect(scroll).toHaveBeenCalledTimes(2);
+  } finally {
+    HTMLElement.prototype.scrollIntoView = original;
+  }
 });

@@ -282,16 +282,29 @@ def entries(db, share, day, offset=0, limit=8, order="desc"):
     return {"day": day, "items": items, "total": total}
 
 
+@router.get("/public/shares/{token}/dates")
+def share_dates(share=Depends(public_share), db=Depends(get_db)):
+    root = root_query(share)
+    return {
+        "dates": db.scalars(select(root.c.day).distinct().order_by(root.c.day)).all()
+    }
+
+
 @router.get("/public/shares/{token}")
 def read_share(
     before: date | None = None,
     after: date | None = None,
+    anchor: date | None = None,
     order: Literal["asc", "desc"] = "desc",
     share=Depends(public_share),
     db=Depends(get_db),
 ):
     root = root_query(share)
     query = select(root.c.day).distinct()
+    if anchor:
+        query = query.where(
+            root.c.day >= anchor if order == "asc" else root.c.day <= anchor
+        )
     if order == "desc" and before:
         query = query.where(root.c.day < before)
     if order == "asc" and after:

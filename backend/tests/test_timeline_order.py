@@ -172,3 +172,45 @@ def test_public_order_day_pagination_and_entry_pagination(context, order):
         m["id"] for m in first_day["items"] + rest["items"] if m["kind"] == "media"
     ]
     assert returned == (ids if order == "asc" else ids[::-1])
+
+
+@pytest.mark.parametrize("order", ["asc", "desc"])
+def test_share_date_index_and_anchor_keep_scope_and_permissions(context, order):
+    from app.models import TimelineShare
+
+    with context.db() as db:
+        db.add_all(
+            [
+                Event(title="visible", start_at=datetime(2024, 4, 1), created_by=1),
+                Event(
+                    title="visible later", start_at=datetime(2024, 4, 9), created_by=1
+                ),
+                Event(
+                    title="private",
+                    start_at=datetime(2024, 4, 4),
+                    created_by=1,
+                    share_allowed=False,
+                ),
+                Event(title="blocked day", start_at=datetime(2024, 4, 5), created_by=1),
+                TimelineDay(timeline_date=date(2024, 4, 5), share_allowed=False),
+                Event(title="outside", start_at=datetime(2024, 5, 1), created_by=1),
+            ]
+        )
+        db.commit()
+    data = share(context, start_date="2024-04-01", end_date="2024-04-09")
+    base = public(context, data)
+    assert context.client.get(base + "/dates").json() == {
+        "dates": ["2024-04-01", "2024-04-09"]
+    }
+    anchor = "2024-04-09" if order == "asc" else "2024-04-01"
+    rows = context.client.get(f"{base}?order={order}&anchor={anchor}").json()
+    assert [d["day"] for d in rows["days"]] == [anchor]
+    # Supplying an outside or excluded anchor cannot extend the link's scope.
+    for anchor in ["2024-03-01", "2024-05-01", "2024-04-04", "2024-04-05"]:
+        rows = context.client.get(f"{base}?order={order}&anchor={anchor}").json()
+        assert {d["day"] for d in rows["days"]} <= {"2024-04-01", "2024-04-09"}
+    with context.db() as db:
+        db.get(TimelineShare, data["id"]).revoked = True
+        db.commit()
+    assert context.client.get(base + "/dates").status_code == 404
+    assert context.client.get(base + "?anchor=2024-04-01").status_code == 404

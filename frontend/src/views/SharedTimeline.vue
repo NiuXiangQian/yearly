@@ -1,11 +1,19 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
+import {
+  computed,
+  ref,
+  watch,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+} from "vue";
 import { useRoute } from "vue-router";
 import { Leaf, Folder, ChevronDown, ShieldCheck } from "lucide-vue-next";
 import { api, notify } from "../lib/api";
 import { t, locale } from "../lib/i18n";
 import LanguageSwitch from "../components/LanguageSwitch.vue";
 import TimelineMonths from "../components/TimelineMonths.vue";
+import TimelineRail from "../components/TimelineRail.vue";
 import SharedThumbnail from "../components/SharedThumbnail.vue";
 import ImageViewer from "../components/ImageViewer.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
@@ -17,6 +25,15 @@ const timelineOrder = ref(
 const share = ref<any>(null),
   days = ref<any[]>([]),
   nextDate = ref<string | null>(null);
+const dateIndex = ref<string[]>([]);
+const railDates = computed(() =>
+  timelineOrder.value === "asc"
+    ? dateIndex.value
+    : [...dateIndex.value].reverse(),
+);
+const currentDate = ref("");
+const monthList = ref<{ reveal(date: string): void }>();
+const reading = ref<HTMLElement>();
 const loading = ref(false),
   error = ref(""),
   folder = ref<any>(null),
@@ -38,12 +55,14 @@ function expire() {
   error.value = t("分享已失效或不存在");
   share.value = null;
   days.value = [];
+  dateIndex.value = [];
+  loadGeneration++;
   folder.value = null;
   selected.value = null;
   preview.value = "";
   previewGeneration++;
 }
-async function load(more = false) {
+async function load(more = false, anchor?: string) {
   if (more && loading.value) return;
   const generation = ++loadGeneration;
   const order = timelineOrder.value;
@@ -59,9 +78,15 @@ async function load(more = false) {
     const params = new URLSearchParams({ order });
     if (more && nextDate.value)
       params.set(order === "asc" ? "after" : "before", nextDate.value);
-    const data = await api(`${base}?${params}`);
+    if (anchor) params.set("anchor", anchor);
+    const [data, index] = await Promise.all([
+      api(`${base}?${params}`),
+      more ? Promise.resolve(null) : api(`${base}/dates`),
+    ]);
     if (generation !== loadGeneration) return;
     share.value = data.share;
+    if (index) dateIndex.value = index.dates;
+    if (!more) currentDate.value = data.days[0]?.day || "";
     days.value = more ? [...days.value, ...data.days] : data.days;
     nextDate.value = order === "asc" ? data.next_after : data.next_before;
     clearTimeout(expiryTimer);
@@ -138,12 +163,54 @@ async function videoSource() {
   if (!data.url) throw new Error(t("压缩预览仍在准备，请稍后再试"));
   return data.url;
 }
+async function seekDate(date: string) {
+  if (loading.value) return;
+  if (!days.value.some((day) => day.day === date)) await load(false, date);
+  if (error.value) return;
+  const target =
+    days.value.find((day) => day.day === date)?.day || days.value[0]?.day;
+  if (!target) return;
+  currentDate.value = target;
+  monthList.value?.reveal(target);
+  await nextTick();
+  document
+    .getElementById(`shared-day-${target}`)
+    ?.scrollIntoView({ block: "start" });
+}
+let scrollFrame = 0;
+function trackDate() {
+  if (scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    const sections =
+      reading.value?.querySelectorAll<HTMLElement>(".shared-day");
+    if (!sections?.length) return;
+    let closest = sections[0];
+    for (const section of sections) {
+      if (section.getBoundingClientRect().top > 140) break;
+      closest = section;
+    }
+    if (
+      window.scrollY + window.innerHeight >=
+      document.documentElement.scrollHeight - 2
+    )
+      closest = sections[sections.length - 1];
+    currentDate.value = closest.dataset.day!;
+  });
+}
 watch(timelineOrder, (value) => {
   localStorage.setItem("yearly-shared-order", value);
   load();
 });
-onMounted(() => load());
-onBeforeUnmount(() => clearTimeout(expiryTimer));
+onMounted(() => {
+  load();
+  window.addEventListener("scroll", trackDate, { passive: true });
+});
+onBeforeUnmount(() => {
+  clearTimeout(expiryTimer);
+  cancelAnimationFrame(scrollFrame);
+  window.removeEventListener("scroll", trackDate);
+});
 </script>
 <template>
   <main class="shared-page">
@@ -183,96 +250,114 @@ onBeforeUnmount(() => clearTimeout(expiryTimer));
           </select></label
         >
       </div>
-      <TimelineMonths :days="days" v-slot="{ day }">
-        <section class="shared-day">
-          <header>
-            <h2>{{ day.day.replaceAll("-", ".") }}</h2>
-            <span>{{ t("{p0} 项回忆", { p0: day.total }) }}</span>
-          </header>
-          <div class="shared-grid">
-            <button
-              v-for="item in expanded[day.day]
-                ? day.items
-                : day.items.slice(0, 8)"
-              :key="item.kind + item.id"
-              class="shared-card"
-              @click="
-                item.kind === 'folder' ? openFolder(item) : openMedia(item)
-              "
+      <div class="shared-reader" :class="{ 'has-rail': dateIndex.length }">
+        <TimelineRail
+          :dates="railDates"
+          :current="currentDate"
+          :disabled="loading || !!busyDay || folderBusy"
+          @select="seekDate"
+        />
+        <div ref="reading" class="shared-reading">
+          <p v-if="dateIndex.length" class="rail-hint">
+            {{ t("拖动左侧时间轴，松开跳转到对应日期") }}
+          </p>
+          <TimelineMonths ref="monthList" :days="days" v-slot="{ day }">
+            <section
+              class="shared-day"
+              :id="`shared-day-${day.day}`"
+              :data-day="day.day"
             >
-              <template v-if="item.kind === 'folder'"
-                ><div class="shared-folder">
-                  <b><Folder :size="20" />{{ item.name }}</b>
-                  <div class="shared-folder-previews">
-                    <SharedThumbnail
-                      v-for="media in item.previews"
-                      :key="media.id"
-                      :base="base"
-                      :media="media"
-                    />
-                  </div>
-                  <small>{{
-                    t("{p0} 份影像", { p0: item.media_count })
-                  }}</small>
-                </div></template
-              >
-              <template v-else-if="item.kind === 'event'"
-                ><div class="shared-diary">
-                  <small>{{ t("成长日记") }}</small>
-                  <h3>{{ item.title }}</h3>
-                  <p>{{ item.content }}</p>
-                </div></template
-              >
-              <template v-else
-                ><SharedThumbnail :base="base" :media="item" /><span
-                  v-if="item.title"
-                  class="shared-caption"
-                  >{{ item.title }}</span
-                ></template
-              >
-            </button>
+              <header>
+                <h2>{{ day.day.replaceAll("-", ".") }}</h2>
+                <span>{{ t("{p0} 项回忆", { p0: day.total }) }}</span>
+              </header>
+              <div class="shared-grid">
+                <button
+                  v-for="item in expanded[day.day]
+                    ? day.items
+                    : day.items.slice(0, 8)"
+                  :key="item.kind + item.id"
+                  class="shared-card"
+                  @click="
+                    item.kind === 'folder' ? openFolder(item) : openMedia(item)
+                  "
+                >
+                  <template v-if="item.kind === 'folder'"
+                    ><div class="shared-folder">
+                      <b><Folder :size="20" />{{ item.name }}</b>
+                      <div class="shared-folder-previews">
+                        <SharedThumbnail
+                          v-for="media in item.previews"
+                          :key="media.id"
+                          :base="base"
+                          :media="media"
+                        />
+                      </div>
+                      <small>{{
+                        t("{p0} 份影像", { p0: item.media_count })
+                      }}</small>
+                    </div></template
+                  >
+                  <template v-else-if="item.kind === 'event'"
+                    ><div class="shared-diary">
+                      <small>{{ t("成长日记") }}</small>
+                      <h3>{{ item.title }}</h3>
+                      <p>{{ item.content }}</p>
+                    </div></template
+                  >
+                  <template v-else
+                    ><SharedThumbnail :base="base" :media="item" /><span
+                      v-if="item.title"
+                      class="shared-caption"
+                      >{{ item.title }}</span
+                    ></template
+                  >
+                </button>
+              </div>
+              <div v-if="day.total > 8" class="expand-actions">
+                <button
+                  v-if="!expanded[day.day] || day.items.length < day.total"
+                  class="button"
+                  :disabled="!!busyDay"
+                  @click="expand(day)"
+                >
+                  <ChevronDown :size="15" />{{
+                    t("展开更多（剩余 {p0} 项）", {
+                      p0:
+                        day.total - (expanded[day.day] ? day.items.length : 8),
+                    })
+                  }}</button
+                ><button
+                  v-if="expanded[day.day]"
+                  class="text-button"
+                  @click="expanded[day.day] = false"
+                >
+                  {{ t("收起") }}
+                </button>
+              </div>
+            </section>
+          </TimelineMonths>
+          <div v-if="!days.length && !loading" class="shared-empty">
+            {{ t("这个范围还没有可分享的回忆") }}
           </div>
-          <div v-if="day.total > 8" class="expand-actions">
+          <footer class="shared-footer">
             <button
-              v-if="!expanded[day.day] || day.items.length < day.total"
+              v-if="nextDate"
               class="button"
-              :disabled="!!busyDay"
-              @click="expand(day)"
+              :disabled="loading"
+              @click="load(true)"
             >
-              <ChevronDown :size="15" />{{
-                t("展开更多（剩余 {p0} 项）", {
-                  p0: day.total - (expanded[day.day] ? day.items.length : 8),
-                })
+              {{
+                loading
+                  ? t("正在加载…")
+                  : timelineOrder === "asc"
+                    ? t("更晚的日子")
+                    : t("更早的日子")
               }}</button
-            ><button
-              v-if="expanded[day.day]"
-              class="text-button"
-              @click="expanded[day.day] = false"
-            >
-              {{ t("收起") }}
-            </button>
-          </div>
-        </section>
-      </TimelineMonths>
-      <div v-if="!days.length && !loading" class="shared-empty">
-        {{ t("这个范围还没有可分享的回忆") }}
+            ><span v-else>{{ t("— 这些日子，都在这里 —") }}</span>
+          </footer>
+        </div>
       </div>
-      <footer class="shared-footer">
-        <button
-          v-if="nextDate"
-          class="button"
-          :disabled="loading"
-          @click="load(true)"
-        >
-          {{
-            loading
-              ? t("正在加载…")
-              : timelineOrder === "asc"
-                ? t("更晚的日子")
-                : t("更早的日子")
-          }}</button
-        ><span v-else>{{ t("— 这些日子，都在这里 —") }}</span>
-      </footer>
     </template>
     <div v-else-if="loading" class="shared-empty">{{ t("正在加载…") }}</div>
     <ElDialog
@@ -413,7 +498,21 @@ onBeforeUnmount(() => clearTimeout(expiryTimer));
   font-size: 11px;
   color: var(--muted);
 }
+.shared-reader.has-rail {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 24px;
+}
+.shared-reading {
+  min-width: 0;
+}
+.rail-hint {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0 0 20px;
+}
 .shared-day {
+  scroll-margin-top: 28px;
   margin-bottom: 36px;
 }
 .shared-day > header {
@@ -421,6 +520,16 @@ onBeforeUnmount(() => clearTimeout(expiryTimer));
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+.shared-day h2::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sage);
+  margin-right: 9px;
+  vertical-align: middle;
 }
 .shared-day h2 {
   font-family: Georgia, serif;
@@ -582,7 +691,7 @@ onBeforeUnmount(() => clearTimeout(expiryTimer));
     gap: 10px;
   }
   .shared-day h2 {
-    font-size: 20px;
+    font-size: 18px;
   }
   .shared-folder,
   .shared-diary {
@@ -590,6 +699,14 @@ onBeforeUnmount(() => clearTimeout(expiryTimer));
   }
   .shared-viewer {
     height: 60dvh;
+  }
+  .shared-reader.has-rail {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .shared-day > header {
+    flex-wrap: wrap;
+    gap: 6px;
   }
 }
 </style>

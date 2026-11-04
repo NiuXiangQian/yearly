@@ -107,6 +107,7 @@ def test_content_permissions_and_direct_access(context):
     assert response.status_code == 200
     assert "no-store" in response.headers["cache-control"]
     assert "noindex" in response.headers["x-robots-tag"]
+    assert context.client.get(base + "/dates").json() == {"dates": ["2024-03-31"]}
     items = response.json()["days"][0]["items"]
     assert [m["id"] for m in items] == [visible]
     assert set(items[0]) == {"kind", "id", "title", "media_type"}
@@ -204,7 +205,7 @@ def test_expiry_revocation_owner_and_ttl(context):
     with context.db() as db:
         db.get(TimelineShare, data["id"]).expires_at = now() - timedelta(seconds=1)
         db.commit()
-    for suffix in ["", "/days/2024-03-31", f"/media/{mid}/url", "/folders/1"]:
+    for suffix in ["", "/dates", "/days/2024-03-31", f"/media/{mid}/url", "/folders/1"]:
         assert context.client.get(base + suffix).status_code == 404
     context.client.cookies.set("yearly_session", "admin")
     data = share(context)

@@ -4,7 +4,14 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
-## Monthly collapse verification (2026-11-04)
+## Shared timeline scrubbing verification (2026-11-04)
+
+- All 56 frontend tests, type checking, and the production build passed. All 24 relevant backend sharing/ordering tests passed. Cases cover date previews during dragging, release/cancel, single dates, keyboard controls, folded months, and unloaded-date jumps.
+- Date indexes exclude hidden media, folders, diaries, days, and dates outside the share. Modified anchors cannot expand scope; expired or revoked links return 404.
+- Browser checks used fictional data for mouse dragging, 390px touch emulation, jumps in both directions, scroll tracking, and Chinese/English layouts. Emulation is not real-device acceptance.
+- No migration is required; production was not deployed. OSS signing is unchanged and was not retested against real OSS in this round; prior evidence is below.
+
+## Previous monthly collapse verification (2026-11-04)
 
 - All 53 frontend tests, type checking, and the production build passed. Cases cover year boundaries, unknown dates, appended pages after collapse, ordering, editing visibility, and English labels.
 - Browser checks with fictional data covered individual/all-month folding, ascending order, day expansion, selection/sorting, and 390px Chinese/English layouts in family and shared timelines. High-resolution screenshots were saved.

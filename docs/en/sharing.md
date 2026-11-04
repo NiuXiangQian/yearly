@@ -26,6 +26,8 @@ Both family and shared timelines offer **Newest first / Oldest first**. Newest f
 
 For long timelines, click a month heading to collapse or expand it, or use **Collapse all / Expand all**. Days remain individually readable, including the existing eight-entry limit. Additional pages merge into their months and retain the current collapsed state. Counts refer to loaded days, not full-month totals. The family timeline supports the same controls; selection and sorting temporarily expand months, then restore the previous state.
 
+The shared view includes a draggable timeline on the left, with one dot per visible date. Drag to preview a date and release to jump, or focus the rail and use arrow keys, Home, or End. Collapsed months open automatically; unloaded dates are fetched directly without walking through intermediate pages. The rail follows chronological order and highlights the current date while scrolling. Dragging does not request media. Both the date index and jump endpoint enforce the same share scope and content permissions.
+
 ## Preview
 
 These 2× lossless PNGs use fictional data only. The creation dialog only asks for dates and lifetime; file permissions belong in their editors. The interface also supports English.
@@ -35,6 +37,8 @@ These 2× lossless PNGs use fictional data only. The creation dialog only asks f
 ![Fictional example: read-only shared timeline](../images/demo-share.png)
 
 ![Fictional example: collapsible timeline months](../images/demo-months.png)
+
+![Fictional example: left timeline and drag date tooltip](../images/demo-share-drag.png)
 
 ## Privacy and bandwidth
 
