@@ -269,3 +269,42 @@ it("inserts a photo at a folder edge instead of moving it into the folder", asyn
     }),
   );
 });
+
+it("uses one date mode at a time, including leap days and year boundaries", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2024, 1, 29, 12));
+  try {
+    await mount();
+    const lastRange = () =>
+      new URLSearchParams(
+        String(vi.mocked(api).mock.calls.at(-1)?.[0]).split("?")[1],
+      );
+    button("今天").click();
+    await nextTick();
+    expect(lastRange().get("start")).toBe("2024-02-29T00:00:00");
+    expect(lastRange().get("end")).toBe("2024-03-01T00:00:00");
+    button("按月").click();
+    await nextTick();
+    expect(lastRange().get("start")).toBe("2024-02-01T00:00:00");
+    expect(lastRange().get("end")).toBe("2024-03-01T00:00:00");
+    button("全部时间").click();
+    await nextTick();
+    expect(lastRange().has("start")).toBe(false);
+    expect(lastRange().has("end")).toBe(false);
+    vi.setSystemTime(new Date(2024, 11, 31, 12));
+    button("本月").click();
+    await nextTick();
+    (
+      host.querySelector('[aria-label="下一段日期"]') as HTMLButtonElement
+    ).click();
+    await nextTick();
+    expect(lastRange().get("start")).toBe("2025-01-01T00:00:00");
+    expect(lastRange().get("end")).toBe("2025-02-01T00:00:00");
+    button("按年").click();
+    await nextTick();
+    expect(lastRange().get("start")).toBe("2025-01-01T00:00:00");
+    expect(lastRange().get("end")).toBe("2026-01-01T00:00:00");
+  } finally {
+    vi.useRealTimers();
+  }
+});

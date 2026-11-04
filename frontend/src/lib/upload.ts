@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { api, post } from "./api";
 import type { Inspected } from "./metadata";
 export async function directUpload(
@@ -6,7 +7,7 @@ export async function directUpload(
   progress: (n: number) => void,
 ) {
   if (item.hash.sha256 !== task.sha256 || item.file.size !== task.file_size)
-    throw new Error("恢复任务必须选择 SHA-256 和大小一致的原文件");
+    throw new Error(t("恢复任务必须选择 SHA-256 和大小一致的原文件"));
   const status = await api(`/uploads/${task.id}`);
   if (status.status === "complete") {
     progress(100);
@@ -38,10 +39,12 @@ export async function directUpload(
           xhr.onload = () =>
             xhr.status >= 200 && xhr.status < 300
               ? resolve()
-              : reject(new Error(`OSS 分片上传失败 (${xhr.status})`));
+              : reject(
+                  new Error(t("OSS 分片上传失败 ({p0})", { p0: xhr.status })),
+                );
           xhr.onerror = () =>
-            reject(new Error("OSS 网络请求失败，请检查 CORS 或网络"));
-          xhr.ontimeout = () => reject(new Error("分片上传超时"));
+            reject(new Error(t("OSS 网络请求失败，请检查 CORS 或网络")));
+          xhr.ontimeout = () => reject(new Error(t("分片上传超时")));
           xhr.send(block);
         });
         succeeded = true;
@@ -53,7 +56,7 @@ export async function directUpload(
         );
       }
     }
-    if (!succeeded) throw new Error("分片重试失败");
+    if (!succeeded) throw new Error(t("分片重试失败"));
     completed += block.size;
     progress(Math.round((completed / item.file.size) * 100));
   }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
 import { computed, ref, watch } from "vue";
 import { ImageOff, Layers, Image, FileImage } from "lucide-vue-next";
 import { bytes } from "../lib/api";
@@ -77,7 +78,7 @@ watch(
       } catch (e) {
         if (active) {
           failed.value = true;
-          error.value = e instanceof Error ? e.message : "预览加载失败";
+          error.value = e instanceof Error ? e.message : t("预览加载失败");
         }
       } finally {
         if (active) loading.value = false;
@@ -93,7 +94,7 @@ async function playbackSource() {
     file.value.id,
     original.value ? "original" : "preview",
   );
-  if (!value.url) throw new Error("压缩预览仍在准备，请稍后再试");
+  if (!value.url) throw new Error(t("压缩预览仍在准备，请稍后再试"));
   return value.url;
 }
 </script>
@@ -102,7 +103,12 @@ async function playbackSource() {
   <div class="media-viewer-shell">
     <header class="viewer-toolbar">
       <span class="viewer-quality"
-        >{{ original ? "原文件" : isVideo ? "流畅预览 · 720p" : "高清压缩预览"
+        >{{
+          original
+            ? t("原文件")
+            : isVideo
+              ? t("流畅预览 · 720p")
+              : t("高清压缩预览")
         }}<small v-if="resource?.file_size">{{
           bytes(resource.file_size)
         }}</small></span
@@ -114,8 +120,8 @@ async function playbackSource() {
       >
         <FileImage :size="14" />{{
           original
-            ? "返回压缩预览"
-            : `查看原文件 · ${bytes(originalFile.file_size)}`
+            ? t("返回压缩预览")
+            : t("查看原文件 · {p0}", { p0: bytes(originalFile.file_size) })
         }}
       </button>
     </header>
@@ -134,17 +140,17 @@ async function playbackSource() {
         @error="failed = true"
       />
       <div v-else class="viewer-status">
-        <img v-if="poster" :src="poster" alt="视频封面" />
+        <img v-if="poster" :src="poster" :alt="t('视频封面')" />
         <div>
           <ImageOff v-if="failed || resource?.status === 'failed'" :size="36" />
           <h3>
             {{
               loading
-                ? "正在加载预览…"
+                ? t("正在加载预览…")
                 : resource?.status === "pending" ||
                     resource?.status === "processing"
-                  ? "视频预览正在准备"
-                  : "暂时无法预览"
+                  ? t("视频预览正在准备")
+                  : t("暂时无法预览")
             }}
           </h3>
           <p>
@@ -152,8 +158,8 @@ async function playbackSource() {
               error ||
               (resource?.status === "pending" ||
               resource?.status === "processing"
-                ? "完成后自动更新。原文件已安全保存。"
-                : "可以点击上方查看原文件，或下载后打开。")
+                ? t("完成后自动更新。原文件已安全保存。")
+                : t("可以点击上方查看原文件，或下载后打开。"))
             }}
           </p>
         </div>
@@ -167,7 +173,7 @@ async function playbackSource() {
           original = false;
         "
       >
-        <Image :size="15" />静态照片</button
+        <Image :size="15" /> {{ t("静态照片") }}</button
       ><button
         :class="{ active: live }"
         @click="
@@ -175,7 +181,7 @@ async function playbackSource() {
           original = false;
         "
       >
-        <Layers :size="15" />播放 LIVE
+        <Layers :size="15" /> {{ t("播放 LIVE") }}
       </button>
     </footer>
   </div>

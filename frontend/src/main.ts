@@ -3,7 +3,10 @@ import { createPinia } from "pinia";
 import { createRouter, createWebHistory } from "vue-router";
 import App from "./App.vue";
 import { useYearly } from "./stores/yearly";
+import "element-plus/es/components/date-picker/style/css";
 import "./style.css";
+import { setLocale } from "./lib/i18n";
+setLocale(localStorage.getItem("yearly-language") === "en" ? "en" : "zh-CN");
 const router = createRouter({
   history: createWebHistory(),
   routes: [

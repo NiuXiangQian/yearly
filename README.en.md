@@ -12,13 +12,23 @@ Daily timeline · Multiple child profiles · Drag-and-drop folders · Compressed
 
 ## Screenshots
 
-These screenshots show the actual application with isolated fictional data. Names, birthdays, entries, and counts are fictional; avatars and media use original sample illustrations. No real family photos or accounts are included. The screenshots show the Chinese interface; this English documentation does not imply an English application interface.
+These screenshots show the actual application with isolated fictional data. Names, birthdays, entries, and counts are fictional; avatars and media use original sample illustrations. No real family photos or accounts are included. The screenshots below show the English interface. Family names and user-written content are preserved in their original language. All screenshots are lossless PNGs captured at 2× resolution (3024px wide); open an image or its full-resolution link for details.
 
 ### A daily timeline you can organize your way
 
 Drag photos, videos, and folders into any order within a day. Folders display small previews, and custom titles appear over the images.
 
-![Fictional demo: daily timeline with folders and media](docs/images/demo-timeline.png)
+![Fictional demo: daily timeline with folders and media](docs/images/demo-timeline-en.png)
+
+[Full-resolution timeline screenshot](docs/images/demo-timeline-en.png)
+
+### Organize a whole batch before uploading
+
+Name a batch, select children, and choose an archive date. The compact file list supports bulk selection, drag-to-reorder, and file details.
+
+![Fictional demo: batch naming and upload queue](docs/images/demo-upload-en.png)
+
+[Full-resolution upload screenshot](docs/images/demo-upload-en.png)
 
 <details>
 <summary>View folder organization and child profiles</summary>
@@ -27,13 +37,13 @@ Drag photos, videos, and folders into any order within a day. Folders display sm
 
 Select multiple items, append uploads, drag items into or out of folders, reorder their contents, and restore the default order.
 
-![Fictional demo: folder contents and organization controls](docs/images/demo-folder.png)
+![Fictional demo: folder contents and organization controls](docs/images/demo-folder-en.png)
 
 ### A profile for every child
 
 Set an individual avatar, birthday, and introduction for each child, then filter shared memories by child.
 
-![Fictional demo: child profiles with individual avatars](docs/images/demo-children.png)
+![Fictional demo: child profiles with individual avatars](docs/images/demo-children-en.png)
 
 </details>
 
@@ -46,7 +56,7 @@ Set an individual avatar, birthday, and introduction for each child, then filter
 | Upload in batches | Batch names, EXIF / QuickTime date parsing, date checks when appending, cross-batch deduplication, multipart uploads and retries |
 | Browse efficiently | Image thumbnails, HEIC / HEIF previews, image zoom and pan, compressed video copies, originals on demand |
 | Preserve originals | Direct uploads to private OSS, paired Live Photo resources, original metadata, backups and integrity checks |
-| Share with family | Administrator / member / read-only guest roles, login CAPTCHA, recycle bin, light / dark themes, responsive layout |
+| Share with family | Administrator / member / read-only guest roles, login CAPTCHA, recycle bin, Chinese / English switching, light / dark themes, responsive layout |
 
 Each deployment serves one family. All enabled accounts share the family archive. There is no public registration or multi-tenant isolation.
 
@@ -59,6 +69,12 @@ Each deployment serves one family. All enabled accounts share the family archive
 - **Deployment:** Nginx + systemd, with a separate video preview worker. Redis is not required.
 
 Browsing uses compressed previews by default. Originals are loaded only when explicitly requested through “查看原文件” (View original); preview processing never overwrites them. Initial video transcoding reads the original and requires temporary disk space.
+
+## Interface language and date selection
+
+Simplified Chinese is the default. Switch to English on the login page, in the top-right header, or in family settings. The choice is saved in the current browser and survives refreshes. Menus, forms, messages, and calendars switch together; child names, filenames, and journal content remain unchanged.
+
+The timeline offers Day / Month / Year filters, previous/next period buttons, and All time / Today / This month / Day of birth shortcuts (the birthday shortcut appears when one child is selected). Type dates directly or click the calendar's year/month heading to navigate quickly. Child birthdays, upload archive dates, and journal times use the same date controls.
 
 ## Quick start
 

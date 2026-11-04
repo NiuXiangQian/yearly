@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
 import { ref, nextTick, onMounted, onBeforeUnmount } from "vue";
 import {
   Play,
@@ -49,7 +50,7 @@ async function toggle() {
     }
     await video.value?.play();
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "暂时无法播放，请重试";
+    error.value = e instanceof Error ? e.message : t("暂时无法播放，请重试");
   } finally {
     loading.value = false;
   }
@@ -102,7 +103,7 @@ function keydown(e: KeyboardEvent) {
     class="yearly-player"
     :class="{ expanded }"
     tabindex="0"
-    aria-label="视频播放器，空格播放，左右键跳转五秒"
+    :aria-label="t('视频播放器，空格播放，左右键跳转五秒')"
     @keydown="keydown"
   >
     <video
@@ -123,7 +124,7 @@ function keydown(e: KeyboardEvent) {
       @waiting="loading = true"
       @playing="loading = false"
       @error="
-        error = '播放失败，可重试或下载原文件';
+        error = t('播放失败，可重试或下载原文件');
         loading = false;
         playing = false;
       "
@@ -132,11 +133,11 @@ function keydown(e: KeyboardEvent) {
       v-if="!playing && !error"
       class="player-big-play"
       :disabled="loading"
-      :aria-label="loading ? '正在加载视频' : '播放视频'"
+      :aria-label="loading ? t('正在加载视频') : t('播放视频')"
       @click="toggle"
     >
       <Play :size="32" fill="currentColor" /><span>{{
-        loading ? "加载中…" : "播放"
+        loading ? t("加载中…") : t("播放")
       }}</span>
     </button>
     <div v-if="error" class="player-error">
@@ -147,15 +148,17 @@ function keydown(e: KeyboardEvent) {
           toggle();
         "
       >
-        <RotateCcw :size="16" />重新加载
+        <RotateCcw :size="16" /> {{ t("重新加载") }}
       </button>
     </div>
-    <div v-if="loading && playing" class="player-buffering">正在缓冲…</div>
+    <div v-if="loading && playing" class="player-buffering">
+      {{ t("正在缓冲…") }}
+    </div>
     <div class="player-controls">
       <input
         class="player-seek"
         type="range"
-        aria-label="播放进度"
+        :aria-label="t('播放进度')"
         min="0"
         :max="duration || 1"
         step="0.1"
@@ -165,7 +168,7 @@ function keydown(e: KeyboardEvent) {
       />
       <div class="player-control-row">
         <button
-          :aria-label="playing ? '暂停' : '播放'"
+          :aria-label="playing ? t('暂停') : t('播放')"
           :disabled="loading && !playing"
           @click="toggle"
         >
@@ -176,7 +179,7 @@ function keydown(e: KeyboardEvent) {
         >
         <span class="player-spacer"></span>
         <button
-          :aria-label="muted ? '取消静音' : '静音'"
+          :aria-label="muted ? t('取消静音') : t('静音')"
           @click="video && (video.muted = !video.muted)"
         >
           <VolumeX v-if="muted" :size="18" /><Volume2 v-else :size="18" />
@@ -184,7 +187,7 @@ function keydown(e: KeyboardEvent) {
         <input
           class="player-volume"
           type="range"
-          aria-label="音量"
+          :aria-label="t('音量')"
           min="0"
           max="1"
           step="0.05"
@@ -193,7 +196,7 @@ function keydown(e: KeyboardEvent) {
         />
         <select
           v-model.number="speed"
-          aria-label="播放速度"
+          :aria-label="t('播放速度')"
           @change="video && (video.playbackRate = speed)"
         >
           <option v-for="rate in [0.5, 0.75, 1, 1.25, 1.5, 2]" :value="rate">
@@ -201,7 +204,7 @@ function keydown(e: KeyboardEvent) {
           </option>
         </select>
         <button
-          :aria-label="expanded ? '退出全屏' : '全屏'"
+          :aria-label="expanded ? t('退出全屏') : t('全屏')"
           @click="fullscreen"
         >
           <Maximize :size="19" />

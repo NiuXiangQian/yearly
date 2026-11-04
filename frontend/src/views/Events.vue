@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t, ageLabel } from "../lib/i18n";
 import { ref, watch, onMounted } from "vue";
 import { Plus, BookHeart, ArrowUpRight, CalendarDays } from "lucide-vue-next";
 import { api, notify, localDate } from "../lib/api";
@@ -40,8 +41,8 @@ onMounted(() => load());
   <div class="page-heading">
     <div>
       <span class="eyebrow">THE STORIES BEHIND THE PICTURES</span>
-      <h1>有些成长，值得多写几句。</h1>
-      <p>把散落的瞬间串成故事，把一起长大的日子记下来。</p>
+      <h1>{{ t("有些成长，值得多写几句。") }}</h1>
+      <p>{{ t("把散落的瞬间串成故事，把一起长大的日子记下来。") }}</p>
     </div>
     <button
       v-if="yearly.canEdit"
@@ -51,7 +52,7 @@ onMounted(() => load());
         open = true;
       "
     >
-      <Plus :size="17" />写成长日记
+      <Plus :size="17" /> {{ t("写成长日记") }}
     </button>
   </div>
   <div class="panel event-filter">
@@ -60,8 +61,8 @@ onMounted(() => load());
       v-model="match"
       class="compact-select"
     >
-      <option value="any">任意孩子</option>
-      <option value="all">全部孩子</option>
+      <option value="any">{{ t("任意孩子") }}</option>
+      <option value="all">{{ t("全部孩子") }}</option>
     </select>
   </div>
   <div v-if="events.length" class="events-grid">
@@ -93,20 +94,20 @@ onMounted(() => load());
           ></span
         >
         <h2>{{ e.title }}</h2>
-        <p>{{ e.content || "那些藏在照片里的小故事。" }}</p>
+        <p>{{ e.content || t("那些藏在照片里的小故事。") }}</p>
         <div class="age-labels">
           <span v-for="c in e.children" :key="c.id"
             >{{ c.nickname || c.name
             }}<template v-if="c.age_start">
-              · {{ c.age_start
+              · {{ ageLabel(c.age_start)
               }}<template v-if="c.age_end && c.age_end !== c.age_start">
-                ～ {{ c.age_end }}</template
+                ～ {{ ageLabel(c.age_end) }}</template
               ></template
             ></span
           >
         </div>
         <div class="event-card-footer">
-          <span>{{ e.media_ids.length }} 份回忆 · 全部事件媒体</span
+          <span>{{ e.media_ids.length }} {{ t("份回忆 · 全部事件媒体") }} </span
           ><ArrowUpRight :size="19" />
         </div>
       </div>
@@ -114,8 +115,10 @@ onMounted(() => load());
   </div>
   <EmptyState
     v-else-if="!loading"
-    title="让照片连成故事"
-    description="在时间线选中一组照片，或从一段文字开始，记录一家人的共同成长。"
+    :title="t('让照片连成故事')"
+    :description="
+      t('在时间线选中一组照片，或从一段文字开始，记录一家人的共同成长。')
+    "
     ><button
       v-if="yearly.canEdit"
       class="button primary"
@@ -124,7 +127,7 @@ onMounted(() => load());
         open = true;
       "
     >
-      <BookHeart :size="16" />写下第一篇日记
+      <BookHeart :size="16" /> {{ t("写下第一篇日记") }}
     </button></EmptyState
   >
   <div class="load-more">
@@ -137,7 +140,7 @@ onMounted(() => load());
         load(false);
       "
     >
-      加载更多日记
+      {{ t("加载更多日记") }}
     </button>
   </div>
   <EventEditor

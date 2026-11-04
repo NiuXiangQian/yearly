@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { ElMessage } from "element-plus";
 let csrf = "";
 export function setCSRF(value: string) {
@@ -21,10 +22,12 @@ export async function api<T = any>(
     const message =
       typeof body.detail === "string"
         ? body.detail
-        : body.detail?.map((d: any) => d.msg).join("，") || "请求失败";
+        : body.detail
+            ?.map((d: any) => t(d.msg.replace(/^Value error, /, "")))
+            .join("; ") || t("请求失败");
     if (response.status === 401 && !path.startsWith("/auth/"))
       location.assign("/login");
-    throw new Error(message);
+    throw new Error(t(message));
   }
   return response.json();
 }
@@ -34,7 +37,7 @@ export const put = <T = any>(path: string, body: any) =>
   api<T>(path, { method: "PUT", body: JSON.stringify(body) });
 export const del = (path: string) => api(path, { method: "DELETE" });
 export function notify(error: unknown) {
-  ElMessage.error(error instanceof Error ? error.message : "操作失败");
+  ElMessage.error(error instanceof Error ? error.message : t("操作失败"));
 }
 export function bytes(n: number) {
   return n < 1024 ** 2
@@ -44,5 +47,5 @@ export function bytes(n: number) {
       : (n / 1024 ** 3).toFixed(2) + " GB";
 }
 export function localDate(value?: string) {
-  return value ? value.slice(0, 10).replaceAll("-", ".") : "拍摄时间未知";
+  return value ? value.slice(0, 10).replaceAll("-", ".") : t("拍摄时间未知");
 }

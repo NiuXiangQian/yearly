@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // Decode one full-resolution image at a time to limit memory use in a gallery.
 let decoding: Promise<unknown> = Promise.resolve();
 const previews = new Map<string, Promise<Blob>>();
@@ -7,7 +8,8 @@ export function heicPreview(source: string, key: string): Promise<Blob> {
   if (cached) return cached;
   const result = decoding.then(async () => {
     const response = await fetch(source);
-    if (!response.ok) throw new Error(`照片读取失败 (${response.status})`);
+    if (!response.ok)
+      throw new Error(t("照片读取失败 ({p0})", { p0: response.status }));
     const { heicTo } = await import("heic-to/csp");
     return heicTo({
       blob: await response.blob(),

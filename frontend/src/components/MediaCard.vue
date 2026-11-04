@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import { Check, Play, ImageOff, Layers } from "lucide-vue-next";
 import { mediaResource } from "../lib/media-resource";
@@ -73,7 +74,11 @@ function click(e: MouseEvent) {
   <article
     ref="root"
     class="media-card"
-    :class="{ chosen: selected, 'media-thumbnail': thumbnail, 'has-title': !thumbnail && media.title?.trim() }"
+    :class="{
+      chosen: selected,
+      'media-thumbnail': thumbnail,
+      'has-title': !thumbnail && media.title?.trim(),
+    }"
     :data-media-id="media.id"
     @click="click"
     @pointerdown="press"
@@ -89,13 +94,13 @@ function click(e: MouseEvent) {
         v-if="url && !failed"
         :src="url"
         loading="lazy"
-        :alt="media.title || '家庭影像'"
+        :alt="media.title || t('家庭影像')"
         @load="loaded = true"
         @error="failed = true"
       />
       <div v-if="failed || !preview" class="preview-unavailable">
-        <ImageOff :size="28" /><small>原件已珍藏</small
-        ><span>点击查看与下载</span>
+        <ImageOff :size="28" /><small> {{ t("原件已珍藏") }} </small
+        ><span> {{ t("点击查看与下载") }} </span>
       </div>
       <span
         v-if="selection || selected"
@@ -114,7 +119,7 @@ function click(e: MouseEvent) {
                   2,
                   "0",
                 )
-              : "视频"
+              : t("视频")
         }}</span
       ><span v-if="media.media_type === 'live_photo'" class="media-kind"
         ><Layers :size="12" /> {{ thumbnail ? "" : "LIVE" }}</span

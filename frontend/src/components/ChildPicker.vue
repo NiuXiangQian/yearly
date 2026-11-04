@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
 import { useYearly } from "../stores/yearly";
 import ChildAvatar from "./ChildAvatar.vue";
 const props = defineProps<{
@@ -27,7 +28,8 @@ function toggle(id: number) {
       :class="{ selected: !modelValue.length }"
       @click="emit('update:modelValue', [])"
     >
-      <span class="child-avatar all-avatar">全</span> 全部孩子</button
+      <span class="child-avatar all-avatar"> {{ t("全") }} </span>
+      {{ t("全部孩子") }}</button
     ><button
       type="button"
       :disabled="disabled"
@@ -38,7 +40,7 @@ function toggle(id: number) {
       @click="toggle(c.id)"
     >
       <ChildAvatar :child="c" />{{ c.nickname || c.name
-      }}<small v-if="c.status === 'archived'">已归档</small
+      }}<small v-if="c.status === 'archived'"> {{ t("已归档") }} </small
       ><span v-if="modelValue.includes(c.id)" class="selection-dot"
         >✓</span
       ></button

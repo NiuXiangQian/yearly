@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t, ageLabel } from "../lib/i18n";
+import DateField from "../components/DateField.vue";
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -76,7 +78,7 @@ function moveIntoFolder() {
       .map((m) => m.timeline_day),
   );
   if (dates.size !== 1 || ![...dates][0]) {
-    notify(new Error("请先选择同一天且日期已知的影像"));
+    notify(new Error(t("请先选择同一天且日期已知的影像")));
     return;
   }
   folderMoveDay.value = [...dates][0];
@@ -113,6 +115,58 @@ const q = ref(""),
   batchKids = ref<number[]>([]),
   batchMode = ref("add"),
   stageDialog = ref(false);
+type DateMode = "date" | "month" | "year";
+const dateMode = ref<DateMode>("date");
+const dateModes: { value: DateMode; label: string }[] = [
+  { value: "date", label: "按天" },
+  { value: "month", label: "按月" },
+  { value: "year", label: "按年" },
+];
+const dateValue = computed({
+  get: () =>
+    day.value ||
+    (year.value
+      ? year.value + (month.value ? "-" + month.value.padStart(2, "0") : "")
+      : ""),
+  set: (value: string) => {
+    day.value = dateMode.value === "date" ? value : "";
+    year.value = dateMode.value !== "date" && value ? value.slice(0, 4) : "";
+    month.value = dateMode.value === "month" && value ? value.slice(5, 7) : "";
+  },
+});
+function dateString(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function changeDateMode(mode: DateMode) {
+  const current = dateValue.value;
+  dateMode.value = mode;
+  dateValue.value = current
+    ? (current + "-01-01").slice(
+        0,
+        mode === "year" ? 4 : mode === "month" ? 7 : 10,
+      )
+    : "";
+}
+function quickDate(mode: "today" | "month") {
+  dateMode.value = mode === "today" ? "date" : "month";
+  dateValue.value = dateString(new Date()).slice(0, mode === "today" ? 10 : 7);
+}
+function birthdayDate() {
+  dateMode.value = "date";
+  dateValue.value = activeChild.value.birthday;
+}
+function shiftDate(delta: number) {
+  const date = new Date(
+    (dateValue.value + "-01-01").slice(0, 10) + "T12:00:00",
+  );
+  if (dateMode.value === "year") date.setFullYear(date.getFullYear() + delta);
+  else if (dateMode.value === "month") date.setMonth(date.getMonth() + delta);
+  else date.setDate(date.getDate() + delta);
+  dateValue.value = dateString(date).slice(
+    0,
+    dateMode.value === "year" ? 4 : dateMode.value === "month" ? 7 : 10,
+  );
+}
 const sortDate = ref(""),
   orderSaving = ref(false),
   draggedIds = ref<number[]>([]),
@@ -231,7 +285,7 @@ async function load(reset = true, preserveLoaded = false) {
     nextCursor.value = cursor;
   } catch (e) {
     if (ticket === generation) {
-      error.value = e instanceof Error ? e.message : "加载失败";
+      error.value = e instanceof Error ? e.message : t("加载失败");
     }
   } finally {
     if (ticket === generation) loading.value = false;
@@ -596,12 +650,13 @@ async function restore(id: number, kind = "media") {
   }
 }
 function jump(marker: any) {
+  dateMode.value = "date";
   day.value = marker.date;
   view.value = "calendar";
 }
 function saveStages() {
   if (stages.value.some((s) => s.start < 0 || s.end <= s.start)) {
-    notify(new Error("年龄阶段结束月龄需大于开始月龄"));
+    notify(new Error(t("年龄阶段结束月龄需大于开始月龄")));
     return;
   }
   localStorage.setItem("yearly-age-stages", JSON.stringify(stages.value));
@@ -617,27 +672,29 @@ function saveStages() {
         <h1>
           {{
             trash
-              ? "留一点反悔的余地"
+              ? t("留一点反悔的余地")
               : activeChild
-                ? `${activeChild.nickname || activeChild.name}的成长时光`
-                : "把日子，慢慢收藏。"
+                ? t("{p0}的成长时光", {
+                    p0: activeChild.nickname || activeChild.name,
+                  })
+                : t("把日子，慢慢收藏。")
           }}<span class="heading-leaf"><Leaf :size="24" /></span>
         </h1>
         <p>
           {{
             trash
-              ? "这里的回忆可以恢复，原文件会继续安全保存。"
-              : "每一个平凡的瞬间，都是长大后最珍贵的礼物。"
+              ? t("这里的回忆可以恢复，原文件会继续安全保存。")
+              : t("每一个平凡的瞬间，都是长大后最珍贵的礼物。")
           }}
         </p>
       </div>
       <div v-if="yearly.canEdit && !trash" class="timeline-heading-actions">
         <button class="button" @click="dateDialog = true">
-          <CalendarDays :size="16" />添加日期
+          <CalendarDays :size="16" /> {{ t("添加日期") }}
         </button>
         <RouterLink to="/upload" class="button primary"
-          ><Plus :size="18" />珍藏新回忆</RouterLink
-        >
+          ><Plus :size="18" /> {{ t("珍藏新回忆") }}
+        </RouterLink>
       </div>
     </div>
     <div v-if="!trash" class="memory-summary">
@@ -645,24 +702,26 @@ function saveStages() {
         <span class="summary-icon sage"><LayoutGrid :size="21" /></span
         ><span
           ><b>{{ yearly.stats.media }}</b
-          ><small>珍藏的瞬间</small></span
+          ><small> {{ t("珍藏的瞬间") }} </small></span
         >
       </div>
       <div>
         <span class="summary-icon peach"><BookHeart :size="21" /></span
         ><span
           ><b>{{ yearly.stats.events }}</b
-          ><small>写下的成长故事</small></span
+          ><small> {{ t("写下的成长故事") }} </small></span
         >
       </div>
       <div>
         <span class="summary-icon sand"><Users :size="21" /></span
         ><span
           ><b>{{ yearly.stats.children }}</b
-          ><small>正在长大的小小人</small></span
+          ><small> {{ t("正在长大的小小人") }} </small></span
         >
       </div>
-      <p>时光会走远<br /><em>回忆会留下。</em></p>
+      <p>
+        {{ t("时光会走远") }} <br /><em> {{ t("回忆会留下。") }} </em>
+      </p>
     </div>
     <div class="timeline-controls">
       <div class="child-filter">
@@ -671,16 +730,16 @@ function saveStages() {
             v-if="yearly.canEdit"
             to="/children"
             class="add-child-link"
-            ><Plus :size="15" />添加孩子</RouterLink
-          ></ChildPicker
+            ><Plus :size="15" /> {{ t("添加孩子") }}
+          </RouterLink></ChildPicker
         ><select
           v-if="yearly.selected.length > 1"
           v-model="match"
           class="compact-select"
-          aria-label="多孩子匹配方式"
+          :aria-label="t('多孩子匹配方式')"
         >
-          <option value="any">包含任意孩子</option>
-          <option value="all">同时包含全部孩子</option>
+          <option value="any">{{ t("包含任意孩子") }}</option>
+          <option value="all">{{ t("同时包含全部孩子") }}</option>
         </select>
       </div>
       <div class="view-bar">
@@ -689,28 +748,32 @@ function saveStages() {
             :class="{ active: view === 'calendar' }"
             @click="view = 'calendar'"
           >
-            <CalendarDays :size="15" />按日历</button
+            <CalendarDays :size="15" /> {{ t("按日历") }}</button
           ><button
             :class="{ active: view === 'age' }"
             :disabled="!activeChild"
-            title="选择一个孩子后浏览年龄阶段"
+            :title="t('选择一个孩子后浏览年龄阶段')"
             @click="view = 'age'"
           >
-            按年龄
+            {{ t("按年龄") }}
           </button>
         </div>
         <div class="filter-tools">
           <div class="search-box">
             <Search :size="16" /><input
               v-model="q"
-              placeholder="搜索批次、标题、地点"
-              aria-label="搜索回忆"
+              :placeholder="t('搜索批次、标题、地点')"
+              :aria-label="t('搜索回忆')"
             />
           </div>
-          <select v-model="type" class="compact-select" aria-label="媒体类型">
-            <option value="">全部类型</option>
-            <option value="photo">照片</option>
-            <option value="video">视频</option>
+          <select
+            v-model="type"
+            class="compact-select"
+            :aria-label="t('媒体类型')"
+          >
+            <option value="">{{ t("全部类型") }}</option>
+            <option value="photo">{{ t("照片") }}</option>
+            <option value="video">{{ t("视频") }}</option>
             <option value="live_photo">Live Photo</option></select
           ><button
             v-if="yearly.canEdit && !trash"
@@ -722,37 +785,65 @@ function saveStages() {
               dragEnabled = false;
             "
           >
-            <CheckSquare :size="15" />多选
+            <CheckSquare :size="15" /> {{ t("多选") }}
           </button>
         </div>
       </div>
       <div class="date-filters" v-if="view === 'calendar'">
-        <label
-          >年份<input
-            v-model="year"
-            type="number"
-            placeholder="全部年份"
-            min="1900"
-            max="2200" /></label
-        ><label
-          >月份<select v-model="month" :disabled="!year">
-            <option value="">全年</option>
-            <option v-for="n in 12" :key="n" :value="String(n)">
-              {{ n }} 月
-            </option>
-          </select></label
-        ><label>某一天<input v-model="day" type="date" /></label
-        ><button
-          v-if="year || day"
-          class="text-button"
-          @click="
-            year = '';
-            month = '';
-            day = '';
-          "
-        >
-          清除日期</button
-        ><span class="result-count">{{ total }} 条记录 · 按天归档</span>
+        <div class="date-mode" role="group" :aria-label="t('日期筛选方式')">
+          <button
+            v-for="mode in dateModes"
+            :key="mode.value"
+            :class="{ active: dateMode === mode.value }"
+            @click="changeDateMode(mode.value)"
+          >
+            {{ t(mode.label) }}
+          </button>
+        </div>
+        <div class="date-navigation">
+          <button
+            class="icon-button"
+            :disabled="!dateValue"
+            :aria-label="t('上一段日期')"
+            @click="shiftDate(-1)"
+          >
+            <ArrowLeft :size="16" />
+          </button>
+          <DateField
+            v-model="dateValue"
+            :type="dateMode"
+            :aria-label="t('筛选日期')"
+          />
+          <button
+            class="icon-button"
+            :disabled="!dateValue"
+            :aria-label="t('下一段日期')"
+            @click="shiftDate(1)"
+          >
+            <ArrowRight :size="16" />
+          </button>
+        </div>
+        <div class="date-shortcuts">
+          <button
+            class="chip"
+            :class="{ active: !dateValue }"
+            @click="dateValue = ''"
+          >
+            {{ t("全部时间") }}
+          </button>
+          <button class="chip" @click="quickDate('today')">
+            {{ t("今天") }}
+          </button>
+          <button class="chip" @click="quickDate('month')">
+            {{ t("本月") }}
+          </button>
+          <button v-if="activeChild" class="chip" @click="birthdayDate">
+            {{ t("出生当天") }}
+          </button>
+        </div>
+        <span class="result-count"
+          >{{ total }} {{ t("条记录 · 按天归档") }}
+        </span>
       </div>
       <div v-else class="age-stage-list">
         <button
@@ -760,7 +851,7 @@ function saveStages() {
           :class="{ active: stage === -1 }"
           @click="stage = -1"
         >
-          全部年龄</button
+          {{ t("全部年龄") }}</button
         ><button
           v-for="(s, i) in stages"
           :key="i"
@@ -768,16 +859,16 @@ function saveStages() {
           :class="{ active: stage === i }"
           @click="stage = i"
         >
-          {{ s.label }}</button
+          {{ t(s.label) }}</button
         ><button class="text-button" @click="stageDialog = true">
-          设置阶段
+          {{ t("设置阶段") }}
         </button>
       </div>
     </div>
     <div v-if="activeChild && markers.length && !trash" class="milestone-bar">
-      <span>成长足迹</span
+      <span> {{ t("成长足迹") }} </span
       ><button v-for="m in markers" :key="m.title" @click="jump(m)">
-        {{ m.title }}<small>{{ localDate(m.date) }}</small></button
+        {{ ageLabel(m.title) }}<small>{{ localDate(m.date) }}</small></button
       ><button
         v-if="yearly.canEdit"
         @click="
@@ -786,19 +877,19 @@ function saveStages() {
           eventOpen = true;
         "
       >
-        ＋ 写下里程碑
+        {{ t("＋ 写下里程碑") }}
       </button>
     </div>
     <div v-if="selection" class="selection-toolbar">
-      <span
-        >已选 <b>{{ selected.length }}</b> 份回忆</span
+      <span>
+        {{ t("已选") }} <b>{{ selected.length }}</b> {{ t("份回忆") }} </span
       ><button
         class="text-button"
         @click="
           selected = items.filter((m) => m.kind === 'media').map((m) => m.id)
         "
       >
-        选择已加载影像</button
+        {{ t("选择已加载影像") }}</button
       ><button
         class="button small desktop-only"
         :class="{ pressed: dragEnabled }"
@@ -807,7 +898,7 @@ function saveStages() {
           dragEnabled = !dragEnabled;
         "
       >
-        <MousePointer2 :size="14" />框选模式</button
+        <MousePointer2 :size="14" /> {{ t("框选模式") }}</button
       ><button
         class="button small"
         :disabled="!selected.length"
@@ -816,34 +907,34 @@ function saveStages() {
           batchOpen = true;
         "
       >
-        关联孩子</button
+        {{ t("关联孩子") }}</button
       ><button
         class="button small"
         :disabled="!selected.length"
         @click="openOrganize('name')"
       >
-        <Pencil :size="14" />批量命名</button
+        <Pencil :size="14" /> {{ t("批量命名") }}</button
       ><button
         class="button small"
         :disabled="!selected.length"
         @click="moveIntoFolder"
       >
-        <Folder :size="14" />移入文件夹</button
+        <Folder :size="14" /> {{ t("移入文件夹") }}</button
       ><button
         class="button small"
         :disabled="!selected.length"
         @click="openOrganize('date')"
       >
-        <FolderInput :size="14" />调整日期</button
+        <FolderInput :size="14" /> {{ t("调整日期") }}</button
       ><button
         class="button primary small"
         :disabled="!selected.length"
         @click="newEvent"
       >
-        <BookHeart :size="14" />创建成长日记</button
+        <BookHeart :size="14" /> {{ t("创建成长日记") }}</button
       ><button
         class="icon-button"
-        aria-label="退出多选"
+        :aria-label="t('退出多选')"
         @click="
           selection = false;
           selected = [];
@@ -853,9 +944,9 @@ function saveStages() {
       </button>
     </div>
     <div v-if="error" class="error-panel">
-      <h3>暂时没能翻开回忆</h3>
+      <h3>{{ t("暂时没能翻开回忆") }}</h3>
       <p>{{ error }}</p>
-      <button class="button" @click="load()">重新加载</button>
+      <button class="button" @click="load()">{{ t("重新加载") }}</button>
     </div>
     <div
       v-else
@@ -870,10 +961,12 @@ function saveStages() {
           <span class="date-dot"></span>
           <h2>
             {{
-              group.date === "unknown" ? "拍摄时间未知" : localDate(group.date)
+              group.date === "unknown"
+                ? t("拍摄时间未知")
+                : localDate(group.date)
             }}
           </h2>
-          <span>{{ group.media.length }} 条记录</span>
+          <span>{{ group.media.length }} {{ t("条记录") }} </span>
           <div class="date-rule"></div>
           <div v-if="yearly.canEdit && !trash" class="day-actions">
             <button
@@ -881,22 +974,22 @@ function saveStages() {
               class="button small"
               @click="appendToDate(group.date)"
             >
-              <Plus :size="14" />追加
+              <Plus :size="14" /> {{ t("追加") }}
             </button>
             <button
               class="text-button"
               :disabled="!group.files.length"
-              title="选择本日已加载的照片与视频"
+              :title="t('选择本日已加载的照片与视频')"
               @click="selectDay(group)"
             >
-              选本组
+              {{ t("选本组") }}
             </button>
             <button
               v-if="group.date !== 'unknown'"
               class="text-button"
               @click="newFolder(group.date)"
             >
-              <Folder :size="14" />新建文件夹
+              <Folder :size="14" /> {{ t("新建文件夹") }}
             </button>
             <button
               class="text-button"
@@ -906,22 +999,26 @@ function saveStages() {
               @click="startSort(group.date)"
             >
               <GripVertical :size="14" />{{
-                sortDate === group.date ? "完成排序" : "排序"
+                sortDate === group.date ? t("完成排序") : t("排序")
               }}
             </button>
             <ElPopconfirm
               :width="280"
-              title="恢复本日默认排序：文件夹置前，全部影像（含文件夹内）按拍摄时间从新到旧排列。其他日期不受影响。"
-              confirm-button-text="恢复排序"
-              cancel-button-text="取消"
+              :title="
+                t(
+                  '恢复本日默认排序：文件夹置前，全部影像（含文件夹内）按拍摄时间从新到旧排列。其他日期不受影响。',
+                )
+              "
+              :confirm-button-text="t('恢复排序')"
+              :cancel-button-text="t('取消')"
               @confirm="restoreDayOrder(group.date)"
               ><template #reference
                 ><button
                   class="text-button"
                   :disabled="orderSaving"
-                  title="恢复本日全部影像的拍摄时间排序"
+                  :title="t('恢复本日全部影像的拍摄时间排序')"
                 >
-                  <RotateCcw :size="14" />恢复默认排序
+                  <RotateCcw :size="14" /> {{ t("恢复默认排序") }}
                 </button></template
               ></ElPopconfirm
             >
@@ -930,8 +1027,10 @@ function saveStages() {
         <p v-if="sortDate === group.date" class="sort-instructions">
           {{
             orderSaving
-              ? "正在保存顺序…"
-              : "文件夹与影像可自由混排；拖到卡片左右两侧插入排序，拖到文件夹中间移入。多选影像可一起拖动。"
+              ? t("正在保存顺序…")
+              : t(
+                  "文件夹与影像可自由混排；拖到卡片左右两侧插入排序，拖到文件夹中间移入。多选影像可一起拖动。",
+                )
           }}
         </p>
         <div
@@ -940,7 +1039,7 @@ function saveStages() {
           @dragover.prevent
           @drop.prevent.stop="dropToDay(group.date)"
         >
-          松开移回当天时间线
+          {{ t("松开移回当天时间线") }}
         </div>
         <div class="media-grid">
           <div
@@ -1007,7 +1106,7 @@ function saveStages() {
                 "
                 @click="moveOne(m, group, -1)"
               >
-                <ArrowLeft :size="13" />前移</button
+                <ArrowLeft :size="13" /> {{ t("前移") }}</button
               ><button
                 class="text-button"
                 :disabled="
@@ -1017,7 +1116,7 @@ function saveStages() {
                 "
                 @click="moveOne(m, group, 1)"
               >
-                后移<ArrowRight :size="13" />
+                {{ t("后移") }} <ArrowRight :size="13" />
               </button>
             </div>
             <div
@@ -1025,12 +1124,12 @@ function saveStages() {
               class="day-folder-card"
               role="button"
               tabindex="0"
-              :aria-label="`打开文件夹 ${m.name}`"
+              :aria-label="t('打开文件夹 {p0}', { p0: m.name })"
               :title="
                 dropFolder === m.id
-                  ? `松开移入 ${draggedIds.length} 份影像`
+                  ? t('松开移入 {p0} 份影像', { p0: draggedIds.length })
                   : yearly.canEdit
-                    ? '拖动标题排序；拖到两侧插入，中间移入影像'
+                    ? t('拖动标题排序；拖到两侧插入，中间移入影像')
                     : m.name
               "
               @click="folderId = m.id"
@@ -1043,7 +1142,7 @@ function saveStages() {
                   <span
                     v-if="yearly.canEdit"
                     class="folder-drag-handle"
-                    title="拖动文件夹，可放在照片、视频之间"
+                    :title="t('拖动文件夹，可放在照片、视频之间')"
                     ><GripVertical :size="15"
                   /></span>
                 </div>
@@ -1052,7 +1151,9 @@ function saveStages() {
                     v-for="preview in m.previews"
                     :key="preview.id"
                     :draggable="yearly.canEdit && !orderSaving && !dragEnabled"
-                    :aria-label="`拖动影像 ${preview.title || preview.id}`"
+                    :aria-label="
+                      t('拖动影像 {p0}', { p0: preview.title || preview.id })
+                    "
                     @dragstart.stop="
                       startOrderDrag(
                         $event,
@@ -1077,7 +1178,7 @@ function saveStages() {
               <EventCover :media-id="m.cover_media_id" /><BookHeart
                 :size="27"
                 stroke-width="1.3"
-              /><span class="eyebrow">成长日记</span>
+              /><span class="eyebrow"> {{ t("成长日记") }} </span>
               <h3>{{ m.title }}</h3>
               <p>{{ m.content }}</p>
               <small
@@ -1088,15 +1189,15 @@ function saveStages() {
               >
               <div class="age-labels">
                 <span v-for="c in m.children" :key="c.id"
-                  >{{ c.name }} · {{ c.age_start || "年龄未知"
+                  >{{ c.name }} · {{ ageLabel(c.age_start)
                   }}<template v-if="c.age_end && c.age_end !== c.age_start">
-                    ～ {{ c.age_end }}</template
+                    ～ {{ ageLabel(c.age_end) }}</template
                   ></span
                 >
               </div>
               <small
-                >{{ m.media_ids.length }} 份回忆 · 全部事件媒体</small
-              ></button
+                >{{ m.media_ids.length }} {{ t("份回忆 · 全部事件媒体") }}
+              </small></button
             ><MediaCard
               v-else
               :media="m"
@@ -1110,7 +1211,7 @@ function saveStages() {
               class="button small restore-button"
               @click="restore(m.id, m.kind)"
             >
-              <RotateCcw :size="14" />恢复这份回忆
+              <RotateCcw :size="14" /> {{ t("恢复这份回忆") }}
             </button>
           </div>
         </div>
@@ -1124,34 +1225,38 @@ function saveStages() {
         v-if="!items.length && !loading"
         :title="
           trash
-            ? '回收站空空的'
+            ? t('回收站空空的')
             : q || yearly.selected.length || year || day || type
-              ? '还没有符合条件的回忆'
+              ? t('还没有符合条件的回忆')
               : undefined
         "
         :description="
           trash
-            ? '每一份回忆，都在好好收藏。'
+            ? t('每一份回忆，都在好好收藏。')
             : yearly.selected.length && !q && !year && !day && !type
-              ? '这个孩子还没有关联影像。可在“全部孩子”中多选已有影像后关联，也可以直接上传。'
+              ? t(
+                  '这个孩子还没有关联影像。可在“全部孩子”中多选已有影像后关联，也可以直接上传。',
+                )
               : q || yearly.selected.length || year || day || type
-                ? '换个筛选条件，或为这个孩子上传新的成长影像。'
+                ? t('换个筛选条件，或为这个孩子上传新的成长影像。')
                 : undefined
         "
         ><RouterLink
           v-if="yearly.canEdit && !trash"
           to="/upload"
           class="button primary"
-          ><Upload :size="16" />上传第一份回忆</RouterLink
-        ><span v-if="!trash" class="empty-footnote"
-          >照片、视频、Live Photo · 原文件无损珍藏</span
-        ></EmptyState
+          ><Upload :size="16" /> {{ t("上传第一份回忆") }} </RouterLink
+        ><span v-if="!trash" class="empty-footnote">
+          {{ t("照片、视频、Live Photo · 原文件无损珍藏") }}
+        </span></EmptyState
       >
     </div>
     <div ref="sentinel" class="load-more">
       <button v-if="nextCursor && !loading" class="button" @click="next">
-        加载更多回忆</button
-      ><span v-else-if="items.length && !loading">— 这些日子，都在这里 —</span>
+        {{ t("加载更多回忆") }}</button
+      ><span v-else-if="items.length && !loading">
+        {{ t("— 这些日子，都在这里 —") }}
+      </span>
     </div>
     <div
       v-if="rect"
@@ -1198,79 +1303,92 @@ function saveStages() {
         load(true, true);
       "
     />
-    <ElDialog v-model="folderCreate" title="新建当天文件夹" width="440px"
+    <ElDialog v-model="folderCreate" :title="t('新建当天文件夹')" width="440px"
       ><form @submit.prevent="saveFolder">
-        <p class="muted">{{ folderDay }} · 文件夹仅用于整理当天影像</p>
-        <label
-          >文件夹名称<input
+        <p class="muted">
+          {{ folderDay }} {{ t("· 文件夹仅用于整理当天影像") }}
+        </p>
+        <label>
+          {{ t("文件夹名称") }}
+          <input
             v-model="folderName"
             maxlength="255"
-            placeholder="例如：出生纪念、家人合影"
+            :placeholder="t('例如：出生纪念、家人合影')"
         /></label>
         <div class="dialog-actions">
           <button
             class="button primary"
             :disabled="folderBusy || !folderName.trim()"
           >
-            创建文件夹
+            {{ t("创建文件夹") }}
           </button>
         </div>
       </form></ElDialog
     >
-    <ElDialog v-model="batchOpen" title="批量关联孩子" width="540px"
+    <ElDialog v-model="batchOpen" :title="t('批量关联孩子')" width="540px"
       ><p class="muted">
-        将调整已选 {{ selected.length }} 份回忆的关联，原文件保持独立保存。
+        {{ t("将调整已选") }} {{ selected.length }}
+        {{ t("份回忆的关联，原文件保持独立保存。") }}
       </p>
-      <label
-        >操作方式<select v-model="batchMode">
-          <option value="add">追加关联</option>
-          <option value="remove">解除选中的孩子关联</option>
-          <option value="replace">替换为所选孩子（可清空）</option>
+      <label>
+        {{ t("操作方式") }}
+        <select v-model="batchMode">
+          <option value="add">{{ t("追加关联") }}</option>
+          <option value="remove">{{ t("解除选中的孩子关联") }}</option>
+          <option value="replace">{{ t("替换为所选孩子（可清空）") }}</option>
         </select></label
       ><ChildPicker v-model="batchKids" />
       <div class="dialog-actions">
-        <button class="button primary" @click="batch">保存关联</button>
+        <button class="button primary" @click="batch">
+          {{ t("保存关联") }}
+        </button>
       </div></ElDialog
     >
-    <ElDialog v-model="dateDialog" title="添加一个时间节点" width="440px">
-      <p class="muted">选择日期，再把这一天的回忆一起上传。</p>
-      <label>时间节点日期<input v-model="newDate" type="date" /></label>
+    <ElDialog v-model="dateDialog" :title="t('添加一个时间节点')" width="440px">
+      <p class="muted">{{ t("选择日期，再把这一天的回忆一起上传。") }}</p>
+      <label>
+        {{ t("时间节点日期") }} <DateField v-model="newDate" type="date"
+      /></label>
       <div class="dialog-actions">
         <button
           class="button primary"
           :disabled="!newDate"
           @click="appendToDate(newDate)"
         >
-          选择这一天的文件
+          {{ t("选择这一天的文件") }}
         </button>
       </div>
     </ElDialog>
     <ElDialog
       v-model="organizeOpen"
-      :title="organizeAction === 'name' ? '给所选回忆命名' : '调整归档日期'"
+      :title="
+        organizeAction === 'name' ? t('给所选回忆命名') : t('调整归档日期')
+      "
       width="480px"
     >
-      <p class="muted">将应用到已选的 {{ selected.length }} 份回忆。</p>
-      <label v-if="organizeAction === 'name'"
-        >批次名称<input
+      <p class="muted">
+        {{ t("将应用到已选的") }} {{ selected.length }} {{ t("份回忆。") }}
+      </p>
+      <label v-if="organizeAction === 'name'">
+        {{ t("批次名称") }}
+        <input
           v-model="organizeName"
           maxlength="255"
-          placeholder="例如：满月纪念；留空可清除批次名"
+          :placeholder="t('例如：满月纪念；留空可清除批次名')"
       /></label>
       <template v-else
-        ><label
-          >归档日期<input
+        ><label>
+          {{ t("归档日期") }}
+          <DateField
             v-model="organizeDate"
             type="date"
             :disabled="resetDate" /></label
         ><label class="checkbox-label"
-          ><input
-            v-model="resetDate"
-            type="checkbox"
-          />恢复按各文件的拍摄日期归档</label
-        >
+          ><input v-model="resetDate" type="checkbox" />
+          {{ t("恢复按各文件的拍摄日期归档") }}
+        </label>
         <p class="muted">
-          归档日期用于时间线分组，拍摄时间和原始元数据单独保留。
+          {{ t("归档日期用于时间线分组，拍摄时间和原始元数据单独保留。") }}
         </p></template
       >
       <div class="dialog-actions">
@@ -1283,36 +1401,40 @@ function saveStages() {
           "
           @click="saveOrganization"
         >
-          {{ organizeSaving ? "正在保存…" : "应用到所选回忆" }}
+          {{ organizeSaving ? t("正在保存…") : t("应用到所选回忆") }}
         </button>
       </div>
     </ElDialog>
-    <ElDialog v-model="stageDialog" title="自定义年龄阶段" width="600px"
-      ><p class="muted">按真实日历月龄筛选，结束月龄不包含在本阶段内。</p>
+    <ElDialog v-model="stageDialog" :title="t('自定义年龄阶段')" width="600px"
+      ><p class="muted">
+        {{ t("按真实日历月龄筛选，结束月龄不包含在本阶段内。") }}
+      </p>
       <div v-for="(s, i) in stages" :key="i" class="stage-row">
-        <input v-model="s.label" aria-label="阶段名称" /><input
+        <input v-model="s.label" :aria-label="t('阶段名称')" /><input
           type="number"
           v-model.number="s.start"
           min="0"
-          aria-label="开始月龄"
+          :aria-label="t('开始月龄')"
         /><span>～</span
         ><input
           type="number"
           v-model.number="s.end"
           min="1"
-          aria-label="结束月龄"
+          :aria-label="t('结束月龄')"
         /><button class="icon-button" @click="stages.splice(i, 1)">
           <X :size="15" />
         </button>
       </div>
       <button
         class="text-button"
-        @click="stages.push({ label: '新的阶段', start: 36, end: 48 })"
+        @click="stages.push({ label: t('新的阶段'), start: 36, end: 48 })"
       >
-        ＋ 添加阶段
+        {{ t("＋ 添加阶段") }}
       </button>
       <div class="dialog-actions">
-        <button class="button primary" @click="saveStages">保存阶段</button>
+        <button class="button primary" @click="saveStages">
+          {{ t("保存阶段") }}
+        </button>
       </div></ElDialog
     >
   </div>

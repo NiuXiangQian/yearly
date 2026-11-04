@@ -6,14 +6,16 @@ This document records only publicly shareable functional verification. It contai
 
 ## Latest functional verification
 
-As of November 4, 2026, the mixed-folder ordering and compact-interface verification round recorded:
+As of November 4, 2026, the date selection, language switching, and high-resolution screenshot verification round recorded:
 
 | Check | Result | Scope |
 | --- | --- | --- |
-| Frontend Vitest | 40 passed | Current frontend test suite |
-| Backend pytest | 15 passed | Organization and folder tests; not the entire backend suite |
+| Frontend Vitest | 43 passed | Current frontend test suite |
+| Backend pytest | 15 passed in the previous round | Backend unchanged and not rerun this round; the earlier subset covered organization and folders |
 | Type checking and production build | Passed | vue-tsc, Vite |
-| Browser checks | Passed | Mixed folder/media ordering, persistence after refresh, dragging in/out, title overlays, equal-height cards and skeletons |
+| Browser checks | Passed | Date entry and month/year switching, live language changes and refresh persistence, upload draft preservation, required birthdays and leap days, 390px English layout |
+
+Screenshots use an isolated fictional API, with no connection to family MySQL or OSS. The upload screenshots show locally selected files waiting to upload, not a real OSS upload. Four screenshots per language are lossless 3024px-wide PNGs without EXIF or other ancillary metadata.
 
 These are development verification results, not acceptance of every deployment environment. Revalidate in your own separate test environment after dependency, configuration, or feature changes.
 

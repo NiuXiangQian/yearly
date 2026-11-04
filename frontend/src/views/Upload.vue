@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
+import DateField from "../components/DateField.vue";
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useRoute } from "vue-router";
 import {
@@ -255,7 +257,7 @@ function applyKids() {
 async function uploadAll(targets = pendingSelected.value, moveDates?: boolean) {
   if (!yearly.canEdit || busy.value || !targets.length) return;
   if (route.query.folder && !targetFolder.value) {
-    notify(new Error("文件夹尚未加载或已删除，请返回时间线重新选择"));
+    notify(new Error(t("文件夹尚未加载或已删除，请返回时间线重新选择")));
     return;
   }
   if (
@@ -361,7 +363,7 @@ async function uploadAll(targets = pendingSelected.value, moveDates?: boolean) {
         item.progress = 100;
       } catch (e) {
         item.status = "failed";
-        item.error = e instanceof Error ? e.message : "上传失败";
+        item.error = e instanceof Error ? e.message : t("上传失败");
       }
     }
     // Only override capture-time order when the user explicitly rearranges the queue.
@@ -423,44 +425,46 @@ onBeforeUnmount(() => {
     <div class="page-heading">
       <div>
         <span class="eyebrow">KEEP TODAY FOR TOMORROW</span>
-        <h1>把一段时光，一起收藏。</h1>
-        <p>给这批回忆起个名字，选好照片与视频，就可以开始。</p>
+        <h1>{{ t("把一段时光，一起收藏。") }}</h1>
+        <p>{{ t("给这批回忆起个名字，选好照片与视频，就可以开始。") }}</p>
       </div>
       <RouterLink to="/" class="button"
-        ><ArrowRight :size="16" />返回时间线</RouterLink
-      >
+        ><ArrowRight :size="16" /> {{ t("返回时间线") }}
+      </RouterLink>
     </div>
     <div v-if="!yearly.canEdit" class="notice">
-      当前账户为只读访客，请联系家庭管理员获得编辑权限。
+      {{ t("当前账户为只读访客，请联系家庭管理员获得编辑权限。") }}
     </div>
     <template v-else>
       <section class="panel batch-settings">
         <div class="form-row">
-          <label
-            >这批回忆的名字<input
+          <label>
+            {{ t("这批回忆的名字") }}
+            <input
               v-model="batchName"
               maxlength="255"
-              placeholder="例如：出生第一天、第一次去海边"
+              :placeholder="t('例如：出生第一天、第一次去海边')"
               :disabled="busy"
           /></label>
-          <label
-            >归档到哪一天<input
+          <label>
+            {{ t("归档到哪一天") }}
+            <DateField
               v-model="archiveDate"
               type="date"
               :disabled="busy || !!targetFolder"
             /><small>{{
               archiveDate
-                ? "本批文件将追加到这一天，原始拍摄时间单独保留。"
-                : "留空时，每份文件按自己的拍摄日期归档。"
+                ? t("本批文件将追加到这一天，原始拍摄时间单独保留。")
+                : t("留空时，每份文件按自己的拍摄日期归档。")
             }}</small></label
           >
         </div>
         <p v-if="targetFolder" class="muted">
-          追加到文件夹：{{ targetFolder.name }} ·
+          {{ t("追加到文件夹：") }}{{ targetFolder.name }} ·
           {{ targetFolder.timeline_day }}
         </p>
         <div class="batch-children">
-          <span>谁的故事</span
+          <span> {{ t("谁的故事") }} </span
           ><ChildPicker
             :model-value="kids"
             :disabled="busy || parsing"
@@ -473,8 +477,8 @@ onBeforeUnmount(() => {
           />
           <small class="muted">{{
             kids.length
-              ? "已自动应用到所选待上传文件"
-              : "未关联孩子：仅出现在全部孩子中"
+              ? t("已自动应用到所选待上传文件")
+              : t("未关联孩子：仅出现在全部孩子中")
           }}</small>
         </div>
       </section>
@@ -490,15 +494,17 @@ onBeforeUnmount(() => {
       >
         <UploadCloud :size="30" />
         <div>
-          <h2>{{ parsing ? "正在读取原文件…" : "拖入这一批照片与视频" }}</h2>
-          <p>支持多选 · HEIC、JPG、RAW、MOV、MP4 与 Live Photo</p>
+          <h2>
+            {{ parsing ? t("正在读取原文件…") : t("拖入这一批照片与视频") }}
+          </h2>
+          <p>{{ t("支持多选 · HEIC、JPG、RAW、MOV、MP4 与 Live Photo") }}</p>
         </div>
         <button
           class="button primary"
           :disabled="parsing || busy"
           @click="input?.click()"
         >
-          <Plus :size="16" />{{ queue.length ? "继续添加" : "选择文件" }}
+          <Plus :size="16" />{{ queue.length ? t("继续添加") : t("选择文件") }}
         </button>
         <input
           ref="input"
@@ -514,21 +520,25 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <details class="upload-tip">
-        <summary><ShieldCheck :size="14" />原件保存与 iPhone 导入提示</summary>
+        <summary>
+          <ShieldCheck :size="14" /> {{ t("原件保存与 iPhone 导入提示") }}
+        </summary>
         <p>
-          文件将按所选原始字节直接上传。iPhone
-          相册可能提供转换或编辑版本，如需相机原件，请先导出“未修改的原片”到文件
-          App，再从这里导入。Live Photo 可在文件详情中配对。
+          {{
+            t(
+              "文件将按所选原始字节直接上传。iPhone 相册可能提供转换或编辑版本，如需相机原件，请先导出“未修改的原片”到文件 App，再从这里导入。Live Photo 可在文件详情中配对。",
+            )
+          }}
         </p>
       </details>
       <section v-if="queue.length" class="panel upload-queue">
         <div class="queue-heading">
           <div>
-            <h2>{{ batchName || "本批回忆" }}</h2>
+            <h2>{{ batchName || t("本批回忆") }}</h2>
             <span
-              >{{ queue.length }} 份回忆 · {{ bytes(totalBytes)
+              >{{ queue.length }} {{ t("份回忆 ·") }} {{ bytes(totalBytes)
               }}<template v-if="completeCount">
-                · 已完成 {{ completeCount }}</template
+                {{ t("· 已完成") }} {{ completeCount }}</template
               ></span
             >
           </div>
@@ -538,7 +548,9 @@ onBeforeUnmount(() => {
             @click="uploadAll()"
           >
             <UploadCloud :size="16" />{{
-              busy ? "正在上传…" : `上传所选 ${pendingSelected.length} 项`
+              busy
+                ? t("正在上传…")
+                : t("上传所选 {p0} 项", { p0: pendingSelected.length })
             }}
           </button>
         </div>
@@ -552,16 +564,19 @@ onBeforeUnmount(() => {
               "
               :disabled="busy || parsing"
               @change="selectAll(($event.target as HTMLInputElement).checked)"
-            />全选</label
-          >
-          <span>已选 {{ selectedItems.length }} 项</span
-          ><span class="queue-sort-hint">拖动手柄或使用箭头调整顺序</span>
+            />
+            {{ t("全选") }}
+          </label>
+          <span> {{ t("已选") }} {{ selectedItems.length }} {{ t("项") }} </span
+          ><span class="queue-sort-hint">
+            {{ t("拖动手柄或使用箭头调整顺序") }}
+          </span>
           <button
             class="text-button"
             :disabled="busy || parsing || !selectedItems.length"
             @click="[...selectedItems].forEach(remove)"
           >
-            <Trash2 :size="14" />移除所选
+            <Trash2 :size="14" /> {{ t("移除所选") }}
           </button>
         </div>
         <div class="queue-list">
@@ -580,7 +595,7 @@ onBeforeUnmount(() => {
               class="icon-button drag-handle"
               :draggable="!busy && !parsing"
               :disabled="busy || parsing"
-              aria-label="拖动文件排序"
+              :aria-label="t('拖动文件排序')"
               @dragstart="
                 draggedId = item.id;
                 $event.dataTransfer?.setData('text/plain', item.id);
@@ -593,7 +608,7 @@ onBeforeUnmount(() => {
               class="row-checkbox"
               type="checkbox"
               v-model="item.selected"
-              :aria-label="`选择 ${item.original.file.name}`"
+              :aria-label="t('选择 {p0}', { p0: item.original.file.name })"
               :disabled="busy || parsing"
             />
             <div class="file-thumb">
@@ -618,35 +633,35 @@ onBeforeUnmount(() => {
                 {{ bytes(item.original.file.size) }} ·
                 {{
                   item.original.original_taken_at_local?.slice(0, 10) ||
-                  "拍摄日期未知"
+                  t("拍摄日期未知")
                 }}<span v-if="item.original.time_confidence === 'low'">
-                  · 日期待确认</span
-                >
+                  {{ t("· 日期待确认") }}
+                </span>
               </p>
               <p v-if="item.status === 'failed'" class="file-error">
-                {{ item.error }}
+                {{ t(item.error) }}
               </p>
-              <p v-if="item.notice" class="muted">{{ item.notice }}</p>
+              <p v-if="item.notice" class="muted">{{ t(item.notice) }}</p>
               <p v-if="item.dateMoved" class="success-text">
-                已归档到 {{ item.timeline_day }}
+                {{ t("已归档到") }} {{ item.timeline_day }}
               </p>
               <p class="muted">
                 {{
                   item.child_ids.length
-                    ? "关联：" +
+                    ? t("关联：") +
                       yearly.children
                         .filter((c) => item.child_ids.includes(c.id))
                         .map((c) => c.nickname || c.name)
                         .join("、")
-                    : "家庭时光 · 未关联孩子"
+                    : t("家庭时光 · 未关联孩子")
                 }}
               </p>
             </div>
             <div class="file-state">
-              <span v-if="item.status === 'ready'">待上传</span
+              <span v-if="item.status === 'ready'"> {{ t("待上传") }} </span
               ><span v-else-if="item.status === 'complete'" class="success-text"
                 ><CheckCircle2 :size="15" />{{
-                  item.duplicate ? "已存在" : "已完成"
+                  item.duplicate ? t("已存在") : t("已完成")
                 }}</span
               ><button
                 v-else-if="item.status === 'failed'"
@@ -654,7 +669,7 @@ onBeforeUnmount(() => {
                 :disabled="busy"
                 @click="uploadAll([item])"
               >
-                <RefreshCw :size="13" />重试</button
+                <RefreshCw :size="13" /> {{ t("重试") }}</button
               ><span v-else>{{ item.progress }}%</span
               ><ElProgress
                 v-if="item.status === 'uploading'"
@@ -667,25 +682,25 @@ onBeforeUnmount(() => {
                 <button
                   class="icon-button"
                   :disabled="busy || parsing || index === 0"
-                  aria-label="上移文件"
+                  :aria-label="t('上移文件')"
                   @click="moveItem(item, -1)"
                 >
                   <ChevronUp :size="15" /></button
                 ><button
                   class="icon-button"
                   :disabled="busy || parsing || index === queue.length - 1"
-                  aria-label="下移文件"
+                  :aria-label="t('下移文件')"
                   @click="moveItem(item, 1)"
                 >
                   <ChevronDown :size="15" />
                 </button>
               </div>
               <button class="button small" @click="editingItem = item">
-                <Settings2 :size="14" />详情</button
+                <Settings2 :size="14" /> {{ t("详情") }}</button
               ><button
                 class="icon-button"
                 :disabled="busy || parsing"
-                aria-label="移除文件"
+                :aria-label="t('移除文件')"
                 @click="remove(item)"
               >
                 <X :size="15" />
@@ -694,15 +709,18 @@ onBeforeUnmount(() => {
           </article>
         </div>
         <p v-if="completeCount === queue.length" class="queue-done">
-          <CheckCircle2 :size="16" />这一批回忆已珍藏。<RouterLink to="/"
-            >去时间线查看 →</RouterLink
-          >
+          <CheckCircle2 :size="16" /> {{ t("这一批回忆已珍藏。") }}
+          <RouterLink to="/"> {{ t("去时间线查看 →") }} </RouterLink>
         </p>
       </section>
       <details v-if="resumable.length" class="panel resume-panel">
-        <summary>接着上传 · {{ resumable.length }} 个未完成文件</summary>
+        <summary>
+          {{ t("接着上传 ·") }} {{ resumable.length }} {{ t("个未完成文件") }}
+        </summary>
         <p class="muted">
-          重新选择对应原件后，会校验文件并继续上传已完成分片之后的内容。
+          {{
+            t("重新选择对应原件后，会校验文件并继续上传已完成分片之后的内容。")
+          }}
         </p>
         <div v-for="task in resumable" :key="task.id" class="resume-row">
           <span
@@ -718,65 +736,71 @@ onBeforeUnmount(() => {
               resumeInput?.click();
             "
           >
-            <RefreshCw :size="14" />选择原件继续
+            <RefreshCw :size="14" /> {{ t("选择原件继续") }}
           </button>
         </div>
-        <p v-if="notifySuccess" class="success-text">本次文件已恢复上传。</p>
+        <p v-if="notifySuccess" class="success-text">
+          {{ t("本次文件已恢复上传。") }}
+        </p>
       </details>
       <input ref="resumeInput" type="file" hidden @change="resumeFile" />
     </template>
     <ElDialog
       :model-value="!!dateReview"
-      title="文件日期与追加日期不同"
+      :title="t('文件日期与追加日期不同')"
       width="560px"
       class="date-review-dialog"
       @close="dateReview = null"
     >
       <p class="date-review-intro">
-        当前追加到 <b>{{ archiveDate }}</b
-        >。以下文件的日期不同，是否放到各自日期的时间线位置？
+        {{ t("当前追加到") }} <b>{{ archiveDate }}</b>
+        {{ t("。以下文件的日期不同，是否放到各自日期的时间线位置？") }}
       </p>
       <div class="date-review-groups">
         <details v-for="[day, files] in dateGroups" :key="day" open>
           <summary>
             <b>{{ day }}</b
-            ><span>{{ files.length }} 项</span>
+            ><span>{{ files.length }} {{ t("项") }} </span>
           </summary>
           <div v-for="item in files" :key="item.id" class="date-review-file">
             <span>{{ item.original.file.name }}</span>
             <small>{{
               item.corrected_taken_at_local
-                ? "手动修正日期"
+                ? t("手动修正日期")
                 : item.original.time_source === "file_modified"
-                  ? "文件修改日期 · 待确认"
-                  : "拍摄 / 创建日期"
+                  ? t("文件修改日期 · 待确认")
+                  : t("拍摄 / 创建日期")
             }}</small>
           </div>
         </details>
       </div>
       <p class="muted date-review-note">
-        <template v-if="targetFolder"
-          >移到其他日期的文件会放在对应日期的文件夹外。</template
-        >
-        日期相同或未知的文件仍保留在当前日期。只调整时间线归档位置，原始文件和拍摄时间不会改变；重复文件保留已有归档位置。
+        <template v-if="targetFolder">
+          {{ t("移到其他日期的文件会放在对应日期的文件夹外。") }}
+        </template>
+        {{
+          t(
+            "日期相同或未知的文件仍保留在当前日期。只调整时间线归档位置，原始文件和拍摄时间不会改变；重复文件保留已有归档位置。",
+          )
+        }}
       </p>
       <template #footer>
         <div class="date-review-actions">
           <button class="text-button" @click="dateReview = null">
-            取消，继续检查
+            {{ t("取消，继续检查") }}
           </button>
           <button class="button" @click="confirmDates(false)">
-            保留在 {{ archiveDate }}
+            {{ t("保留在") }} {{ archiveDate }}
           </button>
           <button class="button primary" @click="confirmDates(true)">
-            移到文件对应日期
+            {{ t("移到文件对应日期") }}
           </button>
         </div>
       </template>
     </ElDialog>
     <ElDialog
       :model-value="!!editingItem"
-      title="文件详情"
+      :title="t('文件详情')"
       width="680px"
       @close="editingItem = null"
     >
@@ -784,57 +808,61 @@ onBeforeUnmount(() => {
         <h3>{{ editingItem.original.file.name }}</h3>
         <p class="muted file-detail-summary">
           {{ bytes(editingItem.original.file.size) }} ·
-          {{ editingItem.original.device_model || "设备信息未知" }} ·
+          {{ editingItem.original.device_model || t("设备信息未知") }} ·
           {{
             editingItem.original.original_taken_at_local?.replace("T", " ") ||
-            "拍摄时间未知"
+            t("拍摄时间未知")
           }}
         </p>
         <fieldset :disabled="busy || !!editingItem.tasks">
           <div class="form-row">
-            <label
-              >标题<input
+            <label>
+              {{ t("标题") }}
+              <input
                 v-model="editingItem.title"
                 maxlength="255"
-                placeholder="给这份回忆起个名字" /></label
-            ><label
-              >地点名称<input
+                :placeholder="t('给这份回忆起个名字')" /></label
+            ><label>
+              {{ t("地点名称") }}
+              <input
                 v-model="editingItem.location_name"
                 maxlength="255"
-                placeholder="留空或手动填写"
+                :placeholder="t('留空或手动填写')"
             /></label>
           </div>
           <div class="form-row">
-            <label
-              >修正拍摄当地时间<input
-                type="datetime-local"
+            <label>
+              {{ t("修正拍摄当地时间") }}
+              <DateField
+                type="datetime"
                 v-model="editingItem.corrected_taken_at_local" /></label
-            ><label
-              >修正时区偏移（分钟）<input
+            ><label>
+              {{ t("修正时区偏移（分钟）") }}
+              <input
                 type="number"
                 v-model.number="editingItem.corrected_offset_minutes"
                 min="-840"
                 max="840"
-                placeholder="未知留空"
+                :placeholder="t('未知留空')"
             /></label>
           </div>
           <label class="checkbox-label"
-            ><input
-              type="checkbox"
-              v-model="editingItem.time_unknown"
-            />明确标记拍摄时间未知（保留原始解析结果）</label
+            ><input type="checkbox" v-model="editingItem.time_unknown" />
+            {{ t("明确标记拍摄时间未知（保留原始解析结果）") }} </label
           ><ChildPicker v-model="editingItem.child_ids" />
           <div
             v-if="!editingItem.original.video && !editingItem.live"
             class="pair-row"
           >
             <Link2 :size="15" /><select
-              aria-label="手动配对 Live Photo"
+              :aria-label="t('手动配对 Live Photo')"
               @change="
                 pair(editingItem, ($event.target as HTMLSelectElement).value)
               "
             >
-              <option value="">手动配对 Live Photo 的 MOV 原件</option>
+              <option value="">
+                {{ t("手动配对 Live Photo 的 MOV 原件") }}
+              </option>
               <option
                 v-for="movie in queue.filter(
                   (q) =>
@@ -850,13 +878,15 @@ onBeforeUnmount(() => {
             </select>
           </div>
           <div v-if="editingItem.live" class="pair-row">
-            <Link2 :size="15" />已配对 {{ editingItem.live.file.name
+            <Link2 :size="15" /> {{ t("已配对") }}
+            {{ editingItem.live.file.name
             }}<button class="text-button" @click="unpair(editingItem)">
-              解除配对
+              {{ t("解除配对") }}
             </button>
           </div>
-          <label class="preview-input"
-            >兼容预览（可选，作为独立文件保存）<input
+          <label class="preview-input">
+            {{ t("兼容预览（可选，作为独立文件保存）") }}
+            <input
               type="file"
               accept=".jpg,.jpeg,.png,.webp,.mp4"
               @change="addPreview(editingItem, $event)"
@@ -867,16 +897,16 @@ onBeforeUnmount(() => {
         </fieldset>
         <div class="dialog-actions">
           <button class="text-button" @click="metadataItem = editingItem">
-            查看完整元数据与校验值</button
+            {{ t("查看完整元数据与校验值") }}</button
           ><button class="button primary" @click="editingItem = null">
-            完成
+            {{ t("完成") }}
           </button>
         </div>
       </template>
     </ElDialog>
     <ElDialog
       :model-value="!!metadataItem"
-      title="原文件元数据"
+      :title="t('原文件元数据')"
       width="740px"
       @close="metadataItem = null"
       ><template v-if="metadataItem"

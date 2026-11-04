@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
 import { ref, watch } from "vue";
 import { api, post, notify } from "../lib/api";
 const props = defineProps<{
@@ -48,14 +49,17 @@ async function save() {
   <ElDialog
     append-to-body
     :model-value="open"
-    title="移动到文件夹"
+    :title="t('移动到文件夹')"
     width="440px"
     @close="emit('close')"
   >
-    <p class="muted">{{ day }} · 已选 {{ ids.length }} 份影像</p>
-    <label
-      >目标位置<select v-model="target" :disabled="loading || busy">
-        <option value="">当天时间线（文件夹外）</option>
+    <p class="muted">
+      {{ day }} {{ t("· 已选") }} {{ ids.length }} {{ t("份影像") }}
+    </p>
+    <label>
+      {{ t("目标位置") }}
+      <select v-model="target" :disabled="loading || busy">
+        <option value="">{{ t("当天时间线（文件夹外）") }}</option>
         <option
           v-for="folder in folders.filter((f) => f.id !== currentFolder)"
           :key="folder.id"
@@ -66,7 +70,7 @@ async function save() {
       </select></label
     >
     <p v-if="!loading && !folders.length" class="muted">
-      这一天还没有文件夹，可先在日期栏新建。
+      {{ t("这一天还没有文件夹，可先在日期栏新建。") }}
     </p>
     <div class="dialog-actions">
       <button
@@ -74,7 +78,7 @@ async function save() {
         :disabled="loading || busy || !ids.length"
         @click="save"
       >
-        {{ busy ? "正在移动…" : "移动所选影像" }}
+        {{ busy ? t("正在移动…") : t("移动所选影像") }}
       </button>
     </div>
   </ElDialog>

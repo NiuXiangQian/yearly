@@ -44,6 +44,8 @@
   --el-border-color: #39463b;
   --el-fill-color-blank: #26302a;
   --el-bg-color: #26302a;
+  --el-bg-color-overlay: #26302a;
+  --el-border-color-light: #39463b;
   --el-text-color-primary: #e4e9de;
   --el-text-color-regular: #c3cdbd;
   --el-fill-color-light: #364535;
@@ -2764,4 +2766,174 @@ main {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Shared date controls and language selection. */
+.language-switch {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.language-switch select {
+  margin: 0;
+  width: auto;
+  max-width: 130px;
+  padding: 7px 24px 7px 8px;
+  font-size: 12px;
+  background-color: var(--surface);
+}
+.login-form {
+  position: relative;
+}
+.login-language {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+}
+.date-field.el-date-editor {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  --el-color-primary: #71856b;
+  --el-input-border-radius: 9px;
+}
+.date-field .el-input__wrapper {
+  background: var(--surface);
+}
+.date-field .el-input__inner {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.date-required {
+  position: absolute;
+  width: 1px !important;
+  height: 1px;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.date-filters {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.date-mode {
+  display: flex;
+  padding: 3px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.date-mode button {
+  padding: 7px 12px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.date-mode button.active {
+  background: var(--surface);
+  color: var(--sage);
+  box-shadow: 0 1px 4px #0000000c;
+}
+.date-navigation {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.date-navigation .date-field {
+  width: 164px;
+}
+.date-shortcuts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.date-filters .result-count {
+  margin-left: auto;
+}
+html[lang="en"] .sidebar-upload {
+  font-size: 12px;
+}
+html[lang="en"] .page-heading h1 {
+  letter-spacing: -1px;
+}
+html[lang="en"] .header-actions .private-label {
+  display: none;
+}
+html[lang="en"] .sidebar .nav-caption {
+  letter-spacing: 0.5px;
+}
+@media (max-width: 640px) {
+  .date-filters {
+    align-items: center;
+  }
+  .date-navigation {
+    flex: 1;
+  }
+  .date-navigation .date-field {
+    width: 100%;
+    min-width: 115px;
+  }
+  .date-mode button {
+    padding: 7px 9px;
+  }
+  .date-shortcuts {
+    width: 100%;
+  }
+  .date-filters .result-count {
+    margin-left: 0;
+  }
+  .header-actions {
+    gap: 5px;
+  }
+  .header-actions .environment-badge {
+    display: none;
+  }
+  .language-switch select {
+    max-width: 104px;
+  }
+  .el-picker-panel {
+    max-width: calc(100vw - 24px);
+  }
+  .el-picker-panel.has-sidebar {
+    width: min(438px, calc(100vw - 24px));
+  }
+  .el-picker-panel__sidebar {
+    width: 72px;
+  }
+  .el-picker-panel__sidebar + .el-picker-panel__body {
+    margin-left: 72px;
+  }
+  .el-date-picker .el-picker-panel__content {
+    width: auto;
+  }
+}
+@media (max-width: 640px) {
+  .day-actions {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+  .el-picker-panel__sidebar {
+    position: static;
+    display: flex;
+    width: 100%;
+    padding: 6px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .el-picker-panel__shortcut {
+    width: auto;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+  .el-picker-panel__sidebar + .el-picker-panel__body {
+    margin-left: 0;
+  }
 }

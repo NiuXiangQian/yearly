@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
 withDefaults(
   defineProps<{ title?: string; description?: string; compact?: boolean }>(),
   {
@@ -68,8 +69,8 @@ withDefaults(
         />
       </svg>
     </div>
-    <h3>{{ title }}</h3>
-    <p>{{ description }}</p>
+    <h3>{{ t(title) }}</h3>
+    <p>{{ t(description) }}</p>
     <slot />
   </div>
 </template>

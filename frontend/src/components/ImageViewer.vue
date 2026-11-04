@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
 import { ref, watch } from "vue";
 import { ZoomIn, ZoomOut, Scan } from "lucide-vue-next";
 import CompatibleImage from "./CompatibleImage.vue";
@@ -60,7 +61,7 @@ function move(e: PointerEvent) {
       <CompatibleImage
         :src="src"
         :file="originalFile"
-        :alt="alt || '影像预览'"
+        :alt="alt || t('影像预览')"
         draggable="false"
         :style="{ transform: `translate(${x}px, ${y}px) scale(${scale})` }"
         @error="emit('error')"
@@ -68,7 +69,7 @@ function move(e: PointerEvent) {
     </div>
     <div class="image-tools">
       <button
-        aria-label="缩小"
+        :aria-label="t('缩小')"
         :disabled="scale <= 0.5"
         @click="zoom(scale / 1.25)"
       >
@@ -76,18 +77,24 @@ function move(e: PointerEvent) {
       </button>
       <span aria-live="polite">{{ Math.round(scale * 100) }}%</span>
       <button
-        aria-label="放大"
+        :aria-label="t('放大')"
         :disabled="scale >= 6"
         @click="zoom(scale * 1.25)"
       >
         <ZoomIn :size="18" />
       </button>
       <i></i
-      ><button aria-label="适应窗口" title="适应窗口" @click="reset">
+      ><button
+        :aria-label="t('适应窗口')"
+        :title="t('适应窗口')"
+        @click="reset"
+      >
         <Scan :size="18" />
       </button>
     </div>
-    <small class="image-gesture-hint">滚轮 / 双指缩放 · 放大后拖动画面</small>
+    <small class="image-gesture-hint">
+      {{ t("滚轮 / 双指缩放 · 放大后拖动画面") }}
+    </small>
   </div>
 </template>
 <style scoped>

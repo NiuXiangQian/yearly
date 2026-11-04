@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
 import { ref, watch } from "vue";
 import { api } from "../lib/api";
 import { mediaResource } from "../lib/media-resource";
@@ -30,7 +31,7 @@ watch(
     v-if="url && !failed"
     class="event-cover-image"
     :src="url"
-    alt="成长日记自定义封面"
+    :alt="t('成长日记自定义封面')"
     loading="lazy"
     @error="failed = true"
   />

@@ -27,3 +27,7 @@ credentials/
 *.dump
 *.log
 /docs/screenshots/
+
+# Local browser verification artifacts
+/output/playwright/
+/.playwright-cli/

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
 import { ref, watch, computed } from "vue";
 import { useRouter } from "vue-router";
 import {
@@ -102,7 +103,7 @@ async function load(reset = true) {
     page.value = reset ? 1 : page.value + 1;
   } catch (e) {
     if (ticket === generation)
-      error.value = e instanceof Error ? e.message : "加载失败";
+      error.value = e instanceof Error ? e.message : t("加载失败");
   } finally {
     if (ticket === generation) loading.value = false;
   }
@@ -195,8 +196,10 @@ async function changed() {
       ><div class="folder-panel-title">
         <FolderOpen :size="25" />
         <div>
-          <h2>{{ folder?.name || "文件夹" }}</h2>
-          <small>{{ folder?.timeline_day }} · {{ total }} 份影像</small>
+          <h2>{{ folder?.name || t("文件夹") }}</h2>
+          <small
+            >{{ folder?.timeline_day }} · {{ total }} {{ t("份影像") }}
+          </small>
         </div>
       </div></template
     >
@@ -208,7 +211,7 @@ async function changed() {
           selected = [];
         "
       >
-        {{ selection ? "退出多选" : "多选" }}
+        {{ selection ? t("退出多选") : t("多选") }}
       </button>
       <template v-if="yearly.canEdit"
         ><button
@@ -221,7 +224,7 @@ async function changed() {
             });
           "
         >
-          <Plus :size="14" />追加到文件夹</button
+          <Plus :size="14" /> {{ t("追加到文件夹") }}</button
         ><button
           class="text-button"
           @click="
@@ -229,28 +232,30 @@ async function changed() {
             name = folder.name;
           "
         >
-          <Pencil :size="14" />重命名</button
+          <Pencil :size="14" /> {{ t("重命名") }}</button
         ><button class="text-button" @click="sorting = !sorting">
-          <GripVertical :size="14" />{{ sorting ? "完成排序" : "排序" }}</button
+          <GripVertical :size="14" />{{
+            sorting ? t("完成排序") : t("排序")
+          }}</button
         ><ElPopconfirm
           :width="280"
-          title="仅将此文件夹内的全部影像恢复为拍摄时间从新到旧排列？"
-          confirm-button-text="恢复排序"
-          cancel-button-text="取消"
+          :title="t('仅将此文件夹内的全部影像恢复为拍摄时间从新到旧排列？')"
+          :confirm-button-text="t('恢复排序')"
+          :cancel-button-text="t('取消')"
           @confirm="resetOrder"
           ><template #reference
             ><button class="text-button" :disabled="busy || !total">
-              <RotateCcw :size="14" />恢复默认排序
+              <RotateCcw :size="14" /> {{ t("恢复默认排序") }}
             </button></template
           ></ElPopconfirm
         ><ElPopconfirm
-          confirm-button-text="删除文件夹"
-          cancel-button-text="取消"
-          title="删除文件夹？里面的影像会移回当天时间线，原文件保留。"
+          :confirm-button-text="t('删除文件夹')"
+          :cancel-button-text="t('取消')"
+          :title="t('删除文件夹？里面的影像会移回当天时间线，原文件保留。')"
           @confirm="remove"
           ><template #reference
             ><button class="text-button danger" :disabled="busy">
-              <Trash2 :size="14" />删除文件夹
+              <Trash2 :size="14" /> {{ t("删除文件夹") }}
             </button></template
           ></ElPopconfirm
         ></template
@@ -258,19 +263,19 @@ async function changed() {
     </div>
     <div v-if="selection" class="folder-panel-actions">
       <button class="text-button" @click="selected = items.map((m) => m.id)">
-        选中已加载 {{ items.length }} 项</button
-      ><span>已选 {{ selected.length }} 项</span
+        {{ t("选中已加载") }} {{ items.length }} {{ t("项") }}</button
+      ><span> {{ t("已选") }} {{ selected.length }} {{ t("项") }} </span
       ><button
         v-if="yearly.canEdit"
         class="button small"
         :disabled="!selected.length"
         @click="moving = true"
       >
-        <FolderInput :size="14" />移入 / 移出文件夹
+        <FolderInput :size="14" /> {{ t("移入 / 移出文件夹") }}
       </button>
     </div>
     <p v-if="yearly.canEdit" class="muted">
-      可直接拖动排序，拖到上方区域移回当天；多选后可一起移动。
+      {{ t("可直接拖动排序，拖到上方区域移回当天；多选后可一起移动。") }}
     </p>
     <div
       v-if="yearly.canEdit"
@@ -282,12 +287,15 @@ async function changed() {
     >
       {{
         dragged
-          ? `松开移回当天时间线（${draggedMediaIds.length} 份影像）`
-          : "拖到这里移回当天时间线"
+          ? t("松开移回当天时间线（{p0} 份影像）", {
+              p0: draggedMediaIds.length,
+            })
+          : t("拖到这里移回当天时间线")
       }}
     </div>
     <p v-if="error" class="error-panel">
-      {{ error }} <button class="text-button" @click="load()">重试</button>
+      {{ error }}
+      <button class="text-button" @click="load()">{{ t("重试") }}</button>
     </p>
     <div class="folder-media-grid">
       <div
@@ -325,13 +333,13 @@ async function changed() {
             :disabled="busy || index === 0"
             @click="order(media.id, items[index - 1].id)"
           >
-            <ArrowLeft :size="13" />前移</button
+            <ArrowLeft :size="13" /> {{ t("前移") }}</button
           ><button
             class="text-button"
             :disabled="busy || index === items.length - 1"
             @click="order(media.id, items[index + 1].id, 'after')"
           >
-            后移<ArrowRight :size="13" />
+            {{ t("后移") }} <ArrowRight :size="13" />
           </button>
         </div>
         <MediaCard
@@ -348,16 +356,18 @@ async function changed() {
       </div>
     </div>
     <p v-if="!items.length && !loading && !error" class="folder-empty">
-      这里还没有符合条件的影像。可以追加上传，或从当天时间线批量移入。
+      {{
+        t("这里还没有符合条件的影像。可以追加上传，或从当天时间线批量移入。")
+      }}
     </p>
     <div class="folder-panel-actions">
-      <span v-if="loading">正在加载…</span
+      <span v-if="loading"> {{ t("正在加载…") }} </span
       ><button
         v-else-if="items.length < total"
         class="button"
         @click="load(false)"
       >
-        加载更多
+        {{ t("加载更多") }}
       </button>
     </div>
     <MediaDetail :id="detail" @close="detail = null" @saved="changed" />
@@ -371,14 +381,16 @@ async function changed() {
     />
     <ElDialog
       v-model="renaming"
-      title="重命名文件夹"
+      :title="t('重命名文件夹')"
       width="440px"
       append-to-body
       ><form @submit.prevent="rename">
-        <label>文件夹名称<input v-model="name" maxlength="255" /></label>
+        <label>
+          {{ t("文件夹名称") }} <input v-model="name" maxlength="255"
+        /></label>
         <div class="dialog-actions">
           <button class="button primary" :disabled="busy || !name.trim()">
-            保存名称
+            {{ t("保存名称") }}
           </button>
         </div>
       </form></ElDialog

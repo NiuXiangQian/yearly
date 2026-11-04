@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import LanguageSwitch from "../components/LanguageSwitch.vue";
+import { t } from "../lib/i18n";
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import {
@@ -71,67 +73,88 @@ async function changePassword() {
   <div class="page-heading">
     <div>
       <span class="eyebrow">A SAFE PLACE FOR OUR FAMILY</span>
-      <h1>照顾好这个小小的家。</h1>
-      <p>一起记录，也一起守护每一份回忆。</p>
+      <h1>{{ t("照顾好这个小小的家。") }}</h1>
+      <p>{{ t("一起记录，也一起守护每一份回忆。") }}</p>
     </div>
   </div>
   <div class="settings-layout">
     <section class="panel">
       <div class="section-heading">
-        <h2><ShieldCheck :size="20" />家庭空间</h2>
-        <span class="secure-badge">私密</span>
+        <h2><ShieldCheck :size="20" /> {{ t("家庭空间") }}</h2>
+        <span class="secure-badge"> {{ t("私密") }} </span>
       </div>
       <div class="setting-row">
-        <span>当前账户</span><b>{{ yearly.user?.username }}</b>
+        <span>{{ t("界面语言") }}</span
+        ><LanguageSwitch />
       </div>
       <div class="setting-row">
-        <span>家庭角色</span
+        <span> {{ t("当前账户") }} </span><b>{{ yearly.user?.username }}</b>
+      </div>
+      <div class="setting-row">
+        <span> {{ t("家庭角色") }} </span
         ><b>{{
-          yearly.isAdmin ? "管理员" : yearly.canEdit ? "家庭成员" : "只读访客"
+          yearly.isAdmin
+            ? t("管理员")
+            : yearly.canEdit
+              ? t("家庭成员")
+              : t("只读访客")
         }}</b>
       </div>
-      <div class="setting-row"><span>公开注册</span><b>已关闭</b></div>
       <div class="setting-row">
-        <span>原文件存储</span><b>{{ bytes(yearly.stats.bytes) }}</b>
+        <span> {{ t("公开注册") }} </span><b> {{ t("已关闭") }} </b>
+      </div>
+      <div class="setting-row">
+        <span> {{ t("原文件存储") }} </span
+        ><b>{{ bytes(yearly.stats.bytes) }}</b>
       </div>
       <p class="muted">
-        家庭空间内共享内容。成员可编辑影像和日记，访客只读，管理员负责账户、孩子删除与备份导出。
+        {{
+          t(
+            "家庭空间内共享内容。成员可编辑影像和日记，访客只读，管理员负责账户、孩子删除与备份导出。",
+          )
+        }}
       </p>
       <RouterLink to="/children" class="setting-link"
-        ><Baby :size="17" />孩子档案<ArrowUpRight :size="16" /></RouterLink
+        ><Baby :size="17" /> {{ t("孩子档案") }}
+        <ArrowUpRight :size="16" /></RouterLink
       ><RouterLink to="/trash" class="setting-link"
-        ><Trash2 :size="17" />回收站<ArrowUpRight :size="16" /></RouterLink
+        ><Trash2 :size="17" /> {{ t("回收站") }}
+        <ArrowUpRight :size="16" /></RouterLink
       ><RouterLink v-if="yearly.isAdmin" to="/backup" class="setting-link"
-        ><Archive :size="17" />备份与迁移<ArrowUpRight :size="16"
+        ><Archive :size="17" /> {{ t("备份与迁移") }} <ArrowUpRight :size="16"
       /></RouterLink>
     </section>
     <section class="panel">
-      <h2><KeyRound :size="20" />账户密码</h2>
-      <p class="muted">修改后会注销此账户的所有登录会话。</p>
+      <h2><KeyRound :size="20" /> {{ t("账户密码") }}</h2>
+      <p class="muted">{{ t("修改后会注销此账户的所有登录会话。") }}</p>
       <form @submit.prevent="changePassword">
-        <label
-          >当前密码<input
+        <label>
+          {{ t("当前密码") }}
+          <input
             v-model="password.old_password"
             type="password"
             autocomplete="current-password"
             required /></label
-        ><label
-          >新密码<input
+        ><label>
+          {{ t("新密码") }}
+          <input
             v-model="password.new_password"
             type="password"
             autocomplete="new-password"
             minlength="12"
             maxlength="256"
             required
-            placeholder="至少 12 个字符" /></label
-        ><button class="button" :disabled="busy">更新密码并重新登录</button>
+            :placeholder="t('至少 12 个字符')" /></label
+        ><button class="button" :disabled="busy">
+          {{ t("更新密码并重新登录") }}
+        </button>
       </form>
     </section>
     <section v-if="yearly.isAdmin" class="panel wide">
       <div class="section-heading">
-        <h2>一起记录的人</h2>
+        <h2>{{ t("一起记录的人") }}</h2>
         <button class="button small" @click="addOpen = true">
-          <UserPlus :size="15" />添加家庭成员
+          <UserPlus :size="15" /> {{ t("添加家庭成员") }}
         </button>
       </div>
       <div v-for="m in members" :key="m.id" class="member-row">
@@ -141,78 +164,90 @@ async function changePassword() {
           ><small
             >{{
               m.role === "admin"
-                ? "管理员"
+                ? t("管理员")
                 : m.role === "member"
-                  ? "可编辑成员"
-                  : "只读访客"
+                  ? t("可编辑成员")
+                  : t("只读访客")
             }}
-            · {{ m.active ? "启用" : "已停用" }}</small
+            · {{ m.active ? t("启用") : t("已停用") }}</small
           ></span
         ><ElPopconfirm
           v-if="m.id !== yearly.user?.id && m.active"
-          title="停用此账户并注销其登录会话？"
+          :title="t('停用此账户并注销其登录会话？')"
           @confirm="disable(m.id)"
           ><template #reference
-            ><button class="text-button danger">停用</button></template
+            ><button class="text-button danger">
+              {{ t("停用") }}
+            </button></template
           ></ElPopconfirm
         >
       </div>
     </section>
     <section v-if="config" class="panel wide">
       <div class="section-heading">
-        <h2>存储与系统</h2>
+        <h2>{{ t("存储与系统") }}</h2>
         <span class="chip" :class="{ warning: !config.storage_configured }">{{
-          config.storage_configured ? "OSS 已配置" : "OSS 待配置"
+          config.storage_configured ? t("OSS 已配置") : t("OSS 待配置")
         }}</span>
       </div>
       <div class="setting-row">
-        <span>私有 Bucket</span><code>{{ config.bucket || "未配置" }}</code>
+        <span> {{ t("私有 Bucket") }} </span
+        ><code>{{ config.bucket || t("未配置") }}</code>
       </div>
       <div class="setting-row">
-        <span>地域</span><code>{{ config.region }}</code>
+        <span> {{ t("地域") }} </span><code>{{ config.region }}</code>
       </div>
       <div class="setting-row">
-        <span>自定义域名</span
-        ><code>{{ config.custom_domain || "使用地域 Endpoint" }}</code>
+        <span> {{ t("自定义域名") }} </span
+        ><code>{{ config.custom_domain || t("使用地域 Endpoint") }}</code>
       </div>
       <div class="setting-row">
-        <span>单文件上限</span><b>{{ bytes(config.max_file_size) }}</b>
+        <span> {{ t("单文件上限") }} </span
+        ><b>{{ bytes(config.max_file_size) }}</b>
       </div>
       <div class="setting-row">
-        <span>分片大小</span><b>{{ bytes(config.part_size) }}</b>
+        <span> {{ t("分片大小") }} </span><b>{{ bytes(config.part_size) }}</b>
       </div>
       <p class="muted">
-        敏感配置由所选环境的 .env.test / .env.production
-        管理。保存后重启服务生效。预览独立保存，原文件始终无损保留。
+        {{
+          t(
+            "敏感配置由所选环境的 .env.test / .env.production 管理。保存后重启服务生效。预览独立保存，原文件始终无损保留。",
+          )
+        }}
       </p>
     </section>
   </div>
-  <ElDialog v-model="addOpen" title="邀请一个家人" width="500px"
+  <ElDialog v-model="addOpen" :title="t('邀请一个家人')" width="500px"
     ><form @submit.prevent="add">
-      <label
-        >用户名<input
+      <label>
+        {{ t("用户名") }}
+        <input
           v-model="member.username"
           required
           minlength="2"
           maxlength="80"
           autocomplete="off" /></label
-      ><label
-        >初始密码<input
+      ><label>
+        {{ t("初始密码") }}
+        <input
           v-model="member.password"
           type="password"
           required
           minlength="12"
           maxlength="256"
           autocomplete="new-password" /></label
-      ><label
-        >家庭权限<select v-model="member.role">
-          <option value="member">成员 · 浏览与编辑</option>
-          <option value="viewer">访客 · 仅浏览</option>
-          <option value="admin">管理员 · 完整管理</option>
+      ><label>
+        {{ t("家庭权限") }}
+        <select v-model="member.role">
+          <option value="member">{{ t("成员 · 浏览与编辑") }}</option>
+          <option value="viewer">{{ t("访客 · 仅浏览") }}</option>
+          <option value="admin">{{ t("管理员 · 完整管理") }}</option>
         </select></label
       >
       <div class="dialog-actions">
-        <button class="button primary" :disabled="busy">创建账户</button>
+        <button class="button primary" :disabled="busy">
+          {{ t("创建账户") }}
+        </button>
       </div>
     </form></ElDialog
   >

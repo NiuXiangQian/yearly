@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t } from "../lib/i18n";
+import DateField from "../components/DateField.vue";
 import { ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
@@ -46,9 +48,9 @@ async function chooseAvatar(event: Event) {
   avatarPreparing.value = true;
   try {
     if (file.size > 20 * 1024 * 1024)
-      throw new Error("请选择 20 MB 以内的头像图片");
+      throw new Error(t("请选择 20 MB 以内的头像图片"));
     if (!/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name))
-      throw new Error("请选择 JPG、PNG、WebP 或 HEIC 图片");
+      throw new Error(t("请选择 JPG、PNG、WebP 或 HEIC 图片"));
     let source: Blob = file;
     if (/\.hei[cf]$/i.test(file.name)) {
       const { heicTo } = await import("heic-to/csp");
@@ -77,7 +79,7 @@ async function chooseAvatar(event: Event) {
         (value) =>
           value
             ? resolve(value)
-            : reject(new Error("头像处理失败，请换一张图片")),
+            : reject(new Error(t("头像处理失败，请换一张图片"))),
         "image/jpeg",
         0.85,
       ),
@@ -186,11 +188,11 @@ function browse(id: number) {
   <div class="page-heading">
     <div>
       <span class="eyebrow">SMALL PEOPLE, BIG WORLDS</span>
-      <h1>每个孩子，独一份成长。</h1>
-      <p>生日是故事的起点，每一段时光都有自己的名字。</p>
+      <h1>{{ t("每个孩子，独一份成长。") }}</h1>
+      <p>{{ t("生日是故事的起点，每一段时光都有自己的名字。") }}</p>
     </div>
     <button v-if="yearly.canEdit" class="button primary" @click="edit()">
-      <Plus :size="17" />添加孩子
+      <Plus :size="17" /> {{ t("添加孩子") }}
     </button>
   </div>
   <div v-if="yearly.children.length" class="children-grid">
@@ -202,7 +204,7 @@ function browse(id: number) {
     >
       <div class="child-card-top">
         <ChildAvatar class="big-child-avatar" :child="c" /><span class="chip">{{
-          c.status === "archived" ? "已归档" : "正在长大"
+          c.status === "archived" ? t("已归档") : t("正在长大")
         }}</span>
       </div>
       <h2>
@@ -213,15 +215,15 @@ function browse(id: number) {
         }}<span v-if="c.birth_time">{{ c.birth_time }}</span>
       </p>
       <p class="child-description">
-        {{ c.description || "小小的你，正在创造大大的世界。" }}
+        {{ c.description || t("小小的你，正在创造大大的世界。") }}
       </p>
       <div class="child-card-actions">
         <button class="text-button" @click="browse(c.id)">
-          翻开成长时间线<ArrowUpRight :size="16" /></button
+          {{ t("翻开成长时间线") }} <ArrowUpRight :size="16" /></button
         ><button
           v-if="yearly.canEdit"
           class="icon-button"
-          aria-label="编辑孩子档案"
+          :aria-label="t('编辑孩子档案')"
           @click="edit(c)"
         >
           <Pencil :size="16" />
@@ -231,15 +233,15 @@ function browse(id: number) {
   </div>
   <EmptyState
     v-else
-    title="从一个名字，开始一段故事"
-    description="添加孩子的名字和生日，照片便能标记当时的年龄。"
+    :title="t('从一个名字，开始一段故事')"
+    :description="t('添加孩子的名字和生日，照片便能标记当时的年龄。')"
     ><button v-if="yearly.canEdit" class="button primary" @click="edit()">
-      <Plus :size="16" />创建孩子档案
+      <Plus :size="16" /> {{ t("创建孩子档案") }}
     </button></EmptyState
   >
   <ElDialog
     v-model="open"
-    :title="editing ? '编辑孩子档案' : '认识一个小小的你'"
+    :title="editing ? t('编辑孩子档案') : t('认识一个小小的你')"
     width="660px"
     :close-on-click-modal="!busy && !avatarPreparing"
     :close-on-press-escape="!busy && !avatarPreparing"
@@ -247,7 +249,7 @@ function browse(id: number) {
     ><form @submit.prevent="save">
       <div class="avatar-editor">
         <span v-if="avatarPreview" class="child-avatar big-child-avatar"
-          ><img :src="avatarPreview" alt="新头像预览"
+          ><img :src="avatarPreview" :alt="t('新头像预览')"
         /></span>
         <ChildAvatar v-else class="big-child-avatar" :child="form" />
         <div>
@@ -266,7 +268,7 @@ function browse(id: number) {
               @click="avatarInput?.click()"
             >
               <Upload :size="16" />{{
-                avatarPreparing ? "正在处理…" : "上传头像"
+                avatarPreparing ? t("正在处理…") : t("上传头像")
               }}
             </button>
             <button
@@ -279,64 +281,71 @@ function browse(id: number) {
                 form.avatar_media_id = null;
               "
             >
-              清除头像
+              {{ t("清除头像") }}
             </button>
           </div>
           <p class="muted">
-            自动居中裁剪，压缩至最长 512 像素。仅用作头像，不加入时间线。
+            {{
+              t("自动居中裁剪，压缩至最长 512 像素。仅用作头像，不加入时间线。")
+            }}
           </p>
-          <small class="muted"
-            >JPG / PNG / WebP / HEIC，最大 20 MB；保存档案后生效。</small
-          >
+          <small class="muted">
+            {{ t("JPG / PNG / WebP / HEIC，最大 20 MB；保存档案后生效。") }}
+          </small>
           <p v-if="avatarProgress !== null" role="status">
-            头像上传 {{ avatarProgress }}%
+            {{ t("头像上传") }} {{ avatarProgress }}%
           </p>
         </div>
       </div>
       <div class="form-row">
-        <label
-          >名字<input
+        <label>
+          {{ t("名字") }}
+          <input
             v-model="form.name"
             maxlength="80"
             required
-            placeholder="孩子的名字" /></label
-        ><label
-          >昵称<input
+            :placeholder="t('孩子的名字')" /></label
+        ><label>
+          {{ t("昵称") }}
+          <input
             v-model="form.nickname"
             maxlength="80"
-            placeholder="家里怎么称呼 TA"
+            :placeholder="t('家里怎么称呼 TA')"
         /></label>
       </div>
       <div class="form-row">
-        <label
-          >出生日期<input v-model="form.birthday" type="date" required /></label
-        ><label
-          >出生时刻（可选）<input
-            v-model="form.birth_time"
-            type="time"
-            step="1"
+        <label>
+          {{ t("出生日期") }}
+          <DateField v-model="form.birthday" type="date" required /></label
+        ><label>
+          {{ t("出生时刻（可选）") }}
+          <input v-model="form.birth_time" type="time" step="1"
         /></label>
       </div>
       <div class="form-row">
-        <label
-          >性别（可选）<select v-model="form.gender">
-            <option :value="null">暂不填写</option>
-            <option value="男">男</option>
-            <option value="女">女</option>
-            <option value="其他">其他</option>
+        <label>
+          {{ t("性别（可选）") }}
+          <select v-model="form.gender">
+            <option :value="null">{{ t("暂不填写") }}</option>
+            <option :value="t('男')">{{ t("男") }}</option>
+            <option :value="t('女')">{{ t("女") }}</option>
+            <option :value="t('其他')">{{ t("其他") }}</option>
           </select></label
-        ><label
-          >时间线标识颜色<input v-model="form.theme_color" type="color"
+        ><label>
+          {{ t("时间线标识颜色") }}
+          <input v-model="form.theme_color" type="color"
         /></label>
       </div>
-      <label
-        >关于孩子<textarea
+      <label>
+        {{ t("关于孩子") }}
+        <textarea
           v-model="form.description"
           rows="3"
-          placeholder="性格、爱好，或你想对 TA 说的话…"
+          :placeholder="t('性格、爱好，或你想对 TA 说的话…')"
         /></label
-      ><label
-        >或从已有照片选择<ElSelect
+      ><label>
+        {{ t("或从已有照片选择") }}
+        <ElSelect
           v-model="form.avatar_media_id"
           filterable
           remote
@@ -344,7 +353,7 @@ function browse(id: number) {
           :remote-method="searchAvatar"
           :disabled="busy || avatarPreparing"
           @change="clearAvatarDraft"
-          placeholder="搜索已上传照片标题"
+          :placeholder="t('搜索已上传照片标题')"
           @visible-change="(v: boolean) => v && searchAvatar('')"
           ><ElOption
             v-if="
@@ -352,25 +361,27 @@ function browse(id: number) {
               !avatarOptions.some((m) => m.id === form.avatar_media_id)
             "
             :value="form.avatar_media_id"
-            :label="'当前头像 #' + form.avatar_media_id" /><ElOption
+            :label="t('当前头像 #') + form.avatar_media_id" /><ElOption
             v-for="m in avatarOptions"
             :key="m.id"
             :value="m.id"
-            :label="m.title || '照片 #' + m.id" /></ElSelect
+            :label="m.title || t('照片 #') + m.id" /></ElSelect
       ></label>
       <div class="form-row">
-        <label
-          >显示顺序<input
-            type="number"
-            v-model.number="form.sort_order" /></label
-        ><label
-          >档案状态<select v-model="form.status">
-            <option value="active">启用</option>
-            <option value="archived">归档</option>
+        <label>
+          {{ t("显示顺序") }}
+          <input type="number" v-model.number="form.sort_order" /></label
+        ><label>
+          {{ t("档案状态") }}
+          <select v-model="form.status">
+            <option value="active">{{ t("启用") }}</option>
+            <option value="archived">{{ t("归档") }}</option>
           </select></label
         >
       </div>
-      <p class="muted">修改生日后，历史影像上的年龄会自动重新计算。</p>
+      <p class="muted">
+        {{ t("修改生日后，历史影像上的年龄会自动重新计算。") }}
+      </p>
       <div class="dialog-actions">
         <button
           v-if="editing && yearly.isAdmin"
@@ -381,32 +392,33 @@ function browse(id: number) {
             deleteOpen = true;
           "
         >
-          删除档案</button
+          {{ t("删除档案") }}</button
         ><button
           type="button"
           class="button"
           :disabled="busy || avatarPreparing"
           @click="open = false"
         >
-          取消</button
+          {{ t("取消") }}</button
         ><button class="button primary" :disabled="busy || avatarPreparing">
-          {{ busy ? "正在保存…" : "保存孩子档案" }}
+          {{ busy ? t("正在保存…") : t("保存孩子档案") }}
         </button>
       </div>
     </form></ElDialog
-  ><ElDialog v-model="deleteOpen" title="确认删除孩子档案" width="480px"
-    ><p>删除会解除 TA 与照片、日记的关联。家庭原件会继续保留。</p>
-    <label
-      >再次输入孩子名字「{{ form.name }}」<input v-model="confirmation"
+  ><ElDialog v-model="deleteOpen" :title="t('确认删除孩子档案')" width="480px"
+    ><p>{{ t("删除会解除 TA 与照片、日记的关联。家庭原件会继续保留。") }}</p>
+    <label>
+      {{ t("再次输入孩子名字「") }} {{ form.name }}」<input
+        v-model="confirmation"
     /></label>
     <div class="dialog-actions">
-      <button class="button" @click="deleteOpen = false">取消</button
+      <button class="button" @click="deleteOpen = false">{{ t("取消") }}</button
       ><button
         class="button danger-button"
         :disabled="confirmation !== form.name"
         @click="remove"
       >
-        确认删除档案
+        {{ t("确认删除档案") }}
       </button>
     </div></ElDialog
   >
