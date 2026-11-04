@@ -25,7 +25,11 @@ export async function api<T = any>(
         : body.detail
             ?.map((d: any) => t(d.msg.replace(/^Value error, /, "")))
             .join("; ") || t("请求失败");
-    if (response.status === 401 && !path.startsWith("/auth/"))
+    if (
+      response.status === 401 &&
+      !path.startsWith("/auth/") &&
+      !path.startsWith("/public/")
+    )
       location.assign("/login");
     throw new Error(t(message));
   }

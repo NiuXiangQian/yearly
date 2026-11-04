@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { t, ageLabel } from "../lib/i18n";
+import ShareDialog from "../components/ShareDialog.vue";
 import DateField from "../components/DateField.vue";
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -39,6 +40,15 @@ import FolderMoveDialog from "../components/FolderMoveDialog.vue";
 const yearly = useYearly(),
   route = useRoute(),
   router = useRouter();
+const shareOpen = ref(false);
+const expandedDays = ref<Record<string, boolean>>({});
+const mobile = ref(window.matchMedia("(max-width: 700px)").matches);
+const mobileQuery = window.matchMedia("(max-width: 700px)");
+function updateMobile(event: MediaQueryListEvent) {
+  mobile.value = event.matches;
+}
+onMounted(() => mobileQuery.addEventListener("change", updateMobile));
+onBeforeUnmount(() => mobileQuery.removeEventListener("change", updateMobile));
 const nextCursor = ref<string | null>(null);
 const folderId = ref<number | null>(null),
   folderCreate = ref(false),
@@ -689,6 +699,9 @@ function saveStages() {
         </p>
       </div>
       <div v-if="yearly.canEdit && !trash" class="timeline-heading-actions">
+        <button class="button" @click="shareOpen = true">
+          {{ t("分享时间线") }}
+        </button>
         <button class="button" @click="dateDialog = true">
           <CalendarDays :size="16" /> {{ t("添加日期") }}
         </button>
@@ -1043,7 +1056,12 @@ function saveStages() {
         </div>
         <div class="media-grid">
           <div
-            v-for="m in group.media"
+            v-for="m in mobile &&
+            !expandedDays[group.date] &&
+            !selection &&
+            sortDate !== group.date
+              ? group.media.slice(0, 8)
+              : group.media"
             :key="m.kind + '-' + m.id"
             class="timeline-entry"
             :class="{
@@ -1215,6 +1233,22 @@ function saveStages() {
             </button>
           </div>
         </div>
+        <button
+          v-if="
+            mobile &&
+            group.media.length > 8 &&
+            !selection &&
+            sortDate !== group.date
+          "
+          class="button day-expand"
+          @click="expandedDays[group.date] = !expandedDays[group.date]"
+        >
+          {{
+            expandedDays[group.date]
+              ? t("收起")
+              : t("展开更多（剩余 {p0} 项）", { p0: group.media.length - 8 })
+          }}
+        </button>
       </div>
       <div v-if="loading" class="media-grid loading-grid">
         <div v-for="i in 4" :key="i" class="media-card" aria-hidden="true">
@@ -1268,6 +1302,11 @@ function saveStages() {
         height: rect.height + 'px',
       }"
     ></div>
+    <ShareDialog
+      :open="shareOpen"
+      :initial-date="day"
+      @close="shareOpen = false"
+    />
     <MediaDetail
       :id="detail"
       @close="detail = null"
@@ -1440,6 +1479,10 @@ function saveStages() {
   </div>
 </template>
 <style scoped>
+.day-expand {
+  margin: 16px auto 0;
+  display: flex;
+}
 .folder-drag-handle {
   margin-left: auto;
   display: inline-flex;

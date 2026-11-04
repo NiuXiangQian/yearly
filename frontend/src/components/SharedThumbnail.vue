@@ -1,0 +1,80 @@
+<script setup lang="ts">
+import { ref, onMounted, onBeforeUnmount } from "vue";
+import { Play, ImageOff, Layers } from "lucide-vue-next";
+import { api } from "../lib/api";
+import { t } from "../lib/i18n";
+const props = defineProps<{ base: string; media: any }>();
+const root = ref<HTMLElement>(),
+  url = ref(""),
+  failed = ref(false);
+let observer: IntersectionObserver;
+onMounted(() => {
+  observer = new IntersectionObserver(
+    async (entries) => {
+      if (!entries[0].isIntersecting) return;
+      observer.disconnect();
+      try {
+        url.value = (
+          await api(
+            `${props.base}/media/${props.media.id}/url?purpose=thumbnail`,
+          )
+        ).url;
+      } catch {
+        failed.value = true;
+      }
+    },
+    { rootMargin: "100px" },
+  );
+  if (root.value) observer.observe(root.value);
+});
+onBeforeUnmount(() => observer?.disconnect());
+</script>
+<template>
+  <div ref="root" class="shared-thumb">
+    <img
+      v-if="url && !failed"
+      :src="url"
+      :alt="media.title || t('影像预览')"
+      loading="lazy"
+      referrerpolicy="no-referrer"
+      @error="failed = true"
+    />
+    <div v-else class="thumb-placeholder" :class="{ skeleton: !failed }">
+      <ImageOff v-if="failed" :size="24" />
+    </div>
+    <Play v-if="media.media_type === 'video'" class="type-icon" :size="22" />
+    <Layers
+      v-else-if="media.media_type === 'live_photo'"
+      class="type-icon"
+      :size="20"
+    />
+  </div>
+</template>
+<style scoped>
+.shared-thumb {
+  aspect-ratio: 4/3;
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--sage-light);
+}
+.shared-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.thumb-placeholder {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.type-icon {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  color: white;
+  filter: drop-shadow(0 1px 3px #0008);
+}
+</style>

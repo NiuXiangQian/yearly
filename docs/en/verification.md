@@ -4,13 +4,22 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
-## Latest functional verification
+## Timeline-sharing verification (2026-11-04)
+
+- Frontend: 46 Vitest tests passed, including expansion, collapse, expiration cleanup, and unavailable-share rendering.
+- Backend: 38 relevant tests passed across sharing, folders, organization, backup schema, and security. The final sharing-only run passed 13 tests.
+- Type checking and production build passed. Test MySQL reports migration `0007 (head)`; production was not migrated or deployed in this task.
+- Browser checks covered 390px reading, eight entries per day, folders, image zoom, creation and exclusion payloads, revocation, and English switching.
+
+Screenshots use a separate virtual API with no family MySQL or OSS connection. API tests use test MySQL with mocked OSS signing. No links were sent to real recipients; this is not production or external-network acceptance evidence.
+
+## Previous date and language verification
 
 As of November 4, 2026, the date selection, language switching, and high-resolution screenshot verification round recorded:
 
 | Check | Result | Scope |
 | --- | --- | --- |
-| Frontend Vitest | 43 passed | Current frontend test suite |
+| Frontend Vitest | 43 passed | Frontend suite at that revision |
 | Backend pytest | 15 passed in the previous round | Backend unchanged and not rerun this round; the earlier subset covered organization and folders |
 | Type checking and production build | Passed | vue-tsc, Vite |
 | Browser checks | Passed | Date entry and month/year switching, live language changes and refresh persistence, upload draft preservation, required birthdays and leap days, 390px English layout |

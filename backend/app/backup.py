@@ -23,7 +23,7 @@ from .models import (
     TimelineFolder,
 )
 
-# Upload authorizations, sessions, captcha and password hashes never enter portable exports.
+# Share links, upload authorizations, sessions, captcha and password hashes never enter portable exports.
 TABLES = [
     Child,
     TimelineFolder,

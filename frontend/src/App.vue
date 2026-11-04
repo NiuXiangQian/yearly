@@ -42,7 +42,7 @@ const title = computed(() => titles.value[route.path] || "yearly");
 watch(
   () => yearly.user,
   (user) => {
-    if (user) yearly.load().catch(notify);
+    if (user && !route.meta.public) yearly.load().catch(notify);
   },
   { immediate: true },
 );
@@ -67,7 +67,7 @@ async function logout() {
 </script>
 <template>
   <ElConfigProvider :locale="elementLocale">
-    <RouterView v-if="route.path === '/login'" />
+    <RouterView v-if="route.path === '/login' || route.meta.public" />
     <div v-else class="shell">
       <aside class="sidebar">
         <RouterLink to="/" class="brand"

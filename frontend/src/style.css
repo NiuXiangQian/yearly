@@ -2937,3 +2937,10 @@ html[lang="en"] .sidebar .nav-caption {
     margin-left: 0;
   }
 }
+
+/* Share dialogs stay within a phone viewport, including date-range controls. */
+.share-dialog,
+.shared-folder-dialog,
+.shared-viewer-dialog {
+  max-width: calc(100vw - 24px);
+}

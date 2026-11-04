@@ -230,6 +230,20 @@ class Captcha(Base):
     expires_at: Mapped[datetime] = mapped_column(DT, index=True)
 
 
+class TimelineShare(Base):
+    __tablename__ = "timeline_share"
+    id: Mapped[int] = mapped_column(ID, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("sys_user.id"), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    exclusions: Mapped[dict] = mapped_column(JSON)
+    expires_at: Mapped[datetime] = mapped_column(DT)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DT, default=now)
+
+
 for table in Base.metadata.tables.values():
     table.dialect_options["mysql"]["engine"] = "InnoDB"
     table.dialect_options["mysql"]["charset"] = "utf8mb4"

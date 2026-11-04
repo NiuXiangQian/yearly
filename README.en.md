@@ -10,6 +10,8 @@ Daily timeline · Multiple child profiles · Drag-and-drop folders · Compressed
 
 [Screenshots](#screenshots) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
 
+[Expiring timeline shares](docs/en/sharing.md): choose dates and exclusions, set a 1-hour to 7-day lifetime, and read eight entries per day before expanding.
+
 ## Screenshots
 
 These screenshots show the actual application with isolated fictional data. Names, birthdays, entries, and counts are fictional; avatars and media use original sample illustrations. No real family photos or accounts are included. The screenshots below show the English interface. Family names and user-written content are preserved in their original language. All screenshots are lossless PNGs captured at 2× resolution (3024px wide); open an image or its full-resolution link for details.
@@ -138,7 +140,7 @@ To start them separately, run each command in its own terminal:
 | Access | Local HTTP | HTTPS and Secure cookies |
 | Database account, secrets, OSS settings | Configured independently | Configured independently |
 
-Use Alembic to create the schema for a new deployment. Back up an existing deployment before running migrations. The current migration revision is `0006`. Production requires both the API and the video preview worker, together with Nginx, private OSS, and backup jobs.
+Use Alembic to create the schema for a new deployment. Back up an existing deployment before running migrations. The current migration revision is `0007`. Production requires both the API and the video preview worker, together with Nginx, private OSS, and backup jobs.
 
 Follow the [deployment guide](docs/en/deployment.md). This repository contains the application and deployment templates, not working server, database, or OSS credentials.
 

@@ -78,7 +78,7 @@ class OSSStorage:
             )
         return self.bucket.sign_url("GET", file.oss_object_key, 300, params=params)
 
-    def image_url(self, file, purpose):
+    def image_url(self, file, purpose, expires=300):
         if file.mime_type.startswith("video/"):
             process = "video/snapshot,t_0,f_jpg,w_480,h_0,m_fast"
         elif file.mime_type.startswith("image/"):
@@ -87,11 +87,11 @@ class OSSStorage:
         else:
             raise HTTPException(422, "此格式暂无压缩预览，请主动查看或下载原文件")
         return self.bucket.sign_url(
-            "GET", file.oss_object_key, 300, params={"x-oss-process": process}
+            "GET", file.oss_object_key, expires, params={"x-oss-process": process}
         )
 
-    def video_url(self, preview):
-        return self.bucket.sign_url("GET", preview.object_key, 300)
+    def video_url(self, preview, expires=300):
+        return self.bucket.sign_url("GET", preview.object_key, expires)
 
 
 @lru_cache

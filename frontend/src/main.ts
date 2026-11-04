@@ -10,6 +10,11 @@ setLocale(localStorage.getItem("yearly-language") === "en" ? "en" : "zh-CN");
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      path: "/share/:token",
+      component: () => import("./views/SharedTimeline.vue"),
+      meta: { public: true },
+    },
     { path: "/login", component: () => import("./views/Login.vue") },
     { path: "/", component: () => import("./views/Timeline.vue") },
     { path: "/children", component: () => import("./views/Children.vue") },
@@ -27,6 +32,7 @@ const router = createRouter({
 });
 const app = createApp(App).use(createPinia());
 router.beforeEach(async (to) => {
+  if (to.meta.public) return;
   const yearly = useYearly();
   if (!yearly.user && !(await yearly.session()) && to.path !== "/login")
     return "/login";

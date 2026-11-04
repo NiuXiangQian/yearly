@@ -63,6 +63,7 @@ from .services import (
 )
 from .age import milestones
 from .storage import get_storage
+from .shares import router as share_router
 from .uploads import router as upload_router
 from .folders import (
     router as folder_router,
@@ -98,6 +99,7 @@ app = FastAPI(
 )
 app.include_router(upload_router)
 app.include_router(folder_router)
+app.include_router(share_router)
 
 
 @app.middleware("http")

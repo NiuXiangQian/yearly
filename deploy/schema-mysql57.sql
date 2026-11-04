@@ -292,3 +292,18 @@ ALTER TABLE media ADD COLUMN folder_id BIGINT NULL,
   ADD CONSTRAINT fk_media_folder FOREIGN KEY (folder_id) REFERENCES timeline_folder (id);
 
 ALTER TABLE media ADD COLUMN purpose VARCHAR(16) NOT NULL DEFAULT 'memory';
+
+CREATE TABLE timeline_share (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  token_hash VARCHAR(64) NOT NULL UNIQUE,
+  created_by BIGINT NOT NULL,
+  title VARCHAR(120) NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  exclusions JSON NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  revoked BOOLEAN NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  INDEX ix_timeline_share_created_by (created_by),
+  FOREIGN KEY (created_by) REFERENCES sys_user (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

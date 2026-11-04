@@ -66,10 +66,12 @@ class FakeStorage:
     def download_url(self, file, attachment=False):
         return "https://private.invalid/signed-original"
 
-    def image_url(self, file, purpose):
+    def image_url(self, file, purpose, expires=300):
+        self.last_expiry = expires
         return "https://private.invalid/" + purpose
 
-    def video_url(self, preview):
+    def video_url(self, preview, expires=300):
+        self.last_expiry = expires
         return "https://private.invalid/compressed.mp4"
 
 
