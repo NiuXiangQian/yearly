@@ -1,123 +1,161 @@
 # yearly
 
-私人家庭成长影像档案。Python 3.12 / FastAPI / SQLAlchemy 2 / MySQL 5.7，Vue 3 / TypeScript / Pinia / Vue Router / Element Plus。已有 Nginx 托管前端并代理 API，systemd 运行后端，原件通过浏览器直接上传私有阿里云 OSS。
+**让成长有迹可循。**
+
+一个可自行部署的私人家庭影像档案。把照片、视频与成长日记按日期和孩子整理，在多年以后，依然能找到每一个值得记住的瞬间。
+
+按天时间线 · 多孩子档案 · 文件夹自由混排 · 压缩预览 · 原件备份
+
+[界面预览](#界面预览) · [快速开始](#快速开始) · [部署指南](docs/deployment.md) · [备份与恢复](docs/backup-restore.md)
 
 ## 界面预览
 
-以下截图来自实际应用界面，使用独立的虚拟示例数据。“小禾 / 小芽”的姓名、生日、记录及数量均为虚构，头像与影像为原创示例插画，不包含真实家庭照片、账户或个人资料。
+截图来自实际应用界面，使用独立的虚拟数据。人物姓名、生日、记录和数量均为虚构，头像与影像为原创示例插画，不包含真实家庭照片或账户。
 
-### 按天时间线 · 文件夹与影像自由混排
+### 按天收藏，自由整理
 
-按日期整理回忆，文件夹显示内部小预览；文件夹、照片与视频可拖动混排，自定义标题直接显示在预览图上。
+照片、视频和文件夹可以在同一天内拖动混排；文件夹显示小预览，自定义标题叠加在图片上。
 
 ![虚拟示例：按天时间线与文件夹混排](docs/images/demo-timeline.png)
 
-### 当天文件夹 · 预览、排序与批量整理
+<details>
+<summary>查看文件夹整理与孩子档案</summary>
 
-打开文件夹即可预览内容，支持批量选择、追加上传、拖动排序、移回当天时间线及恢复默认排序。
+### 一个文件夹，留住一段故事
 
-![虚拟示例：文件夹内的影像预览与整理](docs/images/demo-folder.png)
+支持批量选择、追加上传、拖入 / 拖出文件夹、内部排序和恢复默认排序。
 
-### 孩子档案 · 独立头像与成长记录
+![虚拟示例：文件夹内容与整理操作](docs/images/demo-folder.png)
 
-为每个孩子设置名字、生日、简介和独立头像，并从档案进入对应的成长时间线。
+### 每个孩子，独一份成长
 
-![虚拟示例：两个孩子的独立档案与头像](docs/images/demo-children.png)
+为孩子设置独立头像、生日和简介，再按孩子筛选共同回忆。
 
-## 已实现
+![虚拟示例：孩子档案与独立头像](docs/images/demo-children.png)
 
-- 家庭 Cookie Session、图形验证码、Argon2id、CSRF、登录限制、管理员 / 成员 / 只读访客权限，关闭公开注册。
-- 多孩子档案、头像引用、归档、显示顺序和二次确认删除。解除关联后保留家庭原件。
-- 独立逻辑媒体与物理文件，多孩子共享照片和共同成长日记，EXISTS 筛选去重，时间线游标分页。
-- 拍摄当地日期动态日历年龄、出生前 / 未知时间标签、满月 / 百天 / 生日导航、自定义月龄阶段。
-- 浏览器 EXIF / GPS / 设备参数解析、分段 QuickTime 元数据读取、4 MiB 增量 SHA-256 / CRC64，上传前确认及手动修正。
-- 相同原件跨批次导入自动复用已有记录并合并孩子关联，避免重复卡片和重复 OSS 上传。
-- OSS V4 分片签名直传、分片重试、重新选择原件恢复任务、服务端大小 / CRC64 / 声明 SHA-256 元数据核验。原件不经 API / Nginx。
-- Live Photo 可靠标识配对及手动 HEIC/JPEG + MOV 双文件导入，一条逻辑媒体，分别下载原件。可独立导入兼容预览。
-- 按天影像网格、日期节点追加；可直接拖动排序或批量拖入当天文件夹，移动端可前移 / 后移。当天和文件夹内均可恢复默认拍摄时间排序（从新到旧）。
-- 孩子头像可单独上传、预览、更换和清除，也可从已有照片选择。独立头像自动居中裁剪压缩，保存档案时上传，不计入时间线回忆。
-- 每天可创建命名文件夹，支持重命名、文件夹排序、批量移入 / 移出、文件夹内排序与追加上传。删除文件夹会将内容移回当天时间线，不删除原件。
-- 上传批次命名、可勾选的紧凑文件列表、队列拖动排序、按需展开文件详情。归档日期独立于原始拍摄时间，支持批量命名和调整日期。
-- 私有媒体详情、原始元数据、修正时间、GPS、备注、标签、批量孩子关联、回收站，HEIC / HEIF 压缩预览、图片缩放拖动，视频压缩副本与按需播放。
-- Shift 连选、PC 框选模式、移动端长按多选。日记明确保存媒体顺序、封面、孩子和起止时间，支持纯文字。
-- JSON / CSV 清单、MySQL 备份恢复、低内存 OSS 原件备份与 SHA-256 校验、稳定 ID 及关系恢复。
-- 浅深主题、响应式布局、无第三方照片分析 / 字体请求。
+</details>
 
-## 正式与测试环境
+## 可以做什么
 
-通过 `APP_ENV=test|production` 选择环境，默认 `test`。配置文件按项目根目录定位，命令行环境变量优先。应用、迁移、管理命令与自动化测试统一使用 MySQL。
+| 场景 | 功能 |
+| --- | --- |
+| 整理回忆 | 按天归档、命名文件夹、文件夹与影像混排、批量选择与移动、恢复默认排序 |
+| 记录成长 | 多孩子档案、独立头像、按年龄浏览、满月 / 百天 / 生日导航、共同成长日记 |
+| 批量上传 | 批次命名、EXIF / QuickTime 时间解析、跨日期追加提示、跨批次去重、分片上传与重试 |
+| 轻量浏览 | 图片缩略图、HEIC / HEIF 预览、图片缩放拖动、视频压缩副本、按需查看原文件 |
+| 珍藏原件 | 私有 OSS 直传、Live Photo 双文件配对、原始元数据保留、备份与完整性校验 |
+| 家庭共享 | 管理员 / 成员 / 只读访客、登录验证码、回收站、浅色 / 深色主题、响应式布局 |
 
-- 测试配置为 `.env.test`，数据库为 `yearly_test`，使用独立测试账号。允许本机 HTTP，Cookie Secure 为 false，开放 `/api/docs`，页面标识“测试环境”。
-- 正式配置为 `.env.production`，数据库为 `yearly`，使用独立正式账号。要求 HTTPS / Secure Cookie，页面标识“正式环境”。
-- 两套账号仅授权各自的数据库，Session 密钥和 OSS 配置分别管理。测试数据库名强制以 `_test` 结尾，正式配置拒绝指向 `_test` 库。
-- 运行时读取所选环境文件。`.env.example` 提供入口说明，`.env.test.example` 与 `.env.production.example` 提供完整模板。真实配置和密码文件均被 Git 忽略。
+一个部署实例对应一个家庭，启用的账户共享家庭内容。它不提供公开注册，也不是多租户相册服务。
 
-## 本地启动测试环境
+## 技术与存储
 
-Python 3.12 和 Node.js 22.12+，已有 MySQL 5.7.8+。本仓库提供 `.nvmrc`，安装 nvm 的终端可先运行 `nvm use`。
+- **后端：** Python 3.12、FastAPI、SQLAlchemy 2、Alembic。
+- **前端：** Vue 3、TypeScript、Vite、Pinia、Element Plus。
+- **数据库：** MySQL 5.7.8+；开发、测试与生产使用独立配置，不使用 SQLite 替代。
+- **文件：** 阿里云私有 OSS；原件由浏览器直传，数据库保存元数据和关联关系。
+- **部署：** Nginx + systemd；独立工作进程生成视频预览，无需 Redis。
+
+默认浏览使用压缩预览。只有主动选择“查看原文件”时才加载原件；预览处理不会覆盖原始文件。视频首次转码需要读取原件，并占用临时磁盘空间。
+
+## 快速开始
+
+### 1. 准备依赖
+
+需要 Python 3.12、Node.js 22.12+、MySQL 5.7.8+ 和私有 OSS Bucket。完整上传与预览功能需要配置 OSS 的权限、CORS 和对应地域，详见[存储配置](docs/storage-and-metadata.md)。
 
 ```bash
+git clone https://github.com/NiuXiangQian/yearly.git
+cd yearly
+
+# 安装了 nvm 时，可用 nvm use 读取 .nvmrc
 python3.12 -m venv .venv
 .venv/bin/pip install -r backend/requirements.txt
-# 首次配置时复制模板。已有 .env.test 时保留现有连接与密码。
+(cd frontend && npm ci)
+
 cp -n .env.test.example .env.test
 chmod 600 .env.test
-# 填写测试 MySQL 连接、随机 SESSION_SECRET 和测试 OSS 配置
-(cd frontend && npm ci)
+```
+
+### 2. 填写本地配置
+
+编辑 `.env.test`，设置自己的数据库连接、Session 密钥及 OSS 参数。测试数据库名必须以 `_test` 结尾，使用仅有该库权限的应用账号。
+
+可在本机生成 Session 密钥，将输出保存到配置文件，不要提交到 Git：
+
+```bash
+.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))'
+```
+
+示例配置中的 `CHANGE_ME`、`your-private-bucket` 等只是占位符，不能直接作为真实部署配置。数据库初始化示例见[部署指南](docs/deployment.md)。
+
+### 3. 建表并启动
+
+```bash
 ./scripts/manage.sh test migrate
-# 首次使用且尚无管理员时执行
+
+# 首次运行时创建管理员，按提示输入密码
 ./scripts/manage.sh test create-admin your-admin-name
+
 ./scripts/start-local.sh
 ```
 
-`start-local.sh` 先迁移测试库，再同时启动 FastAPI 热更新、Vite 与视频预览工作进程，按 Ctrl+C 一起结束。访问 <http://127.0.0.1:5173/>，健康检查为 `/api/health`，返回当前 environment。
+访问 [http://127.0.0.1:5173/](http://127.0.0.1:5173/)。启动脚本同时运行 API、前端和视频预览进程，按 `Ctrl+C` 一起停止。
 
-也可分开启动，后端使用 `./scripts/start-api.sh test --reload`，前端使用 `cd frontend && npm run dev -- --port 5173`；视频预览进程使用 `./scripts/manage.sh test generate-previews --watch`。
-
-## 正式环境运行
+需要分别启动时：
 
 ```bash
-cp -n .env.production.example .env.production
-chmod 600 .env.production
-# 填写正式 MySQL、独立 Session 密钥、正式 HTTPS origin 和私有 OSS
-./scripts/manage.sh production migrate
-./scripts/manage.sh production create-admin your-admin-name
-(cd frontend && npm ci && npm run build)
-./scripts/start-api.sh production
+./scripts/start-api.sh test --reload
+(cd frontend && npm run dev -- --port 5173)
+./scripts/manage.sh test generate-previews --watch
 ```
 
-长期运行使用已有 Nginx 与提供的 systemd 服务。systemd 显式设置 `APP_ENV=production` 并读取 `.env.production`。前端构建复用同源 `/api`，环境标识由后端返回。
+上面三个命令分别在三个终端运行。
 
-远程 MySQL 使用 TLS 时，在 DATABASE_URL 中配置 `ssl_ca`。相对证书路径按项目根目录解析。当前服务器账号已要求 TLS，部署时同步受限配置中引用的 CA 证书。
+## 环境与部署
 
-## 自动化测试
+| 配置 | 本地测试 | 正式环境 |
+| --- | --- | --- |
+| 环境选择 | `APP_ENV=test` | `APP_ENV=production` |
+| 配置文件 | `.env.test` | `.env.production` |
+| 数据库 | 名称以 `_test` 结尾 | 独立正式库，不能以 `_test` 结尾 |
+| 访问方式 | 本机 HTTP | HTTPS 与 Secure Cookie |
+| 数据库账号、密钥、OSS 配置 | 单独配置 | 单独配置 |
+
+新部署使用 Alembic 建表；升级已有部署时先备份，再迁移数据库。当前迁移版本为 `0006`。生产部署需同时运行 API 和视频预览工作进程，并配置 Nginx、私有 OSS 及备份任务。
+
+具体步骤见[部署指南](docs/deployment.md)。仓库提供的是应用与部署模板，不包含可直接使用的服务器、数据库或 OSS 凭据。
+
+## 验证与开发
 
 ```bash
+# 前端测试与构建
+(cd frontend && npm test && npm run build)
+
+# 前后端完整检查：先配置独立的测试 MySQL，并执行迁移
 ./scripts/test.sh
 ```
 
-后端连接 `.env.test` 的真实 MySQL 测试库，OSS 使用 Mock 并保留真实 V4 签名测试。每项数据库用例使用外层事务和 SAVEPOINT 隔离，API 内部提交在用例结束后整体回滚，恢复测试库既有记录，自增序列会继续向前推进。执行自动化测试前先停止本地测试服务，避免同时写测试库。
+后端测试使用 MySQL 和事务回滚，OSS 操作使用 Mock，包含独立的签名与合成媒体测试。运行数据库测试前先停止连接同一测试库的服务，避免同时写入。
 
-前端测试覆盖 EXIF/GPS 固件、分块 SHA-256 / CRC64、分片重试与选择交互。验证结果见 [测试说明](docs/verification.md)。
+验证范围与待验收项目见[验证说明](docs/verification.md)。
 
-## 文档与部署入口
+## 数据边界与隐私
 
-- [部署指南](docs/deployment.md)
-- [OSS 配置、可靠性与原件边界](docs/storage-and-metadata.md)
-- [备份、恢复与迁移](docs/backup-restore.md)
-- [验收与已知限制](docs/verification.md)
-- [MySQL 5.7 建表脚本](deploy/schema-mysql57.sql)
-- [Nginx 配置](deploy/nginx.conf)
-- [systemd 服务](deploy/yearly.service)
+- 成员可以编辑整个家庭的内容，访客只读；管理员管理账户、孩子删除和导出。账户之间不是独立的私有空间。
+- 保存浏览器实际选择的文件字节。手机相册可能转换格式或省略 Live Photo 资源，导入前应确认原片导出方式。
+- 原始拍摄时间与手工修正独立保存；缺失的时间、时区或 GPS 不会被补造。
+- 删除影像和日记进入回收站；删除文件夹只移除分类。系统不会自动永久删除原件。
+- 恢复备份需要维护窗口和停写。不要把唯一一份家庭原件只交给单一存储副本。
+- `.env`、密码、私钥、证书、数据库导出、原始照片和带个人信息的日志不要上传到仓库或 Issue。公开截图仅使用虚拟数据，分享前同时检查图片的 EXIF 元数据。
 
-新库推荐 Alembic。手工建表脚本是替代入口，使用它后执行 `alembic ... stamp 0006`，不要重复建表。已有数据库通过 `./scripts/manage.sh test migrate` 或 `./scripts/manage.sh production migrate` 升级，0003 添加批次名称、归档日期和排序字段，0004 添加可重建的视频预览缓存表，0005 添加每日文件夹和影像归属，0006 区分独立头像与时间线影像。
+## 更多文档
 
-## 数据与运行约定
+| 文档 | 内容 |
+| --- | --- |
+| [部署指南](docs/deployment.md) | MySQL、HTTPS、Nginx、systemd 与视频预览进程 |
+| [存储与元数据](docs/storage-and-metadata.md) | OSS、直传、压缩预览、拍摄时间与归档规则 |
+| [备份与恢复](docs/backup-restore.md) | 数据库、清单、原件备份及恢复流程 |
+| [验证说明](docs/verification.md) | 已验证范围、测试命令与兼容性限制 |
 
-一个部署实例代表一个家庭，所有启用账户共享家庭内容。管理员管理账户、删除孩子、导出数据。成员编辑孩子、媒体与日记。访客只读。上传任务仅创建者可签名或恢复。
-
-原始元数据与修正字段独立保存，年龄实时计算。无时区的当地时间不自动转 UTC。默认使用设备提供的文件修改时间作为低可信度备用，页面清楚标注，用户可在详情中明确标记时间未知或手动修正。真实日历运算使用月末截断规则，2 月 29 日的非闰年周年为 2 月 28 日。百天节点定义为出生日期加 100 天，出生当天为第 0 天。
-
-每份物理原件使用 UUID key。多孩子关联和解除关联只改变数据库关系。重复选择同一批文件会按 SHA-256 去重，独立的再次导入可以创建新的记录。删除媒体、日记和孩子均为软删除，系统没有自动永久删除原件的操作。
-
-生产上限默认单文件 50 GiB、分片 16 MiB、逐文件顺序上传。API JSON 不超过 2 MiB，原始元数据不超过 1 MiB。后端一个 worker 即可运行，无 Redis 或任务队列。元数据与哈希耗时取决于文件大小，恢复上传需要重新选择本机原件。
+部署模板位于 [`deploy/`](deploy/)，管理命令位于 [`scripts/`](scripts/)。

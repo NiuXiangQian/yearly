@@ -23,7 +23,7 @@ chmod 600 .env.production
 
 ## 2. 已有 MySQL 实例创建应用库
 
-由数据库管理员在新实例首次初始化时执行。当前服务器上的两个库与账号已经建立，已有环境可跳过此步骤。两套密码应独立生成。
+由数据库管理员在新实例首次初始化时执行。已完成初始化的部署可以跳过此步骤。两套密码应独立生成。
 
 ```sql
 CREATE DATABASE yearly CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

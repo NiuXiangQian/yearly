@@ -141,7 +141,7 @@ def test_production_v4_scoped_signature(monkeypatch):
     from app.config import settings
 
     cfg = settings()
-    monkeypatch.setattr(cfg, "oss_bucket", "yearly-test")
+    monkeypatch.setattr(cfg, "oss_bucket", "example-private-bucket")
     monkeypatch.setattr(cfg, "oss_access_key_id", "test-id")
     monkeypatch.setattr(cfg, "oss_access_key_secret", "test-secret")
     storage = OSSStorage()
