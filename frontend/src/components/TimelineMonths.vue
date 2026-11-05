@@ -115,9 +115,9 @@ defineExpose({
 .month-toggle {
   width: 100%;
   padding: 14px 16px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 12px;
-  background: var(--sage-light);
+  background: var(--surface-soft);
   color: var(--text);
   text-align: left;
   cursor: pointer;
@@ -125,11 +125,11 @@ defineExpose({
   font-size: 18px;
 }
 .month-toggle:hover:not(:disabled) {
-  border-color: var(--sage);
+  background: var(--surface-hover);
 }
 .month-toggle svg {
   flex-shrink: 0;
-  transition: transform 0.15s;
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .month-toggle svg.closed {
   transform: rotate(-90deg);
@@ -140,6 +140,10 @@ defineExpose({
   font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.month-days {
+  animation: content-reveal var(--motion-reveal) var(--ease-out);
 }
 .month-title {
   min-width: 0;

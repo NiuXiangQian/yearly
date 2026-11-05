@@ -417,21 +417,21 @@ async function changed() {
   z-index: 2;
   padding: 12px;
   margin-bottom: 18px;
-  border: 2px dashed var(--primary);
+  border: 2px dashed var(--sage);
   border-radius: 12px;
   background: var(--surface);
   text-align: center;
-  color: var(--primary);
+  color: var(--sage);
 }
 .folder-drop-out.active {
-  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
+  background: color-mix(in srgb, var(--sage) 18%, var(--surface));
 }
 
 .folder-panel-title {
   display: flex;
   gap: 12px;
   align-items: center;
-  color: var(--primary);
+  color: var(--sage);
 }
 .folder-panel-title h2 {
   font-size: 22px;
@@ -457,6 +457,9 @@ async function changed() {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 10px;
+}
+.folder-media-grid :deep(.media-card) {
+  transition: none;
 }
 .folder-item-order {
   display: flex;

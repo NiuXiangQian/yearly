@@ -93,6 +93,8 @@ function click(e: MouseEvent) {
         :draggable="false"
         v-if="url && !failed"
         :src="url"
+        class="preview-image"
+        :class="{ 'is-loaded': loaded }"
         loading="lazy"
         :alt="media.title || t('家庭影像')"
         @load="loaded = true"

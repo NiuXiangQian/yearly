@@ -624,7 +624,7 @@ onBeforeUnmount(() => {
                 :size="22"
               />
             </div>
-            <div class="file-summary">
+            <div class="file-summary numeric">
               <h3>
                 {{ item.title || item.original.file.name
                 }}<span v-if="item.live" class="chip">LIVE</span>
@@ -657,7 +657,7 @@ onBeforeUnmount(() => {
                 }}
               </p>
             </div>
-            <div class="file-state">
+            <div class="file-state numeric">
               <span v-if="item.status === 'ready'"> {{ t("待上传") }} </span
               ><span v-else-if="item.status === 'complete'" class="success-text"
                 ><CheckCircle2 :size="15" />{{
@@ -1119,7 +1119,7 @@ onBeforeUnmount(() => {
 }
 .file-summary h3 {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

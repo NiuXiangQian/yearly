@@ -4,6 +4,15 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
+## Interface refinement verification (2026-11-05)
+
+Based on the [description and chapter notes of Ludi's video](https://www.douyin.com/video/7699196387954642214), this update uses subtle surface layers, lighter dark-theme weights, tabular numerals, and feedback matched to each action. yearly has no streaming chat; soft reveals apply to compressed previews and month expansion, while selection, keyboard focus, and drop indicators remain visible.
+
+- All 62 frontend tests, type checking, and the production build passed. This frontend-only update requires no database migration; backend and real OSS tests were not repeated.
+- Isolated fictional-data browser checks covered desktop light/dark themes, month collapse/expansion, folder previews and the move-out indicator, 390px profiles, the English upload page, and the Chinese shared timeline. Checked mobile pages had no horizontal overflow; preview screenshots were saved.
+- Browser styles confirmed heading weights of 600 in light mode and 500 in dark mode, plus tabular date/counter numerals. With reduced motion enabled, month animations and image opacity transitions were disabled.
+- Images still request existing thumbnails; original-file access and sharing authorization are unchanged. Drag changes are visual only; actual move/sort writes were not revalidated this round. Production was not deployed.
+
 ## Optional growth timeline verification (2026-11-05)
 
 - All 62 frontend tests, type checking, the production build, and 29 relevant backend tests passed. Coverage includes child/pet defaults on, other people defaults off, explicit preferences, legacy clients preserving preferences, and new/legacy backup restoration.

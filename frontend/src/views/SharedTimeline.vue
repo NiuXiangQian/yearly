@@ -484,7 +484,7 @@ onBeforeUnmount(() => {
 .shared-intro h1 {
   font-size: 34px;
   margin: 16px 0;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   overflow-wrap: anywhere;
 }
 .shared-intro p {
@@ -534,7 +534,7 @@ onBeforeUnmount(() => {
 .shared-day h2 {
   font-family: Georgia, serif;
   font-size: 22px;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .shared-day > header span {
   font-size: 12px;
@@ -580,11 +580,11 @@ onBeforeUnmount(() => {
 .shared-folder,
 .shared-diary {
   aspect-ratio: 4/3;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 10px;
   padding: 12px;
   overflow: hidden;
-  background: var(--sage-light);
+  background: var(--surface-soft);
 }
 .shared-folder b {
   display: flex;

@@ -1613,9 +1613,9 @@ function saveStages() {
 }
 
 .drop-into-folder .day-folder-card {
-  border: 1px dashed var(--primary);
-  background: color-mix(in srgb, var(--primary) 18%, var(--surface));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent);
+  border: 1px dashed var(--sage);
+  background: color-mix(in srgb, var(--sage) 18%, var(--surface));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sage) 12%, transparent);
 }
 
 .folder-card-body {
@@ -1630,13 +1630,9 @@ function saveStages() {
   width: 100%;
   overflow: hidden;
   text-align: left;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 9px;
-  background: linear-gradient(
-    135deg,
-    var(--surface),
-    color-mix(in srgb, var(--primary) 12%, var(--surface))
-  );
+  background: var(--surface-soft);
   color: var(--text);
   cursor: pointer;
 }
@@ -1657,8 +1653,8 @@ function saveStages() {
   color: var(--muted);
   font-size: 12px;
 }
-.day-folder-card:hover {
-  border-color: #87996b;
+.day-folder-card:where(:hover) {
+  background: var(--surface-hover);
 }
 
 .timeline-heading-actions,
@@ -1710,8 +1706,8 @@ function saveStages() {
   cursor: grab;
   border-radius: 9px;
 }
-.sortable-entry :deep(.media-card:hover) {
-  transform: none;
+.sortable-entry :deep(.media-card) {
+  transition: none;
 }
 .sort-entry-tools {
   display: flex;

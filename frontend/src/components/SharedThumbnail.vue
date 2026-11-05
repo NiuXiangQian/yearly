@@ -6,7 +6,8 @@ import { t } from "../lib/i18n";
 const props = defineProps<{ base: string; media: any }>();
 const root = ref<HTMLElement>(),
   url = ref(""),
-  failed = ref(false);
+  failed = ref(false),
+  loaded = ref(false);
 let observer: IntersectionObserver;
 onMounted(() => {
   observer = new IntersectionObserver(
@@ -34,12 +35,19 @@ onBeforeUnmount(() => observer?.disconnect());
     <img
       v-if="url && !failed"
       :src="url"
+      class="preview-image"
+      :class="{ 'is-loaded': loaded }"
+      @load="loaded = true"
       :alt="media.title || t('影像预览')"
       loading="lazy"
       referrerpolicy="no-referrer"
       @error="failed = true"
     />
-    <div v-else class="thumb-placeholder" :class="{ skeleton: !failed }">
+    <div
+      v-if="!loaded || failed"
+      class="thumb-placeholder"
+      :class="{ skeleton: !failed }"
+    >
       <ImageOff v-if="failed" :size="24" />
     </div>
     <Play v-if="media.media_type === 'video'" class="type-icon" :size="22" />
@@ -65,7 +73,8 @@ onBeforeUnmount(() => observer?.disconnect());
   display: block;
 }
 .thumb-placeholder {
-  height: 100%;
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
   color: var(--muted);
