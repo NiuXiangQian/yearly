@@ -160,6 +160,7 @@ it("creates a pet without a birthday and preserves its species and breed", async
       expect.objectContaining({
         profile_type: "pet",
         name: "团子",
+        growth_enabled: true,
         species: "猫",
         breed: "英短",
         birthday: null,
@@ -192,10 +193,53 @@ it("creates a parent with a custom relationship and no required birthday", async
       "/children",
       expect.objectContaining({
         profile_type: "person",
+        growth_enabled: false,
         relationship: "爸爸",
         name: "林先生",
         birthday: null,
       }),
     ),
   );
+});
+it("saves an existing child's explicit choice to disable growth", async () => {
+  const checkbox = document.querySelector(
+    'input[type="checkbox"]',
+  ) as HTMLInputElement;
+  expect(checkbox.checked).toBe(true);
+  checkbox.click();
+  await nextTick();
+  document
+    .querySelector("form")!
+    .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  await vi.waitFor(() =>
+    expect(put).toHaveBeenCalledWith(
+      "/children/7",
+      expect.objectContaining({ growth_enabled: false }),
+    ),
+  );
+});
+it("defaults a new child relationship to growth but keeps a manual choice", async () => {
+  button("取消").click();
+  await nextTick();
+  button("添加人物").click();
+  await nextTick();
+  const checkbox = document.querySelector(
+    'input[type="checkbox"]',
+  ) as HTMLInputElement;
+  const relationship = document.querySelector(
+    'input[list="person-relationships"]',
+  ) as HTMLInputElement;
+  expect(checkbox.checked).toBe(false);
+  relationship.value = "孩子";
+  relationship.dispatchEvent(new Event("input", { bubbles: true }));
+  await nextTick();
+  expect(checkbox.checked).toBe(true);
+  checkbox.click();
+  await nextTick();
+  for (const role of ["爸爸", "孩子"]) {
+    relationship.value = role;
+    relationship.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+  }
+  expect(checkbox.checked).toBe(false);
 });

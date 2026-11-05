@@ -4,6 +4,13 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
+## Optional growth timeline verification (2026-11-05)
+
+- All 62 frontend tests, type checking, the production build, and 29 relevant backend tests passed. Coverage includes child/pet defaults on, other people defaults off, explicit preferences, legacy clients preserving preferences, and new/legacy backup restoration.
+- Disabled profiles omit media/journal ages and return no growth milestones. People and pets remain available for shared tagging and any/all filtering; existing files and associations are preserved.
+- Browser checks used isolated fictional data: a parent with a birthday still opens related memories, and a pet can disable growth with the preference saved and age navigation hidden. Chinese/English high-resolution profile screenshots were refreshed; the 390px layout has no horizontal overflow, and a settings screenshot was saved.
+- Test MySQL was upgraded to `0011 (head)` and local services resumed. Production was neither migrated nor deployed. OSS was mocked this round; real OSS acceptance was not repeated.
+
 ## People and pet category verification (2026-11-04)
 
 - All 60 frontend tests, type checking, the production build, and 28 relevant backend tests passed. Coverage includes relationships, optional birthdays, shared people/pet media and journals, bulk links, deduplication, deletion preserving other links, and new/legacy backups.

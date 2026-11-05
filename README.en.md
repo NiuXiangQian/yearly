@@ -64,7 +64,7 @@ Select multiple items, append uploads, drag items into or out of folders, reorde
 
 ### People and pets, sharing memories
 
-Create profiles for parents, grandparents, children, friends, and pets. Set custom relationships and pet categories, with optional birthdays. Tag multiple people and pets in each file, then filter by profile or pet category. Shared memories keep one original. See [People & pets](docs/en/pets.md).
+Create profiles for parents, grandparents, children, friends, and pets. Set custom relationships and pet categories, with optional birthdays. Growth timelines default to on for children and pets and off for other people, who remain available for tagging and filtering. Tag multiple people and pets in each file, then filter by profile or pet category. Shared memories keep one original. See [People & pets](docs/en/pets.md).
 
 ![Fictional demo: people and pet profiles](docs/images/demo-profiles-en.png)
 

@@ -58,6 +58,9 @@ class Child(Base, Timestamp):
     profile_type: Mapped[str] = mapped_column(
         String(16), default="child", server_default="child"
     )
+    growth_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1"
+    )
     relationship: Mapped[str] = mapped_column(String(80), default="", server_default="")
     species: Mapped[str] = mapped_column(String(80), default="", server_default="")
     breed: Mapped[str] = mapped_column(String(80), default="", server_default="")

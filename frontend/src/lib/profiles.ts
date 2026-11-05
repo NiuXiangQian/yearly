@@ -67,3 +67,14 @@ export function matchesProfile(profile: any, category: string, search: string) {
       .includes(search.trim().toLocaleLowerCase())
   );
 }
+
+export function hasGrowthTimeline(profile: any): boolean {
+  if (!profile) return false;
+  return (
+    profile.growth_enabled ??
+    (!profile.profile_type ||
+      profile.profile_type === "child" ||
+      profile.profile_type === "pet" ||
+      profile.relationship === "孩子")
+  );
+}

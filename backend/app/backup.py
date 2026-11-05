@@ -231,6 +231,11 @@ def restore_manifest(path, owner_id, storage=None, object_directory=None):
                     row["owner_id"] = owner_id
                 if model is Event:
                     row["created_by"] = owner_id
+                if model is Child and "growth_enabled" not in row:
+                    row["growth_enabled"] = (
+                        row.get("profile_type", "child") in {"child", "pet"}
+                        or row.get("relationship") == "孩子"
+                    )
                 if model is Child and row.get("avatar_media_id"):
                     avatars.append((row["id"], row["avatar_media_id"]))
                     row["avatar_media_id"] = None

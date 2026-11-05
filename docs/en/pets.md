@@ -6,7 +6,11 @@ Choose **Add person** or **Add pet** on the People & pets page. People can be pa
 
 These profiles tag memories; they do not create login accounts or change account permissions.
 
-Birthdays are optional for both people and pets. Adding one enables ages based on capture dates, age-stage browsing, and birthday navigation. Profiles without a birthday omit ages and disable age filtering.
+Profiles have an **Enable growth timeline** setting. Children and pets default to on; parents, grandparents, and other people default to off. Choosing the child relationship for a new person enables it by default, but subsequent relationship changes preserve a manual choice.
+
+When off, the profile links to **View related memories**. Photos, videos, journals, and any/all profile filtering remain available, while age labels, age stages, birth-day shortcuts, and growth milestones are omitted. Birthdays and existing links are preserved; enabling growth again recalculates ages.
+
+Birthdays remain optional. Age browsing and birthday navigation require both an enabled growth timeline and a birthday.
 
 ## Pet categories
 
@@ -28,6 +32,8 @@ Profile lists and file selectors can narrow candidates to people, pets, or an ex
 Alembic `0010` adds `relationship` to the existing `child` table. Existing child IDs, avatars, and links remain intact and receive the child relationship. New people use `profile_type=person`; pets remain `pet`, with categories stored in `species`. For compatibility, `/api/children`, `child_ids`, and existing relationship tables now refer to all people and pets. New person birthdays are optional; older clients omitting the type still use the original child validation rules.
 
 `/api/stats` reports `people` and `pets`, while retaining `children` for compatibility. Backups preserve relationships, categories, and associations; older manifests without relationships remain supported.
+
+Alembic `0011` adds `growth_enabled`. Existing children and pets retain growth; other people default to off. Backups preserve explicit choices, while older manifests use these defaults.
 
 Run migrations for each environment you intend to upgrade before starting the backend:
 

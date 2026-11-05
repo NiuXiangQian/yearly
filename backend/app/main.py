@@ -306,7 +306,12 @@ def children(db=Depends(get_db), user=Depends(current_user)):
 def create_child(data: ChildIn, db=Depends(get_db), user=Depends(editor)):
     if data.avatar_media_id:
         require_avatar_image(db, data.avatar_media_id)
-    child = Child(**data.model_dump())
+    values = data.model_dump()
+    if "growth_enabled" not in data.model_fields_set:
+        values["growth_enabled"] = (
+            data.profile_type in {"child", "pet"} or data.relationship == "孩子"
+        )
+    child = Child(**values)
     db.add(child)
     db.commit()
     return child_data(child)
@@ -322,7 +327,8 @@ def update_child(cid: int, data: ChildIn, db=Depends(get_db), user=Depends(edito
     for key, value in data.model_dump().items():
         # Older clients omit these fields; preserve the existing profile type and details.
         if (
-            key in {"profile_type", "relationship", "species", "breed"}
+            key
+            in {"profile_type", "relationship", "species", "breed", "growth_enabled"}
             and key not in data.model_fields_set
         ):
             continue
@@ -346,7 +352,7 @@ def delete_child(cid: int, confirm_name: str, db=Depends(get_db), user=Depends(a
 @app.get("/api/children/{cid}/milestones")
 def child_milestones(cid: int, db=Depends(get_db), user=Depends(current_user)):
     child = require_row(db, Child, cid)
-    return milestones(child.birthday, date.today())
+    return milestones(child.birthday, date.today()) if child.growth_enabled else []
 
 
 def require_active_media(db, mid):

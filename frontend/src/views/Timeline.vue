@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hasGrowthTimeline } from "../lib/profiles";
 import { t, ageLabel } from "../lib/i18n";
 import ShareDialog from "../components/ShareDialog.vue";
 import TimelineMonths from "../components/TimelineMonths.vue";
@@ -231,8 +232,11 @@ const activeChild = computed(() =>
     ? yearly.children.find((c) => c.id === yearly.selected[0])
     : null,
 );
+const growthChild = computed(() =>
+  hasGrowthTimeline(activeChild.value) ? activeChild.value : null,
+);
 watch(
-  activeChild,
+  growthChild,
   (profile) => {
     if (!profile?.birthday && view.value === "age") view.value = "calendar";
   },
@@ -263,7 +267,7 @@ function calendarMonth(birth: string, months: number) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}T00:00:00`;
 }
 function range() {
-  if (view.value === "age" && activeChild.value?.birthday && stage.value >= 0) {
+  if (view.value === "age" && growthChild.value?.birthday && stage.value >= 0) {
     const s = stages.value[stage.value];
     return {
       start: calendarMonth(activeChild.value.birthday, s.start),
@@ -363,9 +367,11 @@ watch(q, () => {
   searchTimer = setTimeout(() => load(), 350);
 });
 async function loadMarkers() {
-  if (activeChild.value?.birthday) {
+  if (growthChild.value?.birthday) {
     try {
-      markers.value = await api(`/children/${activeChild.value.id}/milestones`);
+      const id = growthChild.value.id;
+      const result = await api(`/children/${id}/milestones`);
+      if (growthChild.value?.id === id) markers.value = result;
     } catch (e) {
       notify(e);
     }
@@ -717,9 +723,14 @@ function saveStages() {
             trash
               ? t("留一点反悔的余地")
               : activeChild
-                ? t("{p0}的成长时光", {
-                    p0: activeChild.nickname || activeChild.name,
-                  })
+                ? t(
+                    hasGrowthTimeline(activeChild)
+                      ? "{p0}的成长时光"
+                      : "与{p0}有关的回忆",
+                    {
+                      p0: activeChild.nickname || activeChild.name,
+                    },
+                  )
                 : t("把日子，慢慢收藏。")
           }}<span class="heading-leaf"><Leaf :size="24" /></span>
         </h1>
@@ -727,7 +738,9 @@ function saveStages() {
           {{
             trash
               ? t("这里的回忆可以恢复，原文件会继续安全保存。")
-              : t("每一个平凡的瞬间，都是长大后最珍贵的礼物。")
+              : activeChild && !growthChild
+                ? t("按人物标记查看共同回忆，保留每一份陪伴。")
+                : t("每一个平凡的瞬间，都是长大后最珍贵的礼物。")
           }}
         </p>
       </div>
@@ -799,8 +812,9 @@ function saveStages() {
           >
             <CalendarDays :size="15" /> {{ t("按日历") }}</button
           ><button
+            v-if="!activeChild || growthChild"
             :class="{ active: view === 'age' }"
-            :disabled="!activeChild?.birthday"
+            :disabled="!growthChild?.birthday"
             :title="t('选择一个已填写生日的档案后浏览年龄阶段')"
             @click="view = 'age'"
           >
@@ -895,7 +909,7 @@ function saveStages() {
             {{ t("本月") }}
           </button>
           <button
-            v-if="activeChild?.birthday"
+            v-if="growthChild?.birthday"
             class="chip"
             @click="birthdayDate"
           >
@@ -926,7 +940,7 @@ function saveStages() {
         </button>
       </div>
     </div>
-    <div v-if="activeChild && markers.length && !trash" class="milestone-bar">
+    <div v-if="growthChild && markers.length && !trash" class="milestone-bar">
       <span> {{ t("成长足迹") }} </span
       ><button v-for="m in markers" :key="m.title" @click="jump(m)">
         {{ ageLabel(m.title) }}<small>{{ localDate(m.date) }}</small></button

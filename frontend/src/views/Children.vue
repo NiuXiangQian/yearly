@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { t } from "../lib/i18n";
 import {
+  hasGrowthTimeline,
   personRelationships,
   petSpecies,
   profileCategories,
@@ -32,6 +33,18 @@ const yearly = useYearly(),
   deleteOpen = ref(false),
   busy = ref(false),
   avatarOptions = ref<any[]>([]);
+const growthTouched = ref(false);
+watch(
+  () => form.value.relationship,
+  (relationship) => {
+    if (
+      !editing.value &&
+      !growthTouched.value &&
+      form.value.profile_type === "person"
+    )
+      form.value.growth_enabled = relationship === "孩子";
+  },
+);
 const category = ref(""),
   search = ref("");
 const categories = computed(() => profileCategories(yearly.children));
@@ -110,11 +123,13 @@ async function chooseAvatar(event: Event) {
 function edit(c?: any, profileType = "person") {
   clearAvatarDraft();
   editing.value = c?.id || null;
+  growthTouched.value = false;
   form.value = c
     ? {
         species: "",
         breed: "",
         ...c,
+        growth_enabled: hasGrowthTimeline(c),
         profile_type: c.profile_type === "pet" ? "pet" : "person",
         relationship:
           c.relationship ||
@@ -122,6 +137,7 @@ function edit(c?: any, profileType = "person") {
       }
     : {
         profile_type: profileType,
+        growth_enabled: profileType === "pet",
         relationship: "",
         species: "",
         breed: "",
@@ -289,7 +305,8 @@ function browse(id: number) {
       </p>
       <div class="child-card-actions">
         <button class="text-button" @click="browse(c.id)">
-          {{ t("翻开成长时间线") }} <ArrowUpRight :size="16" /></button
+          {{ t(hasGrowthTimeline(c) ? "翻开成长时间线" : "查看相关影像") }}
+          <ArrowUpRight :size="16" /></button
         ><button
           v-if="yearly.canEdit"
           class="icon-button"
@@ -433,6 +450,20 @@ function browse(id: number) {
             :placeholder="t('例如：英短、金毛')"
         /></label>
       </div>
+      <label class="checkbox-label">
+        <input
+          v-model="form.growth_enabled"
+          type="checkbox"
+          @change="growthTouched = true"
+        />{{ t("开启成长时间线") }}
+      </label>
+      <p class="muted">
+        {{
+          t(
+            "孩子、宠物通常开启；家长等人物可关闭。关闭后仍能标记和筛选影像，不显示年龄与成长节点。",
+          )
+        }}
+      </p>
       <div class="form-row">
         <label>
           {{ t("出生日期（可选）") }}
@@ -503,10 +534,10 @@ function browse(id: number) {
           </select></label
         >
       </div>
-      <p v-if="!form.birthday" class="muted">
+      <p v-if="form.growth_enabled && !form.birthday" class="muted">
         {{ t("不知道生日也可以记录；补充生日后即可按年龄浏览。") }}
       </p>
-      <p class="muted">
+      <p v-if="form.growth_enabled" class="muted">
         {{ t("修改生日后，历史影像上的年龄会自动重新计算。") }}
       </p>
       <div class="dialog-actions">

@@ -64,7 +64,7 @@ def media_data(media, child_ids=None, detail=False):
         {
             **child_data(c),
             "age": age_at(
-                c.birthday,
+                c.birthday if c.growth_enabled else None,
                 media.taken_at_local.date() if media.taken_at_local else None,
             ),
         }
@@ -100,10 +100,12 @@ def event_data(event, child_ids=None):
         {
             **child_data(c),
             "age_start": age_at(
-                c.birthday, event.start_at.date() if event.start_at else None
+                c.birthday if c.growth_enabled else None,
+                event.start_at.date() if event.start_at else None,
             ),
             "age_end": age_at(
-                c.birthday, event.end_at.date() if event.end_at else None
+                c.birthday if c.growth_enabled else None,
+                event.end_at.date() if event.end_at else None,
             ),
         }
         for c in event.children
