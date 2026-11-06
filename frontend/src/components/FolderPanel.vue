@@ -14,6 +14,7 @@ import {
   RotateCcw,
 } from "lucide-vue-next";
 import { api, post, put, del, notify } from "../lib/api";
+import { getDragPosition, reorderItems } from "../lib/reorder";
 import { useYearly } from "../stores/yearly";
 import MediaCard from "./MediaCard.vue";
 import MediaDetail from "./MediaDetail.vue";
@@ -39,15 +40,57 @@ const folder = ref<any>(),
   renaming = ref(false),
   name = ref(""),
   shareAllowed = ref(true);
+let orderBeforeDrag: any[] | null = null;
+const dropTarget = ref<{
+  id: number;
+  placement: "before" | "after";
+} | null>(null);
 const draggedMediaIds = computed(() =>
   dragged.value === null
     ? []
     : selected.value.includes(dragged.value)
-      ? items.value
+      ? (orderBeforeDrag || items.value)
           .filter((m) => selected.value.includes(m.id))
           .map((m) => m.id)
       : [dragged.value],
 );
+function startDrag(event: DragEvent, media: any) {
+  orderBeforeDrag = items.value;
+  dragged.value = media.id;
+  if (event.dataTransfer) {
+    event.dataTransfer.setData("text/plain", String(media.id));
+    event.dataTransfer.effectAllowed = "move";
+  }
+}
+function dragOver(event: DragEvent, media: any) {
+  if (busy.value || !dragged.value) return;
+  event.preventDefault();
+  movingOut.value = false;
+  if (draggedMediaIds.value.includes(media.id)) return;
+  const position = getDragPosition(event);
+  if (position === null) return;
+  const placement = position < 0.5 ? "before" : "after";
+  if (
+    dropTarget.value?.id === media.id &&
+    dropTarget.value?.placement === placement
+  )
+    return;
+  dropTarget.value = { id: media.id, placement };
+  const original = orderBeforeDrag!;
+  items.value = reorderItems(
+    original,
+    original.filter((item) => draggedMediaIds.value.includes(item.id)),
+    media,
+    placement,
+  );
+}
+function endDrag() {
+  if (orderBeforeDrag) items.value = orderBeforeDrag;
+  orderBeforeDrag = null;
+  dragged.value = null;
+  dropTarget.value = null;
+  movingOut.value = false;
+}
 async function resetOrder() {
   busy.value = true;
   try {
@@ -66,13 +109,16 @@ async function resetOrder() {
 async function dropOutside() {
   if (busy.value || !draggedMediaIds.value.length) return;
   const ids = [...draggedMediaIds.value];
-  dragged.value = null;
-  movingOut.value = false;
+  const previous = orderBeforeDrag || items.value;
+  items.value = previous.filter((item) => !ids.includes(item.id));
+  orderBeforeDrag = null;
+  endDrag();
   busy.value = true;
   try {
     await post("/folders/move-media", { media_ids: ids, folder_id: null });
     await changed();
   } catch (e) {
+    items.value = previous;
     notify(e);
   } finally {
     busy.value = false;
@@ -161,11 +207,20 @@ async function remove() {
 async function order(
   id: number,
   target: number,
-  placement = "before",
+  placement: "before" | "after" = "before",
   batch = false,
 ) {
   const ids = batch ? [...draggedMediaIds.value] : [id];
   if (busy.value || ids.includes(target)) return;
+  const previous = orderBeforeDrag || items.value;
+  items.value = reorderItems(
+    previous,
+    previous.filter((item) => ids.includes(item.id)),
+    previous.find((item) => item.id === target),
+    placement,
+  );
+  orderBeforeDrag = null;
+  endDrag();
   busy.value = true;
   try {
     await post("/media/reorder", {
@@ -176,10 +231,10 @@ async function order(
     await load();
     emit("changed");
   } catch (e) {
+    items.value = previous;
     notify(e);
   } finally {
     busy.value = false;
-    dragged.value = null;
   }
 }
 async function changed() {
@@ -302,35 +357,33 @@ async function changed() {
       {{ error }}
       <button class="text-button" @click="load()">{{ t("重试") }}</button>
     </p>
-    <div class="folder-media-grid">
+    <TransitionGroup
+      tag="div"
+      name="order-shift"
+      class="folder-media-grid"
+      :class="{ 'order-preview': dragged && dropTarget && !movingOut }"
+    >
       <div
         v-for="(media, index) in items"
         :key="media.id"
+        class="folder-media-entry"
+        :class="{
+          'is-order-dragging': draggedMediaIds.includes(media.id),
+          'drop-before':
+            dropTarget?.id === media.id && dropTarget?.placement === 'before',
+          'drop-after':
+            dropTarget?.id === media.id && dropTarget?.placement === 'after',
+        }"
         :draggable="yearly.canEdit && !busy"
-        @dragstart="
-          dragged = media.id;
-          $event.dataTransfer?.setData('text/plain', String(media.id));
-        "
-        @dragover="
-          dragged &&
-          !draggedMediaIds.includes(media.id) &&
-          $event.preventDefault()
-        "
+        @dragstart="startDrag($event, media)"
+        @dragenter="dragOver($event, media)"
+        @dragover="dragOver($event, media)"
         @drop.prevent="
           dragged &&
-          order(
-            dragged,
-            media.id,
-            items.findIndex((m) => m.id === dragged) < index
-              ? 'after'
-              : 'before',
-            true,
-          )
+          dropTarget &&
+          order(dragged, dropTarget.id, dropTarget.placement, true)
         "
-        @dragend="
-          dragged = null;
-          movingOut = false;
-        "
+        @dragend="endDrag"
       >
         <div v-if="sorting" class="folder-item-order">
           <button
@@ -359,7 +412,7 @@ async function changed() {
           @open="!sorting && (detail = media.id)"
         />
       </div>
-    </div>
+    </TransitionGroup>
     <p v-if="!items.length && !loading && !error" class="folder-empty">
       {{
         t("这里还没有符合条件的影像。可以追加上传，或从当天时间线批量移入。")
@@ -458,8 +511,39 @@ async function changed() {
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 10px;
 }
-.folder-media-grid :deep(.media-card) {
-  transition: none;
+.order-shift-move {
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.folder-media-entry {
+  border-radius: 9px;
+}
+.folder-media-entry > * {
+  transition:
+    translate 180ms ease-out,
+    scale 180ms ease-out,
+    opacity 180ms ease-out;
+}
+.order-preview
+  .folder-media-entry:not(.is-order-dragging):has(~ .is-order-dragging)
+  > * {
+  translate: -10px 0;
+}
+.order-preview .is-order-dragging ~ .folder-media-entry:not(.is-order-dragging) > * {
+  translate: 10px 0;
+}
+.is-order-dragging {
+  outline: 2px dashed var(--sage);
+  outline-offset: 3px;
+}
+.is-order-dragging > * {
+  opacity: 0.4;
+  scale: 0.94;
+}
+.drop-before {
+  box-shadow: -3px 0 var(--sage);
+}
+.drop-after {
+  box-shadow: 3px 0 var(--sage);
 }
 .folder-item-order {
   display: flex;

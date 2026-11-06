@@ -947,7 +947,7 @@ onBeforeUnmount(() => {
 .date-review-groups summary span,
 .date-review-file small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .date-review-file {
   display: flex;
@@ -979,7 +979,7 @@ onBeforeUnmount(() => {
   margin-bottom: 18px;
 }
 .batch-settings small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   font-weight: 400;
 }
@@ -1014,7 +1014,7 @@ onBeforeUnmount(() => {
 }
 .upload-tip {
   margin: 14px 0 24px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .upload-tip summary {
@@ -1044,7 +1044,7 @@ onBeforeUnmount(() => {
 }
 .queue-heading span,
 .queue-tools {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .queue-tools {
@@ -1118,14 +1118,14 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .file-summary h3 {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: var(--weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .file-summary p {
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 5px;
   color: var(--muted);
 }
@@ -1135,7 +1135,7 @@ onBeforeUnmount(() => {
 }
 .file-state {
   width: 72px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .file-state .success-text {
@@ -1220,17 +1220,21 @@ onBeforeUnmount(() => {
   }
   .file-state {
     width: 48px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .file-actions > .icon-button {
     display: none;
   }
   .file-actions .button {
     padding: 7px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .file-actions .button svg {
     display: none;
+  }
+  .file-order .icon-button {
+    width: 44px;
+    height: 44px;
   }
 }
 </style>

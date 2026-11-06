@@ -30,6 +30,7 @@ import {
   Folder,
 } from "lucide-vue-next";
 import { api, post, put, notify, localDate } from "../lib/api";
+import { getDragPosition, reorderItems } from "../lib/reorder";
 import { useYearly } from "../stores/yearly";
 import ChildPicker from "../components/ChildPicker.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -482,6 +483,47 @@ function startSort(date: string) {
   sortDate.value = sortDate.value === date ? "" : date;
   dragEnabled.value = false;
 }
+let orderBeforeDrag: any[] | null = null;
+function previewOrder(
+  moving: { id: number; kind: "media" | "folder" }[],
+  target: { id: number; kind: "media" | "folder" },
+  placement: "before" | "after",
+) {
+  const original = orderBeforeDrag || items.value;
+  const entries = original.filter((item) =>
+    moving.some((m) => m.id === item.id && m.kind === item.kind),
+  );
+  // Folder thumbnails are also draggable. Keep their source mounted until drop.
+  if (dragFromFolder.value) {
+    const folder = original.find(
+      (item) => item.kind === "folder" && item.id === dragFromFolder.value,
+    );
+    entries.push(
+      ...(folder?.previews || [])
+        .filter((item: any) => moving.some((m) => m.id === item.id))
+        .map((item: any) => ({
+          ...item,
+          kind: "media",
+          folder_id: null,
+          timeline_day: dragDay.value,
+        })),
+    );
+  }
+  const destination = original.find(
+    (item) => item.id === target.id && item.kind === target.kind,
+  );
+  items.value = reorderItems(original, entries, destination, placement);
+}
+function endOrderDrag() {
+  if (orderBeforeDrag) items.value = orderBeforeDrag;
+  orderBeforeDrag = null;
+  folderDrag.value = null;
+  dragFromFolder.value = null;
+  dragDay.value = "";
+  dropFolder.value = null;
+  draggedIds.value = [];
+  dropTarget.value = null;
+}
 function startOrderDrag(event: DragEvent, media: any, group: any) {
   if (
     !yearly.canEdit ||
@@ -494,6 +536,7 @@ function startOrderDrag(event: DragEvent, media: any, group: any) {
     event.preventDefault();
     return;
   }
+  orderBeforeDrag = items.value;
   dragFromFolder.value = media.folder_id || null;
   dragDay.value = group.date;
   folderDrag.value = media.kind === "folder" ? media.id : null;
@@ -511,41 +554,62 @@ function startOrderDrag(event: DragEvent, media: any, group: any) {
   }
 }
 function dragOver(event: DragEvent, media: any, group: any) {
-  dropFolder.value = null;
-  dropTarget.value = null;
   if (
     orderSaving.value ||
     dragDay.value !== group.date ||
     media.kind === "event"
-  )
+  ) {
+    dropFolder.value = null;
+    dropTarget.value = null;
     return;
+  }
   if (!folderDrag.value && !draggedIds.value.length) return;
   if (
     (media.kind === "folder" && media.id === folderDrag.value) ||
     (media.kind === "media" && draggedIds.value.includes(media.id))
-  )
+  ) {
+    // The preview can move the dragged card under the pointer.
+    event.preventDefault();
     return;
-  const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  const position = bounds.width
-    ? (event.clientX - bounds.left) / bounds.width
-    : 0.5;
+  }
+  event.preventDefault();
+  const position = getDragPosition(event);
+  if (position === null) return;
   if (
     media.kind === "folder" &&
     draggedIds.value.length &&
     position > 0.25 &&
     position < 0.75
   ) {
-    if (media.id === dragFromFolder.value) return;
-    event.preventDefault();
+    if (media.id === dragFromFolder.value) {
+      dropTarget.value = null;
+      dropFolder.value = null;
+      return;
+    }
+    dropTarget.value = null;
     dropFolder.value = media.id;
     return;
   }
-  event.preventDefault();
+  dropFolder.value = null;
+  const placement = position < 0.5 ? "before" : "after";
+  if (
+    dropTarget.value?.id === media.id &&
+    dropTarget.value?.kind === media.kind &&
+    dropTarget.value?.placement === placement
+  )
+    return;
   dropTarget.value = {
     id: media.id,
     kind: media.kind,
-    placement: position < 0.5 ? "before" : "after",
+    placement,
   };
+  previewOrder(
+    folderDrag.value
+      ? [{ id: folderDrag.value, kind: "folder" }]
+      : draggedIds.value.map((id) => ({ id, kind: "media" })),
+    media,
+    dropTarget.value.placement,
+  );
 }
 async function restoreDayOrder(date: string) {
   orderSaving.value = true;
@@ -565,6 +629,10 @@ async function saveOrder(
   moveOut = false,
 ) {
   if (orderSaving.value) return;
+  const previous = orderBeforeDrag || items.value;
+  previewOrder(moving, target, placement);
+  orderBeforeDrag = null;
+  endOrderDrag();
   orderSaving.value = true;
   try {
     if (moveOut)
@@ -575,7 +643,9 @@ async function saveOrder(
     await post("/timeline/reorder", { items: moving, target, placement });
     await load(true, true);
   } catch (e) {
+    items.value = previous;
     notify(e);
+    if (moveOut) await load(true, true);
   } finally {
     orderSaving.value = false;
   }
@@ -588,8 +658,12 @@ async function dropOrder(media: any, group: any) {
     dropFolder.value === media.id
   ) {
     const ids = [...draggedIds.value];
-    dropFolder.value = null;
-    draggedIds.value = [];
+    const previous = orderBeforeDrag || items.value;
+    items.value = previous.filter(
+      (item) => item.kind !== "media" || !ids.includes(item.id),
+    );
+    orderBeforeDrag = null;
+    endOrderDrag();
     orderSaving.value = true;
     try {
       await post("/folders/move-media", {
@@ -599,34 +673,28 @@ async function dropOrder(media: any, group: any) {
       selected.value = selected.value.filter((id) => !ids.includes(id));
       await load(true, true);
     } catch (e) {
+      items.value = previous;
       notify(e);
     } finally {
       orderSaving.value = false;
     }
     return;
   }
-  if (
-    !dropTarget.value ||
-    dropTarget.value.id !== media.id ||
-    dropTarget.value.kind !== media.kind
-  )
-    return;
+  if (!dropTarget.value) return;
   const { id, kind, placement } = dropTarget.value;
   const moving: { id: number; kind: "media" | "folder" }[] = folderDrag.value
     ? [{ id: folderDrag.value, kind: "folder" }]
     : draggedIds.value.map((id) => ({ id, kind: "media" }));
   const moveOut = !!dragFromFolder.value;
-  dropTarget.value = null;
-  folderDrag.value = null;
-  draggedIds.value = [];
   await saveOrder(moving, { id, kind }, placement, moveOut);
 }
 async function dropToDay(date: string) {
   if (!dragFromFolder.value || dragDay.value !== date || orderSaving.value)
     return;
   const ids = [...draggedIds.value];
-  draggedIds.value = [];
-  dragFromFolder.value = null;
+  if (orderBeforeDrag) items.value = orderBeforeDrag;
+  orderBeforeDrag = null;
+  endOrderDrag();
   orderSaving.value = true;
   try {
     await post("/folders/move-media", { media_ids: ids, folder_id: null });
@@ -1134,7 +1202,12 @@ function saveStages() {
           >
             {{ t("松开移回当天时间线") }}
           </div>
-          <div class="media-grid">
+          <TransitionGroup
+            tag="div"
+            name="order-shift"
+            class="media-grid"
+            :class="{ 'order-preview': dragDay === group.date && dropTarget }"
+          >
             <div
               v-for="m in mobile &&
               !expandedDays[group.date] &&
@@ -1145,6 +1218,10 @@ function saveStages() {
               :key="m.kind + '-' + m.id"
               class="timeline-entry"
               :class="{
+                'is-order-dragging':
+                  m.kind === 'folder'
+                    ? folderDrag === m.id
+                    : m.kind === 'media' && draggedIds.includes(m.id),
                 'sortable-entry':
                   yearly.canEdit &&
                   !trash &&
@@ -1170,26 +1247,21 @@ function saveStages() {
                 !orderSaving
               "
               @dragstart="startOrderDrag($event, m, group)"
+              @dragenter="dragOver($event, m, group)"
               @dragover="dragOver($event, m, group)"
               @dragleave="
                 if (
+                  m.kind === 'folder' &&
+                  dropFolder === m.id &&
                   !($event.currentTarget as HTMLElement).contains(
                     $event.relatedTarget as Node,
                   )
                 ) {
                   dropFolder = null;
-                  dropTarget = null;
                 }
               "
               @drop.prevent="dropOrder(m, group)"
-              @dragend="
-                folderDrag = null;
-                dragFromFolder = null;
-                dragDay = '';
-                dropFolder = null;
-                draggedIds = [];
-                dropTarget = null;
-              "
+              @dragend="endOrderDrag"
             >
               <div
                 v-if="sortDate === group.date && m.kind !== 'event'"
@@ -1316,7 +1388,7 @@ function saveStages() {
                 <RotateCcw :size="14" /> {{ t("恢复这份回忆") }}
               </button>
             </div>
-          </div>
+          </TransitionGroup>
           <button
             v-if="
               mobile &&
@@ -1706,8 +1778,22 @@ function saveStages() {
   cursor: grab;
   border-radius: 9px;
 }
-.sortable-entry :deep(.media-card) {
-  transition: none;
+.order-shift-move {
+  transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.timeline-entry > * {
+  transition:
+    translate 180ms ease-out,
+    scale 180ms ease-out,
+    opacity 180ms ease-out;
+}
+.order-preview
+  .timeline-entry:not(.is-order-dragging):has(~ .is-order-dragging)
+  > * {
+  translate: -10px 0;
+}
+.order-preview .is-order-dragging ~ .timeline-entry:not(.is-order-dragging) > * {
+  translate: 10px 0;
 }
 .sort-entry-tools {
   display: flex;
@@ -1726,6 +1812,14 @@ function saveStages() {
 .drop-before {
   box-shadow: -4px 0 0 var(--sage);
 }
+.is-order-dragging {
+  outline: 2px dashed var(--sage);
+  outline-offset: 3px;
+}
+.is-order-dragging > * {
+  opacity: 0.4;
+  scale: 0.94;
+}
 .drop-after {
   box-shadow: 4px 0 0 var(--sage);
 }
@@ -1736,7 +1830,7 @@ function saveStages() {
   }
   .timeline-heading-actions .button {
     padding: 9px 12px;
-    font-size: 11px;
+    font-size: 13px;
   }
   .media-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

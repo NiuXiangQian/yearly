@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
 import Timeline from "../../views/Timeline.vue";
-import { api, post } from "../api";
+import { api, post, notify } from "../api";
+import * as reorder from "../reorder";
 const family = vi.hoisted(() => ({
   canEdit: true,
   selected: [],
@@ -47,11 +48,12 @@ vi.mock("element-plus/es/components/base/style/css", () => ({}));
 vi.mock("element-plus/es/components/dialog/style/css", () => ({}));
 vi.mock("element-plus/es/components/popconfirm/style/css", () => ({}));
 let app: ReturnType<typeof createApp>, host: HTMLElement;
-function drag(el: Element, type: string, x = 50) {
+function drag(el: Element, type: string, x = 50, y = 50) {
   const e = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperties(e, {
     dataTransfer: { value: { setData: vi.fn(), effectAllowed: "" } },
     clientX: { value: x },
+    clientY: { value: y },
   });
   el.dispatchEvent(e);
   return e;
@@ -109,6 +111,7 @@ afterEach(() => {
   app?.unmount();
   document.body.innerHTML = "";
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 it("drags a selected same-day batch into a highlighted folder without entering sort mode", async () => {
@@ -231,6 +234,8 @@ it("inserts a folder between media with a visible placement indicator", async ()
   drag(target, "dragover");
   await nextTick();
   expect(target.classList.contains("drop-after")).toBe(true);
+  expect([...host.querySelectorAll(".timeline-entry")].indexOf(source)).toBe(1);
+  expect(post).not.toHaveBeenCalled();
   drag(target, "drop");
   drag(source, "dragend");
   await vi.waitFor(() =>
@@ -244,6 +249,97 @@ it("inserts a folder between media with a visible placement indicator", async ()
     "/folders/move-media",
     expect.anything(),
   );
+});
+it("uses the final grid position during animation and ignores repeated hover updates", async () => {
+  await mount();
+  const reorderSpy = vi.spyOn(reorder, "reorderItems");
+  const source = host.querySelector('.day-folder-card')!.parentElement!;
+  const target = host.querySelector('[data-media-id="10"]')!.parentElement!;
+  target.style.transform = "matrix(1, 0, 0, 1, -50, 0)";
+  const bounds = vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
+    left: 0, top: 0, width: 100, height: 100,
+  } as DOMRect);
+  drag(source, "dragstart");
+  // The card animates across the pointer, but its final slot starts at x = 50.
+  drag(target, "dragenter", 25);
+  await nextTick();
+  expect(reorderSpy).not.toHaveBeenCalled();
+  drag(target, "dragover", 75);
+  await nextTick();
+  expect(target.classList.contains("drop-before")).toBe(true);
+  expect(reorderSpy).toHaveBeenCalledTimes(1);
+  target.style.transform = "matrix(1, 0, 0, 1, -20, 0)";
+  bounds.mockReturnValue({left: 30, top: 0, width: 100, height: 100} as DOMRect);
+  drag(target, "dragover", 75);
+  drag(target, "dragenter", 75);
+  await nextTick();
+  expect(reorderSpy).toHaveBeenCalledTimes(1);
+  expect(target.classList.contains("drop-before")).toBe(true);
+  expect(post).not.toHaveBeenCalled();
+  drag(source, "dragend");
+});
+
+it("keeps the preview on drop while saving, then restores it if saving fails", async () => {
+  let rejectSave!: (error: Error) => void;
+  vi.mocked(post).mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        rejectSave = reject;
+      }),
+  );
+  await mount();
+  const source = host.querySelector('[data-media-id="10"]')!.parentElement!;
+  const target = host.querySelector('[data-media-id="11"]')!.parentElement!;
+  const original = [...host.querySelectorAll(".timeline-entry")];
+  drag(source, "dragstart");
+  drag(target, "dragover");
+  await nextTick();
+  expect([...host.querySelectorAll(".timeline-entry")]).toEqual([
+    original[0],
+    target,
+    source,
+    original[3],
+  ]);
+  expect(post).not.toHaveBeenCalled();
+  // The reordered source now occupies the pointer's position.
+  expect(drag(source, "dragenter").defaultPrevented).toBe(true);
+  drag(source, "drop");
+  drag(source, "dragend");
+  await nextTick();
+  expect(post).toHaveBeenCalledTimes(1);
+  expect([...host.querySelectorAll(".timeline-entry")][2]).toBe(source);
+  rejectSave(new Error("保存失败"));
+  await vi.waitFor(() => {
+    expect([...host.querySelectorAll(".timeline-entry")]).toEqual(original);
+    expect(notify).toHaveBeenCalled();
+  });
+});
+it("restores a cancelled drag without saving and previews selected media in order", async () => {
+  await mount();
+  button("多选").click();
+  await nextTick();
+  (host.querySelector('[data-media-id="10"]') as HTMLElement).click();
+  (host.querySelector('[data-media-id="11"]') as HTMLElement).click();
+  await nextTick();
+  const original = [...host.querySelectorAll(".timeline-entry")];
+  const [folder, source, second] = original;
+  vi.spyOn(folder, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    width: 100,
+  } as DOMRect);
+  drag(source, "dragstart");
+  drag(folder, "dragover", 5);
+  await nextTick();
+  expect([...host.querySelectorAll(".timeline-entry")]).toEqual([
+    source,
+    second,
+    folder,
+    original[3],
+  ]);
+  drag(source, "dragend");
+  await nextTick();
+  expect([...host.querySelectorAll(".timeline-entry")]).toEqual(original);
+  expect(post).not.toHaveBeenCalled();
 });
 it("inserts a photo at a folder edge instead of moving it into the folder", async () => {
   await mount();

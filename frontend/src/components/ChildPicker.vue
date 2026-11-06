@@ -140,6 +140,7 @@ function selectCategory() {
 <style scoped>
 .profile-picker {
   min-width: 0;
+  width: 100%;
 }
 .profile-picker-tools {
   display: flex;
@@ -160,6 +161,7 @@ function selectCategory() {
 .profile-picker-tools input,
 .profile-picker-tools select {
   padding: 7px 10px;
-  font-size: 12px;
+  font-size: 14px;
+  min-height: 40px;
 }
 </style>
