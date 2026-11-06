@@ -4,6 +4,13 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
+## iOS file selection and upload compatibility fix (2026-11-06)
+
+- Upload and resume controls now receive touches through native file inputs, with photo/video MIME types alongside the existing extensions. Temporary queue IDs no longer depend on the secure-context-only `crypto.randomUUID()` API.
+- All 70 frontend tests, type checking, and the production build passed. New cases cover photo/video selection and upload without `randomUUID`, and resuming the task selected through its native input.
+- Chromium and WebKit touch emulation used synthetic JPEG/MOV files, fictional family APIs, and mocked OSS to verify native file selection, real metadata/hashing, queueing, and upload completion. WebKit also passed with `randomUUID` disabled. Chinese/English, light/dark themes, and 320/390/1440px layouts had no horizontal overflow; screenshots were saved.
+- This frontend-only change needs no migration. Backend and real OSS tests were not repeated, and production was not deployed. Desktop WebKit touch emulation does not replace iPhone photo library, Files app, or embedded-browser acceptance.
+
 ## Interface refinement verification (2026-11-05)
 
 Based on the [description and chapter notes of Ludi's video](https://www.douyin.com/video/7699196387954642214), this update uses subtle surface layers, lighter dark-theme weights, tabular numerals, and feedback matched to each action. yearly has no streaming chat; soft reveals apply to compressed previews and month expansion, while selection, keyboard focus, and drop indicators remain visible.

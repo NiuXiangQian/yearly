@@ -39,6 +39,7 @@ const yearly = useYearly(),
   metadataItem = ref<any>(null),
   resumeTarget = ref<any>(null),
   resumeInput = ref<HTMLInputElement>();
+let nextItemId = 0;
 const batchName = ref(""),
   targetFolder = ref<any>(null),
   archiveDate = ref(
@@ -109,7 +110,7 @@ function dropItem(target: any) {
   draggedId.value = "";
 }
 const accepted =
-  ".jpg,.jpeg,.png,.heic,.heif,.webp,.dng,.cr2,.cr3,.nef,.arw,.orf,.rw2,.raf,.mp4,.mov";
+  "image/*,video/*,.jpg,.jpeg,.png,.heic,.heif,.webp,.dng,.cr2,.cr3,.nef,.arw,.orf,.rw2,.raf,.mp4,.mov";
 onMounted(async () => {
   try {
     await yearly.load();
@@ -168,7 +169,7 @@ async function addFiles(files: FileList | File[] | null) {
       )
         continue;
       queue.value.push({
-        id: crypto.randomUUID(),
+        id: String(++nextItemId),
         selected: true,
         original: inspected,
         live: null,
@@ -222,7 +223,7 @@ function unpair(item: any) {
   const inspected = item.live;
   item.live = null;
   queue.value.push({
-    id: crypto.randomUUID(),
+    id: String(++nextItemId),
     selected: true,
     original: inspected,
     live: null,
@@ -499,21 +500,18 @@ onBeforeUnmount(() => {
           </h2>
           <p>{{ t("支持多选 · HEIC、JPG、RAW、MOV、MP4 与 Live Photo") }}</p>
         </div>
-        <button
-          class="button primary"
-          :disabled="parsing || busy"
-          @click="input?.click()"
-        >
+        <label class="button primary file-picker">
           <Plus :size="16" />{{ queue.length ? t("继续添加") : t("选择文件") }}
-        </button>
-        <input
-          ref="input"
-          type="file"
-          multiple
-          :accept="accepted"
-          hidden
-          @change="addFiles(($event.target as HTMLInputElement).files)"
-        />
+          <input
+            ref="input"
+            type="file"
+            multiple
+            :accept="accepted"
+            :aria-label="queue.length ? t('继续添加') : t('选择文件')"
+            :disabled="parsing || busy"
+            @change="addFiles(($event.target as HTMLInputElement).files)"
+          />
+        </label>
         <div v-if="parsing || parsingName" class="parse-progress">
           <span>{{ parsingName }} · {{ hashProgress }}%</span
           ><ElProgress :percentage="hashProgress" :show-text="false" />
@@ -728,22 +726,25 @@ onBeforeUnmount(() => {
             }}<small
               >{{ bytes(task.file_size) }} · {{ task.file_role }}</small
             ></span
-          ><button
-            class="button small"
-            :disabled="busy"
-            @click="
-              resumeTarget = task;
-              resumeInput?.click();
-            "
-          >
+          ><label class="button small file-picker">
             <RefreshCw :size="14" /> {{ t("选择原件继续") }}
-          </button>
+            <input
+              type="file"
+              :accept="accepted"
+              :aria-label="t('选择原件继续')"
+              :disabled="busy || parsing"
+              @change="
+                resumeTarget = task;
+                resumeInput = $event.target as HTMLInputElement;
+                resumeFile($event);
+              "
+            />
+          </label>
         </div>
         <p v-if="notifySuccess" class="success-text">
           {{ t("本次文件已恢复上传。") }}
         </p>
       </details>
-      <input ref="resumeInput" type="file" hidden @change="resumeFile" />
     </template>
     <ElDialog
       :model-value="!!dateReview"
@@ -1007,6 +1008,27 @@ onBeforeUnmount(() => {
 .compact-dropzone p {
   margin: 6px 0 0;
 }
+.file-picker {
+  position: relative;
+  overflow: hidden;
+  flex-direction: row;
+}
+.file-picker input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.file-picker:focus-within {
+  outline: 2px solid var(--sage);
+  outline-offset: 4px;
+}
+.file-picker:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .compact-dropzone .parse-progress {
   flex-basis: 100%;
   max-width: none;
@@ -1190,7 +1212,7 @@ onBeforeUnmount(() => {
     gap: 12px;
     padding: 20px 16px;
   }
-  .compact-dropzone > button {
+  .compact-dropzone > .file-picker {
     width: 100%;
     justify-content: center;
   }

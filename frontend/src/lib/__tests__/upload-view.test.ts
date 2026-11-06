@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
 import Upload from "../../views/Upload.vue";
-import { api, post } from "../api";
+import { api, post, notify } from "../api";
 import { directUpload } from "../upload";
 
 const routeInfo = vi.hoisted(() => ({
@@ -59,6 +59,7 @@ afterEach(() => {
   for (const key of Object.keys(metadataOverrides))
     delete metadataOverrides[key];
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
@@ -255,6 +256,58 @@ async function queueFiles(names: string[]) {
   );
   return host;
 }
+
+it("queues and uploads photos and videos when randomUUID is unavailable on HTTP", async () => {
+  vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
+  metadataOverrides["clip.MOV"] = { video: true };
+  const host = await queueFiles(["photo.HEIC", "clip.MOV"]);
+  const input = host.querySelector<HTMLInputElement>(
+    'input[type="file"][multiple]',
+  )!;
+  expect(input.hidden).toBe(false);
+  expect(input.accept).toContain("image/*");
+  expect(input.accept).toContain("video/*");
+  expect(input.disabled).toBe(false);
+  (host.querySelector(".queue-heading button") as HTMLButtonElement).click();
+  await chooseDate("保留在 2024-05-01");
+  await vi.waitFor(() =>
+    expect(host.querySelectorAll(".file-state .success-text")).toHaveLength(2),
+  );
+  expect(
+    vi.mocked(post).mock.calls
+      .filter(([path]) => path === "/uploads")
+      .map(([, body]) => body.media_type),
+  ).toEqual(["photo", "video"]);
+  expect(directUpload).toHaveBeenCalledTimes(2);
+  expect(notify).not.toHaveBeenCalled();
+});
+
+it("resumes the chosen task through its native file input", async () => {
+  const task = { id: 42, filename: "clip.MOV", file_size: 4, file_role: "original" };
+  vi.mocked(api).mockResolvedValue([task]);
+  const host = document.createElement("div");
+  document.body.append(host);
+  app = createApp(Upload);
+  app.component("RouterLink", { template: "<a><slot /></a>" });
+  app.mount(host);
+  await vi.waitFor(() => expect(host.querySelector(".resume-row")).not.toBeNull());
+  const input = host.querySelector<HTMLInputElement>(
+    '.resume-row input[type="file"]',
+  )!;
+  expect(input.hidden).toBe(false);
+  const file = new File(["clip"], "clip.MOV", { type: "video/quicktime" });
+  Object.defineProperty(input, "files", { value: [file] });
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await vi.waitFor(() =>
+    expect(directUpload).toHaveBeenCalledWith(
+      task,
+      expect.objectContaining({ file }),
+      expect.any(Function),
+    ),
+  );
+  await vi.waitFor(() => expect(host.textContent).toContain("本次文件已恢复上传"));
+  expect(input.value).toBe("");
+});
 
 it("waits for confirmation then distributes mixed dates while preserving unknown dates and default capture-time order", async () => {
   metadataOverrides["same.jpg"] = {
