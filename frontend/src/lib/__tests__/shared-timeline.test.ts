@@ -118,11 +118,7 @@ it("switches chronological direction and paginates using the corresponding day c
     next_before: null,
     next_after: "2024-01-02",
   });
-  const select = host.querySelector<HTMLSelectElement>(
-    'select[aria-label="时间顺序"]',
-  )!;
-  select.value = "asc";
-  select.dispatchEvent(new Event("change"));
+  button("最早在前").click();
   await vi.waitFor(() =>
     expect(host.querySelector(".shared-day h2")?.textContent).toBe(
       "2024.01.01",

@@ -319,9 +319,9 @@ function keydown(e: KeyboardEvent) {
 }
 .player-controls select {
   width: auto;
-  padding: 5px;
+  padding: 5px 30px 5px 8px;
   border: 0;
-  background: #24352d;
+  background-color: #24352d;
   border-radius: 7px;
   color: white;
   font-size: 12px;

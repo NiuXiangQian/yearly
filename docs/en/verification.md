@@ -4,6 +4,13 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
+## Consistent language, sort, and filter controls (2026-11-06)
+
+- Language uses a Chinese/EN toggle; family and shared timelines use Newest first/Oldest first buttons. These choices share site colors, corners, selected states, and touch targets. Type, category, and playback-speed selects use consistent arrows and spacing; date fields inherit the current theme's borders and text colors.
+- All 70 frontend tests, type checking, and the production build passed. Existing live-language, draft-preservation, preference-persistence, shared ordering, and pagination tests were updated for the controls.
+- WebKit checks with isolated fictional data covered language/order changes, reload persistence, keyboard Enter activation, and shared ordering. Chinese/English, light/dark themes, and 320/390/1440px layouts had no horizontal overflow; desktop and mobile screenshots were saved.
+- This frontend-only change needs no migration. Backend and real OSS upload checks were not repeated; touch emulation does not establish real-device acceptance.
+
 ## iOS file selection and upload compatibility fix (2026-11-06)
 
 - Upload and resume controls now receive touches through native file inputs, with photo/video MIME types alongside the existing extensions. Temporary queue IDs no longer depend on the secure-context-only `crypto.randomUUID()` API.

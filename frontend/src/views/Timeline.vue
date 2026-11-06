@@ -3,6 +3,7 @@ import { hasGrowthTimeline } from "../lib/profiles";
 import { t, ageLabel } from "../lib/i18n";
 import ShareDialog from "../components/ShareDialog.vue";
 import TimelineMonths from "../components/TimelineMonths.vue";
+import TimelineOrder from "../components/TimelineOrder.vue";
 import DateField from "../components/DateField.vue";
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -890,14 +891,7 @@ function saveStages() {
           </button>
         </div>
         <div class="filter-tools">
-          <select
-            v-model="timelineOrder"
-            class="compact-select"
-            :aria-label="t('时间顺序')"
-          >
-            <option value="desc">{{ t("倒序 · 最新在前") }}</option>
-            <option value="asc">{{ t("正序 · 最早在前") }}</option>
-          </select>
+          <TimelineOrder v-model="timelineOrder" />
           <div class="search-box">
             <Search :size="16" /><input
               v-model="q"

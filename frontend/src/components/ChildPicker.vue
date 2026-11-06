@@ -157,10 +157,13 @@ function selectCategory() {
 }
 .profile-picker-tools select {
   max-width: 200px;
+  padding-right: 36px;
 }
 .profile-picker-tools input,
 .profile-picker-tools select {
-  padding: 7px 10px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  padding-left: 10px;
   font-size: 14px;
   min-height: 40px;
 }

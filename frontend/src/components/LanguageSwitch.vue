@@ -1,17 +1,29 @@
 <script setup lang="ts">
-import { Languages } from "lucide-vue-next";
-import { locale, setLocale, t, type Locale } from "../lib/i18n";
+import { locale, setLocale, t } from "../lib/i18n";
 </script>
 <template>
-  <label class="language-switch">
-    <Languages :size="16" aria-hidden="true" />
-    <select
-      :value="locale"
-      :aria-label="t('界面语言')"
-      @change="setLocale(($event.target as HTMLSelectElement).value as Locale)"
+  <div
+    class="language-switch segmented-control"
+    role="group"
+    :aria-label="t('界面语言')"
+  >
+    <button
+      type="button"
+      lang="zh-CN"
+      aria-label="简体中文"
+      :aria-pressed="locale === 'zh-CN'"
+      @click="setLocale('zh-CN')"
     >
-      <option value="zh-CN">简体中文</option>
-      <option value="en">English</option>
-    </select>
-  </label>
+      中文
+    </button>
+    <button
+      type="button"
+      lang="en"
+      aria-label="English"
+      :aria-pressed="locale === 'en'"
+      @click="setLocale('en')"
+    >
+      EN
+    </button>
+  </div>
 </template>

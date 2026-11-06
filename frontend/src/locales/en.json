@@ -746,5 +746,7 @@
   "查看相关影像": "View related memories",
   "孩子、宠物通常开启；家长等人物可关闭。关闭后仍能标记和筛选影像，不显示年龄与成长节点。": "Usually enabled for children and pets. Parents and other people can turn it off and still tag and filter memories, without ages or growth milestones.",
   "与{p0}有关的回忆": "Memories with {p0}",
-  "按人物标记查看共同回忆，保留每一份陪伴。": "Browse shared memories by person and keep every moment together."
+  "按人物标记查看共同回忆，保留每一份陪伴。": "Browse shared memories by person and keep every moment together.",
+  "最新在前": "Newest first",
+  "最早在前": "Oldest first"
 }

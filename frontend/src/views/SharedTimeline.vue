@@ -13,6 +13,7 @@ import { api, notify } from "../lib/api";
 import { t, locale } from "../lib/i18n";
 import LanguageSwitch from "../components/LanguageSwitch.vue";
 import TimelineMonths from "../components/TimelineMonths.vue";
+import TimelineOrder from "../components/TimelineOrder.vue";
 import TimelineRail from "../components/TimelineRail.vue";
 import SharedThumbnail from "../components/SharedThumbnail.vue";
 import ImageViewer from "../components/ImageViewer.vue";
@@ -238,17 +239,10 @@ onBeforeUnmount(() => {
         >
       </section>
       <div class="shared-sort">
-        <label
-          >{{ t("时间顺序")
-          }}<select
-            v-model="timelineOrder"
-            :disabled="!!busyDay || folderBusy"
-            :aria-label="t('时间顺序')"
-          >
-            <option value="desc">{{ t("倒序 · 最新在前") }}</option>
-            <option value="asc">{{ t("正序 · 最早在前") }}</option>
-          </select></label
-        >
+        <TimelineOrder
+          v-model="timelineOrder"
+          :disabled="!!busyDay || folderBusy"
+        />
       </div>
       <div class="shared-reader" :class="{ 'has-rail': dateIndex.length }">
         <TimelineRail
@@ -445,17 +439,6 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 16px;
-}
-.shared-sort label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 12px;
-  margin: 0;
-}
-.shared-sort select {
-  width: auto;
 }
 .shared-page {
   max-width: 1040px;
