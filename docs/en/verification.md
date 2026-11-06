@@ -4,6 +4,13 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
+## OSS cross-origin upload failure verification (2026-11-06)
+
+- File selection and task creation succeeded, but direct uploads reported an OSS network error. Bucket CORS allowed only a development origin. Adding the exact site origin changed the same PUT/Content-Type preflight from 403 to 200; upload retry code was unchanged.
+- WebKit used the deployed metadata and upload functions from the actual site origin to upload a synthetic JPEG and an approximately 17 MiB synthetic MOV. All three real OSS multipart PUT requests returned 200 and progress reached 100%. Task/signing APIs used temporary acceptance adapters, with no family database writes or private media.
+- After real OSS completion, size and CRC64 matched; full downloads also matched SHA-256. Temporary objects were removed. The bucket remained private, and an unlisted origin's preflight still returned 403.
+- This was a cloud CORS configuration fix and documentation update, with no application-code change, migration, or service restart. Unrelated frontend/backend unit suites were not rerun. Desktop WebKit does not establish acceptance on an iPhone or mobile carrier network.
+
 ## Consistent language, sort, and filter controls (2026-11-06)
 
 - Language uses a Chinese/EN toggle; family and shared timelines use Newest first/Oldest first buttons. These choices share site colors, corners, selected states, and touch targets. Type, category, and playback-speed selects use consistent arrows and spacing; date fields inherit the current theme's borders and text colors.

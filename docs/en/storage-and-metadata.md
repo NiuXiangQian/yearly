@@ -35,6 +35,17 @@ Integrity errors return 409 and prevent publication. If an assembled object diff
 
 Do not disable SDK CRC checks or make a bucket public to solve CORS errors. Use OSS request IDs to debug CORS and signatures. Do not paste complete signed URLs into logs or public issues.
 
+When moving from local development to a server, add the browser's actual origin to the bucket CORS rules. Changing application `ALLOWED_ORIGIN` or Nginx CSP does not update OSS. With only the development origin allowed, file selection and task creation can succeed while direct uploads fail with an OSS network error. HTTP, HTTPS, and different ports are separate origins.
+
+Use this non-writing preflight check with your site, bucket, and region. A successful response must allow the requested Origin, PUT, and Content-Type. Follow it with a real browser upload of synthetic files and an integrity check.
+
+```bash
+curl -i -X OPTIONS 'https://your-private-bucket.oss-cn-hangzhou.aliyuncs.com/verification/cors-probe' \
+  -H 'Origin: https://yearly.example.com' \
+  -H 'Access-Control-Request-Method: PUT' \
+  -H 'Access-Control-Request-Headers: content-type'
+```
+
 ## Mainland China endpoints and custom domains
 
 New mainland China OSS accounts may be subject to default public-domain access, preview, or traffic-entry restrictions. Check the account console and current official OSS guidance; a bucket endpoint alone may not be sufficient.

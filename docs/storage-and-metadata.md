@@ -35,6 +35,17 @@ OSS 图片处理与截帧可能有处理费用，生成视频预览也有首次�
 
 不要关闭 SDK 的 CRC 检查，不要授予 Bucket 公共访问来解决跨域问题。调试 CORS、签名时查看 OSS request-id，请勿把完整带签名 URL 粘贴到日志或公开问题单。
 
+从本地环境发布到服务器后，必须在 Bucket CORS 中增加浏览器实际访问的 origin。修改应用的 `ALLOWED_ORIGIN` 或 Nginx CSP 不会同步修改 OSS；仅允许本地开发地址时，文件仍可入队、任务仍可创建，但直传会报“OSS 网络请求失败”。HTTP 和 HTTPS、不同端口分别属于不同 origin，不能互相替代。
+
+可用下面的无文件写入预检核对实际站点；替换示例域名和地域。成功响应应允许请求中的 Origin、PUT 和 Content-Type；预检成功后，再从该站点使用合成文件验证真实上传及完整性。
+
+```bash
+curl -i -X OPTIONS 'https://your-private-bucket.oss-cn-hangzhou.aliyuncs.com/verification/cors-probe' \
+  -H 'Origin: https://yearly.example.com' \
+  -H 'Access-Control-Request-Method: PUT' \
+  -H 'Access-Control-Request-Headers: content-type'
+```
+
 ## 中国内地 Endpoint 与自定义域名
 
 新开通的中国内地 OSS 账户可能受到默认公网域名访问、默认域名预览或流量接入限制。实际限制以当前账户控制台和 OSS 官方提示为准，不假设仅填 Bucket endpoint 就一定可用。
