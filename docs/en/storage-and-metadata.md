@@ -80,6 +80,14 @@ Without an identifier, use “手动配对” (Manual pairing) in the upload lis
 
 iPhone Safari photo-picker files may be converted, exported with edits, or limited to the static resource. A web app cannot force access to PhotoKit originals and all pairedVideo resources. To preserve originals, export unmodified originals from Photos to Files and import both files. The system guarantees lossless transfer of the selected bytes, not camera-original authenticity based on extensions.
 
+### iCloud selection remains in the system photo picker
+
+WebKit tracks [missing feedback while preparing multiple photos](https://bugs.webkit.org/show_bug.cgi?id=325067). The system picker can remain visible while downloading iCloud originals and converting formats, before any files reach the page. A website cannot observe this download progress or dismiss the system picker. Tap Done only once; try Choose one on the upload page first.
+
+For batches, follow [Apple's original-download steps](https://support.apple.com/en-us/111762): select items in Photos → Share → Export Unmodified Originals, save to On My iPhone, and wait for downloading to finish. Then use Import from Files on the website and choose the system file-browsing option. There is no need to disable iCloud or download the entire library. The Files input omits the media accept filter; the upload API still validates supported formats.
+
+File counts and hashing progress appear only after the browser delivers files. A read failure lists the affected filename while other files continue. Empty results show guidance without claiming to measure iCloud download progress.
+
 A future native iOS PhotoKit helper could reuse the logical-media creation, task, multipart-signing, and completion-verification APIs, submitting PHAsset original photos and pairedVideo resources as `original` and `live_video`. Session authentication, CSRF, and permission boundaries would still apply.
 
 ## Duplicate imports and child associations

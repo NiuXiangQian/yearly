@@ -4,6 +4,13 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
+## iCloud photo-picker preparation and import fallbacks (2026-11-07)
+
+- The user confirmed that Done leaves the iOS system picker open. WebKit issue 325067 describes preparation before files reach the page. The upload page now offers single-item selection, a Files input without a media accept filter, and visible instructions for exporting originals to On My iPhone. A website cannot dismiss the system picker or measure its iCloud progress; this does not claim to fix WebKit.
+- All 73 frontend tests, type checking, and the production build passed. New coverage includes empty selection guidance, actual file-reading counts, continuing after a read failure, and retaining the existing queue.
+- WebKit checks used native file choosers for single-item and Files batch imports, real metadata/hashing of synthetic JPEG/MOV files, and mocked API/OSS upload completion. Chinese/English, light/dark themes, and 320/390/1440px layouts had no horizontal overflow; mobile screenshots were saved.
+- Native iCloud downloading and the reported system-picker failure were not reproduced or verified on a real device. Real OSS upload acceptance was not repeated; no migration is needed.
+
 ## OSS cross-origin upload failure verification (2026-11-06)
 
 - File selection and task creation succeeded, but direct uploads reported an OSS network error. Bucket CORS allowed only a development origin. Adding the exact site origin changed the same PUT/Content-Type preflight from 403 to 200; upload retry code was unchanged.

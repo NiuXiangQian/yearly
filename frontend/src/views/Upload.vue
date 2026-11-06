@@ -19,6 +19,7 @@ import {
   ChevronUp,
   ChevronDown,
   Trash2,
+  FolderOpen,
 } from "lucide-vue-next";
 import { useYearly } from "../stores/yearly";
 import { api, post, notify, bytes } from "../lib/api";
@@ -27,7 +28,6 @@ import { directUpload } from "../lib/upload";
 import ChildPicker from "../components/ChildPicker.vue";
 const yearly = useYearly(),
   route = useRoute(),
-  input = ref<HTMLInputElement>(),
   queue = ref<any[]>([]),
   kids = ref<number[]>([]),
   parsing = ref(false),
@@ -39,6 +39,10 @@ const yearly = useYearly(),
   metadataItem = ref<any>(null),
   resumeTarget = ref<any>(null),
   resumeInput = ref<HTMLInputElement>();
+const importMessage = ref(""),
+  importErrors = ref<string[]>([]),
+  readingIndex = ref(0),
+  readingTotal = ref(0);
 let nextItemId = 0;
 const batchName = ref(""),
   targetFolder = ref<any>(null),
@@ -151,17 +155,35 @@ function fileSpec(item: Inspected, role = "original") {
     file_role: role,
   };
 }
-async function addFiles(files: FileList | File[] | null) {
-  if (!files || parsing.value || busy.value) return;
+async function addFiles(
+  files: FileList | File[] | null,
+  source?: HTMLInputElement,
+) {
+  if (parsing.value || busy.value) return;
+  const selected = Array.from(files || []);
+  if (!selected.length) {
+    importMessage.value = t(
+      "没有收到文件。若相册未能完成准备，请尝试单张选择，或先将原片存到“我的 iPhone”再从文件导入。",
+    );
+    return;
+  }
   parsing.value = true;
+  importMessage.value = "";
+  importErrors.value = [];
+  readingIndex.value = 0;
+  readingTotal.value = selected.length;
   try {
-    for (const file of Array.from(files)) {
+    for (const file of selected) {
+      readingIndex.value++;
       parsingName.value = file.name;
       hashProgress.value = 0;
-      const inspected = await inspectFile(
-        file,
-        (n) => (hashProgress.value = n),
-      );
+      let inspected: Inspected;
+      try {
+        inspected = await inspectFile(file, (n) => (hashProgress.value = n));
+      } catch {
+        importErrors.value.push(file.name);
+        continue;
+      }
       if (
         queue.value.some(
           (q) => q.original.hash.sha256 === inspected.hash.sha256,
@@ -201,12 +223,10 @@ async function addFiles(files: FileList | File[] | null) {
         remove(movie);
       }
     }
-  } catch (e) {
-    notify(e);
   } finally {
     parsing.value = false;
     parsingName.value = "";
-    if (input.value) input.value.value = "";
+    if (source) source.value = "";
   }
 }
 function remove(item: any) {
@@ -500,22 +520,63 @@ onBeforeUnmount(() => {
           </h2>
           <p>{{ t("支持多选 · HEIC、JPG、RAW、MOV、MP4 与 Live Photo") }}</p>
         </div>
-        <label class="button primary file-picker">
-          <Plus :size="16" />{{ queue.length ? t("继续添加") : t("选择文件") }}
-          <input
-            ref="input"
-            type="file"
-            multiple
-            :accept="accepted"
-            :aria-label="queue.length ? t('继续添加') : t('选择文件')"
-            :disabled="parsing || busy"
-            @change="addFiles(($event.target as HTMLInputElement).files)"
-          />
-        </label>
+        <div class="picker-actions">
+          <label class="button primary file-picker main-picker">
+            <Plus :size="16" />{{ queue.length ? t("继续添加") : t("选择文件") }}
+            <input
+              type="file"
+              multiple
+              :accept="accepted"
+              :aria-label="queue.length ? t('继续添加') : t('选择文件')"
+              :disabled="parsing || busy"
+              @cancel="addFiles(null)"
+              @change="addFiles(($event.target as HTMLInputElement).files, $event.target as HTMLInputElement)"
+            />
+          </label>
+          <label class="button file-picker">
+            <FileImage :size="16" />{{ t("单张选择") }}
+            <input
+              type="file"
+              :accept="accepted"
+              :aria-label="t('单张选择')"
+              :disabled="parsing || busy"
+              @cancel="addFiles(null)"
+              @change="addFiles(($event.target as HTMLInputElement).files, $event.target as HTMLInputElement)"
+            />
+          </label>
+          <label class="button file-picker">
+            <FolderOpen :size="16" />{{ t("从文件导入") }}
+            <input
+              type="file"
+              multiple
+              :aria-label="t('从文件导入')"
+              :disabled="parsing || busy"
+              @cancel="addFiles(null)"
+              @change="addFiles(($event.target as HTMLInputElement).files, $event.target as HTMLInputElement)"
+            />
+          </label>
+        </div>
         <div v-if="parsing || parsingName" class="parse-progress">
-          <span>{{ parsingName }} · {{ hashProgress }}%</span
+          <span>
+            <template v-if="parsing">{{ readingIndex }} / {{ readingTotal }} · </template>
+            {{ parsingName }} · {{ hashProgress }}%
+          </span
           ><ElProgress :percentage="hashProgress" :show-text="false" />
         </div>
+      </div>
+      <div class="icloud-help">
+        <strong>{{ t("iCloud 照片选择后一直停在相册？") }}</strong>
+        <p>{{
+          t("系统可能正在下载或转换原片，请只点一次完成。可先试单张选择；批量导入建议先在“照片”App 分享 → 导出未修改的原片 → 存到“我的 iPhone”，再点“从文件导入”。无需关闭 iCloud。")
+        }}</p>
+      </div>
+      <p v-if="importMessage" class="notice" role="status">{{ importMessage }}</p>
+      <div v-if="importErrors.length" class="notice" role="alert">
+        <strong>{{ t("以下文件未能读取，其余文件已继续处理：") }}</strong>
+        <ul>
+          <li v-for="name in importErrors" :key="name">{{ name }}</li>
+        </ul>
+        <p>{{ t("请先将这些原片下载到“我的 iPhone”，再从文件导入。") }}</p>
       </div>
       <details class="upload-tip">
         <summary>
@@ -999,7 +1060,7 @@ onBeforeUnmount(() => {
   text-align: left;
   color: var(--sage);
 }
-.compact-dropzone > div:not(.parse-progress) {
+.compact-dropzone > div:not(.parse-progress):not(.picker-actions) {
   flex: 1;
 }
 .compact-dropzone h2 {
@@ -1012,6 +1073,23 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   flex-direction: row;
+}
+.picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.picker-actions .file-picker {
+  margin: 0;
+}
+.icloud-help {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.icloud-help strong {
+  color: var(--text);
 }
 .file-picker input[type="file"] {
   position: absolute;
@@ -1212,9 +1290,15 @@ onBeforeUnmount(() => {
     gap: 12px;
     padding: 20px 16px;
   }
-  .compact-dropzone > .file-picker {
+  .picker-actions {
     width: 100%;
+  }
+  .picker-actions .file-picker {
+    flex: 1;
     justify-content: center;
+  }
+  .picker-actions .main-picker {
+    flex-basis: 100%;
   }
   .queue-heading {
     align-items: flex-start;

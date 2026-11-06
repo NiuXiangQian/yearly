@@ -748,5 +748,12 @@
   "与{p0}有关的回忆": "Memories with {p0}",
   "按人物标记查看共同回忆，保留每一份陪伴。": "Browse shared memories by person and keep every moment together.",
   "最新在前": "Newest first",
-  "最早在前": "Oldest first"
+  "最早在前": "Oldest first",
+  "单张选择": "Choose one",
+  "从文件导入": "Import from Files",
+  "iCloud 照片选择后一直停在相册？": "Stuck in the photo picker with iCloud Photos?",
+  "系统可能正在下载或转换原片，请只点一次完成。可先试单张选择；批量导入建议先在“照片”App 分享 → 导出未修改的原片 → 存到“我的 iPhone”，再点“从文件导入”。无需关闭 iCloud。": "iOS may be downloading or converting originals; tap Done only once. Try choosing one item first. For batches, open Photos → Share → Export Unmodified Originals → save to On My iPhone, then use Import from Files here. You can keep iCloud enabled.",
+  "没有收到文件。若相册未能完成准备，请尝试单张选择，或先将原片存到“我的 iPhone”再从文件导入。": "No files were received. If Photos could not finish preparing them, try choosing one item or save originals to On My iPhone and import from Files.",
+  "以下文件未能读取，其余文件已继续处理：": "These files could not be read; processing continued for the others:",
+  "请先将这些原片下载到“我的 iPhone”，再从文件导入。": "Download these originals to On My iPhone, then import them from Files."
 }

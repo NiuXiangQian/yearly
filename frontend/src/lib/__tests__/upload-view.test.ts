@@ -4,6 +4,7 @@ import { createApp, nextTick } from "vue";
 import Upload from "../../views/Upload.vue";
 import { api, post, notify } from "../api";
 import { directUpload } from "../upload";
+import { inspectFile } from "../metadata";
 
 const routeInfo = vi.hoisted(() => ({
   query: { date: "2024-05-01" } as Record<string, string>,
@@ -33,7 +34,7 @@ vi.mock("../api", () => ({
   bytes: (n: number) => `${n} B`,
 }));
 vi.mock("../metadata", () => ({
-  inspectFile: async (file: File) => ({
+  inspectFile: vi.fn(async (file: File) => ({
     file,
     hash: { sha256: file.name, crc64: "1" },
     raw: {},
@@ -41,7 +42,7 @@ vi.mock("../metadata", () => ({
     original_taken_at_local: "2024-03-31T10:00:00",
     time_source: "EXIF.DateTimeOriginal",
     ...metadataOverrides[file.name],
-  }),
+  })),
 }));
 vi.mock("../upload", () => ({
   directUpload: vi.fn().mockResolvedValue(undefined),
@@ -280,6 +281,52 @@ it("queues and uploads photos and videos when randomUUID is unavailable on HTTP"
   ).toEqual(["photo", "video"]);
   expect(directUpload).toHaveBeenCalledTimes(2);
   expect(notify).not.toHaveBeenCalled();
+});
+
+it("offers single-photo and Files fallbacks and keeps readable files after one import fails", async () => {
+  const host = await queueFiles(["ready.jpg"]);
+  const single = host.querySelector<HTMLInputElement>('input[aria-label="单张选择"]')!;
+  const files = host.querySelector<HTMLInputElement>('input[aria-label="从文件导入"]')!;
+  expect(single.multiple).toBe(false);
+  expect(single.accept).toContain("image/*");
+  expect(files.multiple).toBe(true);
+  expect(files.hasAttribute("accept")).toBe(false);
+  vi.mocked(inspectFile).mockRejectedValueOnce(new DOMException("Not downloaded", "NotReadableError"));
+  Object.defineProperty(files, "files", {
+    value: [new File(["cloud"], "cloud.jpg"), new File(["local"], "local.jpg")],
+  });
+  files.dispatchEvent(new Event("change", { bubbles: true }));
+  await vi.waitFor(() => expect(host.querySelectorAll(".upload-file-row")).toHaveLength(2));
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("cloud.jpg");
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("其余文件已继续处理");
+  expect(host.querySelector(".upload-queue")?.textContent).toContain("local.jpg");
+  expect(files.disabled).toBe(false);
+  expect(files.value).toBe("");
+});
+
+it("explains an empty picker result without claiming to know iCloud download progress", async () => {
+  const host = await queueFiles(["ready.jpg"]);
+  host.querySelector('input[aria-label="单张选择"]')!.dispatchEvent(new Event("cancel"));
+  await nextTick();
+  expect(host.querySelector('[role="status"]')?.textContent).toContain("没有收到文件");
+  expect(host.querySelectorAll(".upload-file-row")).toHaveLength(1);
+  expect(host.querySelector(".parse-progress")).toBeNull();
+});
+
+it("shows the actual file count while reading a received batch", async () => {
+  const host = await queueFiles(["ready.jpg"]);
+  let finish!: (value: any) => void;
+  vi.mocked(inspectFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const files = host.querySelector<HTMLInputElement>('input[aria-label="从文件导入"]')!;
+  const pending = new File(["pending"], "pending.jpg");
+  Object.defineProperty(files, "files", { value: [pending] });
+  files.dispatchEvent(new Event("change", { bubbles: true }));
+  await nextTick();
+  expect(host.querySelector(".parse-progress")?.textContent).toContain("1 / 1");
+  expect(files.disabled).toBe(true);
+  finish({file: pending, hash: {sha256:"pending",crc64:"1"}, raw:{}, video:false});
+  await vi.waitFor(() => expect(host.querySelectorAll(".upload-file-row")).toHaveLength(2));
+  expect(files.disabled).toBe(false);
 });
 
 it("resumes the chosen task through its native file input", async () => {
