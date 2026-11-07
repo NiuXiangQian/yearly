@@ -313,6 +313,76 @@ it("explains an empty picker result without claiming to know iCloud download pro
   expect(host.querySelector(".parse-progress")).toBeNull();
 });
 
+it("queues pasted photos without opening a picker or uploading automatically, and does not use copy time as capture time", async () => {
+  routeInfo.query = {};
+  family.children = [{ id: 7, name: "宝宝" }];
+  metadataOverrides["copy.png"] = {
+    original_taken_at_local: "2026-11-07T12:00:00",
+    time_source: "file_modified",
+    time_confidence: "low",
+  };
+  const host = await queueFiles(["ready.jpg"]);
+  const copied = new File(["copied pixels"], "copy.png", { type: "image/png" });
+  const dated = new File(["photo with exif"], "dated.jpg", { type: "image/jpeg" });
+  const data = new DataTransfer();
+  data.items.add(copied);
+  data.items.add(dated);
+  const event = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
+  host.querySelector(".paste-target")!.dispatchEvent(event);
+  await vi.waitFor(() => expect(host.querySelectorAll(".upload-file-row")).toHaveLength(3));
+  expect(event.defaultPrevented).toBe(true);
+  expect(post).not.toHaveBeenCalled();
+  const rows = host.querySelectorAll(".file-summary");
+  expect(rows[1].textContent).toContain("粘贴副本");
+  expect(rows[1].textContent).toContain("拍摄日期未知");
+  expect(rows[1].textContent).not.toContain("2026-11-07");
+  expect(rows[2].textContent).toContain("2024-03-31");
+  (host.querySelector(".queue-heading button") as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(host.querySelectorAll(".file-state .success-text")).toHaveLength(3));
+  const creates = vi.mocked(post).mock.calls.filter(([path]) => path === "/uploads");
+  expect(creates[1][1]).toMatchObject({ time_unknown: true, timeline_date: null, child_ids: [7] });
+  expect(creates[2][1]).toMatchObject({ time_unknown: false, original_taken_at_local: "2024-03-31T10:00:00" });
+  expect(await vi.mocked(directUpload).mock.calls[1][1].file.text()).toBe(await copied.text());
+  expect(await vi.mocked(directUpload).mock.calls[2][1].file.text()).toBe(await dated.text());
+});
+
+it("rejects text and HTML paste with a visible explanation and keeps the photo queue", async () => {
+  const host = await queueFiles(["ready.jpg"]);
+  vi.mocked(inspectFile).mockClear();
+  const data = new DataTransfer();
+  data.setData("text/html", '<img src="https://example.invalid/image.jpg" onerror="alert(1)">');
+  data.setData("text/plain", "not a photo");
+  const target = host.querySelector(".paste-target")!;
+  const event = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
+  target.dispatchEvent(event);
+  await nextTick();
+  expect(event.defaultPrevented).toBe(true);
+  expect(target.innerHTML).toBe("");
+  expect(host.querySelector('[role="status"]')?.textContent).toContain("没有收到可粘贴的照片");
+  expect(host.querySelectorAll(".upload-file-row")).toHaveLength(1);
+  expect(inspectFile).not.toHaveBeenCalled();
+  expect(post).not.toHaveBeenCalled();
+});
+
+it("disables paste while reading and preserves the existing queue", async () => {
+  const host = await queueFiles(["ready.jpg"]);
+  let finish!: (value: any) => void;
+  vi.mocked(inspectFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const target = host.querySelector(".paste-target")!;
+  const file = new File(["pending"], "pending.png", { type: "image/png" });
+  const data = new DataTransfer();
+  data.items.add(file);
+  target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  await nextTick();
+  expect(target.getAttribute("contenteditable")).toBe("false");
+  expect(host.querySelector(".parse-progress")?.textContent).toContain("1 / 1");
+  target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  expect(inspectFile).toHaveBeenCalledTimes(2);
+  finish({ file, hash: { sha256: "pending", crc64: "1" }, raw: {}, video: false, time_source: "unknown" });
+  await vi.waitFor(() => expect(host.querySelectorAll(".upload-file-row")).toHaveLength(2));
+  expect(target.getAttribute("contenteditable")).toBe("true");
+});
+
 it("shows the actual file count while reading a received batch", async () => {
   const host = await queueFiles(["ready.jpg"]);
   let finish!: (value: any) => void;

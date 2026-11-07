@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>相册选取检查 · yearly</title>
+    <style>
+      :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #263b33; background: #f5f6f2; line-height: 1.65; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 24px 18px; }
+      main { max-width: 580px; margin: 0 auto; }
+      a { color: inherit; }
+      h1 { font-size: 26px; line-height: 1.3; margin: 26px 0 12px; }
+      h2 { font-size: 17px; margin: 0 0 8px; }
+      p { margin: 8px 0 16px; }
+      .card { border: 1px solid #dce3dc; border-radius: 18px; padding: 20px; margin: 18px 0; background: #fff; }
+      .muted { color: #637369; font-size: 14px; }
+      label { display: block; margin: 16px 0 6px; font-weight: 600; }
+      input[type="file"] { display: block; width: 100%; font: inherit; font-size: 15px; padding: 8px 0; }
+      input::file-selector-button, button { padding: 12px 16px; border: 0; border-radius: 10px; background: #346b53; color: #fff; font: inherit; cursor: pointer; }
+      input::file-selector-button { margin-right: 8px; }
+      button:disabled { opacity: .5; cursor: default; }
+      #status { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+      summary { cursor: pointer; font-weight: 600; }
+      textarea { width: 100%; min-height: 180px; padding: 12px; margin-top: 12px; border: 1px solid #dce3dc; border-radius: 10px; font: 12px/1.6 ui-monospace, monospace; color: inherit; background: transparent; resize: vertical; }
+      @media (prefers-color-scheme: dark) {
+        :root { color: #e4ece5; background: #17221c; }
+        .card { background: #223028; border-color: #3b4a40; }
+        .muted { color: #a7b7ac; }
+        textarea { border-color: #3b4a40; }
+      }
+    </style>
+    <script src="/upload-check.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <a href="/upload">← 返回上传</a>
+      <h1>相册选取检查</h1>
+      <p>先截一张新截图，再用下面的按钮选中它。新截图保存在手机上，可以排除等待旧照片下载的情况。</p>
+      <p class="muted">此页只检查系统有没有交付文件。照片不会上传，也不会写入家庭相册。</p>
+      <section class="card">
+        <h2>1. 选择刚截的截图</h2>
+        <p class="muted">这是浏览器最简单的照片选取入口。</p>
+        <label for="simple">选择一张照片</label>
+        <input id="simple" type="file" accept="image/*" data-name="基础相册单选" />
+      </section>
+      <section class="card" aria-live="polite">
+        <h2>检查结果</h2>
+        <p id="status">等待选择照片</p>
+        <p id="detail" class="muted">如果仍停在系统相册，请返回此页查看结果。</p>
+        <button id="read" type="button" disabled>检查文件是否可读取</button>
+      </section>
+      <details class="card">
+        <summary>对比其他选取入口</summary>
+        <label for="current">现有上传页的单选设置</label>
+        <input id="current" type="file" accept="image/*,video/*,.jpg,.jpeg,.png,.heic,.heif,.webp,.dng,.cr2,.cr3,.nef,.arw,.orf,.rw2,.raf,.mp4,.mov" data-name="现有相册单选" />
+        <label for="multiple">基础相册多选</label>
+        <input id="multiple" type="file" accept="image/*" multiple data-name="基础相册多选" />
+      </details>
+      <details class="card">
+        <summary>检查记录</summary>
+        <p class="muted">只记录浏览器、事件、数量和大小，不记录照片内容或文件名。需要时可长按复制。</p>
+        <textarea id="log" aria-label="检查记录" readonly></textarea>
+      </details>
+      <noscript><p>浏览器未运行页面脚本，无法显示检查结果。</p></noscript>
+    </main>
+  </body>
+</html>

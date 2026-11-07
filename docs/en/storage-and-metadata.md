@@ -80,9 +80,13 @@ Without an identifier, use “手动配对” (Manual pairing) in the upload lis
 
 iPhone Safari photo-picker files may be converted, exported with edits, or limited to the static resource. A web app cannot force access to PhotoKit originals and all pairedVideo resources. To preserve originals, export unmodified originals from Photos to Files and import both files. The system guarantees lossless transfer of the selected bytes, not camera-original authenticity based on extensions.
 
-### iCloud selection remains in the system photo picker
+### Selection remains in the system photo picker
 
-WebKit tracks [missing feedback while preparing multiple photos](https://bugs.webkit.org/show_bug.cgi?id=325067). The system picker can remain visible while downloading iCloud originals and converting formats, before any files reach the page. A website cannot observe this download progress or dismiss the system picker. Tap Done only once; try Choose one on the upload page first.
+WebKit tracks [missing feedback while preparing multiple photos](https://bugs.webkit.org/show_bug.cgi?id=325067). The system picker can remain visible while downloading originals and converting formats, before any files reach the page. Single selections and other browsers can also be affected; this screen alone does not establish an iCloud cause. A website cannot observe this download progress or dismiss the system picker.
+
+The upload page offers “Photo picker stuck? Paste your photos”: select photos in the Photos app → Share → Copy Photos, then return to the page, press and hold in the paste box, and choose Paste. A user-initiated paste event adds image files to the existing queue for review before upload. It bypasses the web photo picker and does not depend on the HTTPS-only programmatic clipboard API. Clipboard HTML and text are not inserted.
+
+Pasting provides a system-generated copy that may be converted or omit the capture date and Live Photo motion. Queue items are labeled “Pasted copy”. Existing EXIF capture dates are preserved; modification-time-only or missing dates default to unknown so the copy time is not used as the capture date. Received bytes are uploaded without further compression. Use Import from Files when camera originals are required.
 
 For batches, follow [Apple's original-download steps](https://support.apple.com/en-us/111762): select items in Photos → Share → Export Unmodified Originals, save to On My iPhone, and wait for downloading to finish. Then use Import from Files on the website and choose the system file-browsing option. There is no need to disable iCloud or download the entire library. The Files input omits the media accept filter; the upload API still validates supported formats.
 

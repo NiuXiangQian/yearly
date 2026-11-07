@@ -751,9 +751,14 @@
   "最早在前": "Oldest first",
   "单张选择": "Choose one",
   "从文件导入": "Import from Files",
-  "iCloud 照片选择后一直停在相册？": "Stuck in the photo picker with iCloud Photos?",
-  "系统可能正在下载或转换原片，请只点一次完成。可先试单张选择；批量导入建议先在“照片”App 分享 → 导出未修改的原片 → 存到“我的 iPhone”，再点“从文件导入”。无需关闭 iCloud。": "iOS may be downloading or converting originals; tap Done only once. Try choosing one item first. For batches, open Photos → Share → Export Unmodified Originals → save to On My iPhone, then use Import from Files here. You can keep iCloud enabled.",
-  "没有收到文件。若相册未能完成准备，请尝试单张选择，或先将原片存到“我的 iPhone”再从文件导入。": "No files were received. If Photos could not finish preparing them, try choosing one item or save originals to On My iPhone and import from Files.",
+  "相册卡住？直接粘贴照片": "Photo picker stuck? Paste your photos",
+  "在“照片”App 中选择照片 → 分享 → 拷贝照片，再回到下面的框内长按，选择“粘贴”。": "Select photos in the Photos app → Share → Copy Photos, then return to the box below, press and hold, and choose Paste.",
+  "粘贴照片": "Paste photos",
+  "长按此处，选择“粘贴”": "Press and hold here, then choose Paste",
+  "粘贴得到的是系统提供的副本，可能缺少拍摄日期或 Live Photo 动态部分；缺少拍摄日期时标为未知。需要相机原件时，请从文件导入。": "Pasting provides a system-generated copy that may omit the capture date or Live Photo motion. Missing capture dates are marked unknown. For camera originals, use Import from Files.",
+  "粘贴副本": "Pasted copy",
+  "没有收到可粘贴的照片。请在“照片”App 的分享菜单中选择“拷贝照片”，再回到这里粘贴。": "No photos were received from the clipboard. Choose Copy Photos in the Photos app’s share menu, then paste here.",
+  "没有收到文件。相册未能完成时，可以在下方粘贴照片，或从文件导入原片。": "No files were received. If the photo picker could not finish, paste photos below or import originals from Files.",
   "以下文件未能读取，其余文件已继续处理：": "These files could not be read; processing continued for the others:",
   "请先将这些原片下载到“我的 iPhone”，再从文件导入。": "Download these originals to On My iPhone, then import them from Files."
 }

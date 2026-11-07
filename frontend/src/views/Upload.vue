@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Trash2,
   FolderOpen,
+  ClipboardPaste,
 } from "lucide-vue-next";
 import { useYearly } from "../stores/yearly";
 import { api, post, notify, bytes } from "../lib/api";
@@ -158,12 +159,13 @@ function fileSpec(item: Inspected, role = "original") {
 async function addFiles(
   files: FileList | File[] | null,
   source?: HTMLInputElement,
+  pasted = false,
 ) {
   if (parsing.value || busy.value) return;
   const selected = Array.from(files || []);
   if (!selected.length) {
     importMessage.value = t(
-      "没有收到文件。若相册未能完成准备，请尝试单张选择，或先将原片存到“我的 iPhone”再从文件导入。",
+      "没有收到文件。相册未能完成时，可以在下方粘贴照片，或从文件导入原片。",
     );
     return;
   }
@@ -196,12 +198,16 @@ async function addFiles(
         original: inspected,
         live: null,
         preview: null,
+        pasted,
         child_ids: [...kids.value],
         title: "",
         location_name: "",
         corrected_taken_at_local: null,
         corrected_offset_minutes: null,
-        time_unknown: false,
+        time_unknown:
+          pasted &&
+          (inspected.time_source === "file_modified" ||
+            inspected.time_source === "unknown"),
         status: "ready",
         progress: 0,
         error: "",
@@ -228,6 +234,19 @@ async function addFiles(
     parsingName.value = "";
     if (source) source.value = "";
   }
+}
+function pastePhotos(event: ClipboardEvent) {
+  if (parsing.value || busy.value) return;
+  const files = Array.from(event.clipboardData?.files || []).filter((file) =>
+    file.type.startsWith("image/"),
+  );
+  if (!files.length) {
+    importMessage.value = t(
+      "没有收到可粘贴的照片。请在“照片”App 的分享菜单中选择“拷贝照片”，再回到这里粘贴。",
+    );
+    return;
+  }
+  void addFiles(files, undefined, true);
 }
 function remove(item: any) {
   if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
@@ -564,12 +583,28 @@ onBeforeUnmount(() => {
           ><ElProgress :percentage="hashProgress" :show-text="false" />
         </div>
       </div>
-      <div class="icloud-help">
-        <strong>{{ t("iCloud 照片选择后一直停在相册？") }}</strong>
-        <p>{{
-          t("系统可能正在下载或转换原片，请只点一次完成。可先试单张选择；批量导入建议先在“照片”App 分享 → 导出未修改的原片 → 存到“我的 iPhone”，再点“从文件导入”。无需关闭 iCloud。")
+      <section class="paste-import">
+        <h2><ClipboardPaste :size="18" />{{ t("相册卡住？直接粘贴照片") }}</h2>
+        <p id="paste-instructions">{{
+          t("在“照片”App 中选择照片 → 分享 → 拷贝照片，再回到下面的框内长按，选择“粘贴”。")
         }}</p>
-      </div>
+        <div
+          class="paste-target"
+          role="textbox"
+          :aria-label="t('粘贴照片')"
+          aria-describedby="paste-instructions paste-limitations"
+          :aria-disabled="parsing || busy"
+          :contenteditable="!parsing && !busy"
+          :tabindex="parsing || busy ? -1 : 0"
+          :data-placeholder="t('长按此处，选择“粘贴”')"
+          @paste.prevent="pastePhotos"
+          @beforeinput.prevent
+          @drop.prevent
+        ></div>
+        <small id="paste-limitations">{{
+          t("粘贴得到的是系统提供的副本，可能缺少拍摄日期或 Live Photo 动态部分；缺少拍摄日期时标为未知。需要相机原件时，请从文件导入。")
+        }}</small>
+      </section>
       <p v-if="importMessage" class="notice" role="status">{{ importMessage }}</p>
       <div v-if="importErrors.length" class="notice" role="alert">
         <strong>{{ t("以下文件未能读取，其余文件已继续处理：") }}</strong>
@@ -687,13 +722,13 @@ onBeforeUnmount(() => {
               <h3>
                 {{ item.title || item.original.file.name
                 }}<span v-if="item.live" class="chip">LIVE</span>
+                <span v-if="item.pasted" class="chip">{{ t("粘贴副本") }}</span>
               </h3>
               <p>
                 {{ bytes(item.original.file.size) }} ·
                 {{
-                  item.original.original_taken_at_local?.slice(0, 10) ||
-                  t("拍摄日期未知")
-                }}<span v-if="item.original.time_confidence === 'low'">
+                  fileDay(item) || t("拍摄日期未知")
+                }}<span v-if="!item.time_unknown && item.original.time_confidence === 'low'">
                   {{ t("· 日期待确认") }}
                 </span>
               </p>
@@ -1082,14 +1117,49 @@ onBeforeUnmount(() => {
 .picker-actions .file-picker {
   margin: 0;
 }
-.icloud-help {
+.paste-import {
   margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.8;
 }
-.icloud-help strong {
+.paste-import h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
   color: var(--text);
+}
+.paste-import p {
+  margin: 8px 0 12px;
+}
+.paste-target {
+  min-height: 56px;
+  padding: 14px;
+  margin-bottom: 10px;
+  border: 1px dashed var(--sage);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 16px;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.paste-target:empty::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+  pointer-events: none;
+}
+.paste-target:focus {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+}
+.paste-target[aria-disabled="true"] {
+  opacity: 0.5;
 }
 .file-picker input[type="file"] {
   position: absolute;

@@ -4,6 +4,14 @@
 
 This document records only publicly shareable functional verification. It contains no real family data, accounts, service addresses, private storage identifiers, or deployment-instance status. Public screenshots use the fictional data in `docs/images/demo-*.png`.
 
+## Paste import when the system photo picker stays open (2026-11-07)
+
+- Added “Photo picker stuck? Paste your photos”. Copy photos in Photos and paste them into the existing queue, then review and upload. Text and HTML show guidance without inserting content. The paste target is disabled during reading and uploading.
+- Queue items are labeled “Pasted copy”, with a warning that the system may convert images or omit metadata and Live Photo motion. Existing EXIF capture dates are preserved; modification-time-only or missing dates default to unknown rather than using the copy time.
+- All 76 frontend tests, type checking, and the production build passed. WebKit used synthetic JPEG/PNG files, synthetic paste events, and mocked API/OSS responses to verify real metadata/hashing, explicit submission, two completed uploads, unchanged bytes passed to upload requests, and HTML/text rejection. Chinese/English layouts at 320/390/1440px had no horizontal overflow; light/dark mobile screenshots were saved.
+- `/upload-check.html` independently checks file-picker delivery events and reading the start of selected files. It does not upload photos or log filenames.
+- Browser simulation does not verify native Photos-to-browser pasting on an iPhone. This is an alternative import path, not a fix for the iOS picker. There are no backend changes or migrations, and real OSS acceptance was not repeated.
+
 ## iCloud photo-picker preparation and import fallbacks (2026-11-07)
 
 - The user confirmed that Done leaves the iOS system picker open. WebKit issue 325067 describes preparation before files reach the page. The upload page now offers single-item selection, a Files input without a media accept filter, and visible instructions for exporting originals to On My iPhone. A website cannot dismiss the system picker or measure its iCloud progress; this does not claim to fix WebKit.
