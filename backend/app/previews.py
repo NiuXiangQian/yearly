@@ -43,6 +43,12 @@ def transcode(source: Path, output: Path):
             "-loglevel",
             "error",
             "-y",
+            # Bound decoder and filter memory as well as encoder threads. On
+            # 4K HDR clips, automatic threading exceeds the 512 MiB worker limit.
+            "-threads",
+            "1",
+            "-filter_threads",
+            "1",
             "-i",
             str(source),
             "-map",

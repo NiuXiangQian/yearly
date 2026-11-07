@@ -192,3 +192,41 @@ def test_real_ffmpeg_outputs_small_portrait_h264_and_faststart(tmp_path):
     assert target.stat().st_size < source.stat().st_size
     data = target.read_bytes()
     assert data.index(b"moov") < data.index(b"mdat")
+
+
+def test_real_ffmpeg_converts_4k_hevc_hlg_to_sdr(tmp_path):
+    source, target = tmp_path / "hdr.mp4", tmp_path / "preview.mp4"
+    exe = imageio_ffmpeg.get_ffmpeg_exe()
+    subprocess.run(
+        [
+            exe,
+            "-loglevel", "error",
+            "-filter_threads", "1",
+            "-f", "lavfi",
+            "-i", "testsrc2=size=3840x2160:rate=30",
+            "-t", "0.4",
+            "-pix_fmt", "yuv420p10le",
+            "-c:v", "libx265",
+            "-preset", "ultrafast",
+            "-x265-params",
+            "pools=1:frame-threads=1:log-level=error:"
+            "colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc",
+            "-color_primaries", "bt2020",
+            "-color_trc", "arib-std-b67",
+            "-colorspace", "bt2020nc",
+            str(source),
+        ],
+        check=True,
+    )
+    source_info = subprocess.run(
+        [exe, "-hide_banner", "-i", str(source)], capture_output=True, text=True
+    ).stderr
+    assert "arib-std-b67" in source_info and "yuv420p10le" in source_info
+    transcode(source, target)
+    info = subprocess.run(
+        [exe, "-hide_banner", "-i", str(target)], capture_output=True, text=True
+    ).stderr
+    assert "1280x720" in info and "h264" in info and "yuv420p" in info
+    assert "bt709" in info and "arib-std-b67" not in info
+    data = target.read_bytes()
+    assert data.index(b"moov") < data.index(b"mdat")
