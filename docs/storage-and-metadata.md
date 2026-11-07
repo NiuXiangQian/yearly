@@ -74,11 +74,13 @@ VFR、特殊音视频 track、旧式 ©day / 厂商私有字段、超出读取�
 
 ## Live Photo 与 iPhone 限制
 
-可靠配对优先使用解析到的 ContentIdentifier 或 `com.apple.quicktime.content.identifier`。Apple MakerNote 中的 assetIdentifier 不一定被 exifr 暴露，系统不会仅根据同名文件自动配对。
+可靠配对使用照片的 ContentIdentifier（包括 Apple MakerNote 的 `0x0011` 标识）与 MOV 的 `com.apple.quicktime.content.identifier`。系统不会仅根据同名文件自动配对。识别到照片配对标识但没有对应 MOV 时，上传队列显示「LIVE · 缺少动态文件」；此时继续上传只保存静态照片，不能恢复未收到的动态内容。若系统同时去掉了配对标识，网页无法判断它原来是否为实况照片。
 
-没有标识时，在批量上传列表将静态 HEIC/JPEG 的“手动配对”指向对应 MOV，组合为一条逻辑 media，两个 media_file 分别保存，孩子关联只对逻辑媒体生效。用户可在上传前解除配对。详情页点击「播放 LIVE」播放压缩 MP4，两个原件各自提供下载入口；只有主动查看原文件才加载原始 MOV。
+没有标识时，在批量上传列表将静态 HEIC/JPEG 的“手动配对”指向对应 MOV，组合为一条逻辑 media，两个 media_file 分别保存，孩子关联只对逻辑媒体生效。用户可在上传前解除配对。详情页点击「播放 LIVE」即静音播放压缩 MP4（可在播放器打开声音），两个原件各自提供下载入口；只有主动查看原文件才加载原始 MOV。
 
 iPhone Safari 从照片图库选择的文件可能经过格式转换、编辑导出，也可能只提供静态资源。纯 Web 无法强制取得 PhotoKit 原始照片和所有 pairedVideo 资源。想保留原件，应在系统照片中导出“未修改的原片”到文件 App，并双文件导入。系统只保证所选字节无损上传，不根据扩展名宣称相机原件真实性。
+
+Mac「照片」App 直接拖拽到浏览器通常只交付静态导出副本。保留实况需在「文件 → 导出 → 导出未修改的原片」导出，再将照片与配套 MOV 一起导入；以网页队列出现 LIVE 为配对成功依据。照片和视频分别解析 Apple MakerNote、QuickTime/ISO 两种 meta 容器的配对标识。
 
 ### 照片确认后仍停在系统相册
 

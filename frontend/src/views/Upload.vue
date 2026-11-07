@@ -217,12 +217,17 @@ async function addFiles(
     }
     // Pair only an explicit shared metadata identifier, never a coincidental filename.
     for (const item of [...queue.value]) {
-      if (item.original.video || !item.original.pairId || item.live) continue;
+      if (
+        item.status !== "ready" || item.tasks || item.original.video ||
+        !item.original.pairId || item.live
+      ) continue;
       const movie = queue.value.find(
         (q) =>
           q.original.video &&
+          /\.mov$/i.test(q.original.file.name) &&
           q.original.pairId === item.original.pairId &&
-          q.status === "ready",
+          q.status === "ready" &&
+          !q.tasks,
       );
       if (movie) {
         item.live = movie.original;
@@ -583,6 +588,13 @@ onBeforeUnmount(() => {
           ><ElProgress :percentage="hashProgress" :show-text="false" />
         </div>
       </div>
+      <p class="notice">{{ t("实况照片需同时导入照片和配套 MOV 才能播放；相册选择或粘贴可能只提供静态照片。") }}</p>
+      <section class="live-import-guide">
+        <h2><Film :size="18" />{{ t("导入实况照片") }}</h2>
+        <p>{{ t("Mac：在“照片”App 选中照片 → 文件 → 导出 → 导出未修改的原片，再把导出的照片和 MOV 一起拖入这里。") }}</p>
+        <p>{{ t("直接从 Mac“照片”拖到网页通常只有静态副本，不包含动态视频。照片 App 里的 LIVE 标记不代表网页收到了动态原件。") }}</p>
+        <small>{{ t("配对成功后，上传列表会显示 LIVE；没有显示时，请先检查是否同时选中了 MOV。") }}</small>
+      </section>
       <section class="paste-import">
         <h2><ClipboardPaste :size="18" />{{ t("相册卡住？直接粘贴照片") }}</h2>
         <p id="paste-instructions">{{
@@ -720,10 +732,13 @@ onBeforeUnmount(() => {
             </div>
             <div class="file-summary numeric">
               <h3>
-                {{ item.title || item.original.file.name
-                }}<span v-if="item.live" class="chip">LIVE</span>
-                <span v-if="item.pasted" class="chip">{{ t("粘贴副本") }}</span>
+                {{ item.title || item.original.file.name }}
               </h3>
+              <p v-if="item.live || (!item.original.video && item.original.pairId) || item.pasted" class="file-badges">
+                <span v-if="item.live" class="chip">LIVE</span>
+                <span v-else-if="!item.original.video && item.original.pairId" class="chip">{{ t("LIVE · 缺少动态文件") }}</span>
+                <span v-if="item.pasted" class="chip">{{ t("粘贴副本") }}</span>
+              </p>
               <p>
                 {{ bytes(item.original.file.size) }} ·
                 {{
@@ -734,6 +749,9 @@ onBeforeUnmount(() => {
               </p>
               <p v-if="item.status === 'failed'" class="file-error">
                 {{ t(item.error) }}
+              </p>
+              <p v-if="!item.original.video && item.original.pairId && !item.live" class="muted">
+                {{ t("仅收到实况照片的静态部分，上传后无法播放。请同时导入配套 MOV 原件。") }}
               </p>
               <p v-if="item.notice" class="muted">{{ t(item.notice) }}</p>
               <p v-if="item.dateMoved" class="success-text">
@@ -1021,6 +1039,27 @@ onBeforeUnmount(() => {
   </div>
 </template>
 <style scoped>
+.live-import-guide {
+  margin: 18px 0;
+  padding: 16px 18px;
+  border-left: 3px solid var(--sage);
+  background: var(--surface);
+  border-radius: 8px;
+}
+.live-import-guide h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.live-import-guide p,
+.live-import-guide small {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--muted);
+}
 .date-review-intro {
   line-height: 1.8;
   margin: 0 0 16px;
@@ -1302,6 +1341,14 @@ onBeforeUnmount(() => {
 .file-summary .file-error {
   color: #b25448;
   white-space: normal;
+}
+.file-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.file-badges .chip {
+  min-height: 0;
 }
 .file-state {
   width: 72px;

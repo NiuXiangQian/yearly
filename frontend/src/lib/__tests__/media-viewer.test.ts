@@ -37,6 +37,26 @@ const photo = {
     },
   ],
 };
+it("plays the paired motion preview from LIVE and returns to the still photo", async () => {
+  vi.mocked(mediaResource).mockImplementation(async (_mid, fid, purpose) => ({
+    url: fid === 3 && purpose === "preview" ? "/motion.mp4" : "/still.jpg",
+    status: "ready",
+  }));
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  const host = render(MediaViewer, { media: {
+    ...photo, media_type: "live_photo",
+    files: [...photo.files, { id: 3, file_role: "live_video", mime_type: "video/quicktime", file_size: 5000 }],
+  } });
+  await vi.waitFor(() => expect(host.querySelector("img")?.getAttribute("src")).toBe("/still.jpg"));
+  (host.querySelectorAll(".viewer-live-tabs button")[1] as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+  expect(host.querySelector("video")?.muted).toBe(true);
+  expect(host.querySelector("video")?.getAttribute("src")).toBe("/motion.mp4");
+  expect(mediaResource).not.toHaveBeenCalledWith(1, 3, "original");
+  (host.querySelector(".viewer-live-tabs button") as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(host.querySelector("img")?.getAttribute("src")).toBe("/still.jpg"));
+  expect(host.querySelector("video")).toBeNull();
+});
 it("loads compressed HEIC previews without downloading or decoding the original; original is opt in", async () => {
   vi.mocked(mediaResource).mockImplementation(async (_mid, _fid, purpose) => ({
     url: `/${purpose}.webp`,

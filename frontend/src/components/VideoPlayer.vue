@@ -12,6 +12,7 @@ import {
 const props = defineProps<{
   loadSource: () => Promise<string>;
   poster?: string;
+  autoplay?: boolean;
 }>();
 const root = ref<HTMLElement>(),
   video = ref<HTMLVideoElement>();
@@ -22,15 +23,16 @@ const source = ref(""),
 const current = ref(0),
   duration = ref(0),
   volume = ref(1),
-  muted = ref(false),
+  muted = ref(!!props.autoplay),
   speed = ref(1);
 const expanded = ref(false);
 function fullscreenChanged() {
   expanded.value = !!document.fullscreenElement;
 }
-onMounted(() =>
-  document.addEventListener("fullscreenchange", fullscreenChanged),
-);
+onMounted(() => {
+  document.addEventListener("fullscreenchange", fullscreenChanged);
+  if (props.autoplay) void toggle();
+});
 onBeforeUnmount(() =>
   document.removeEventListener("fullscreenchange", fullscreenChanged),
 );
@@ -112,6 +114,7 @@ function keydown(e: KeyboardEvent) {
       :poster="poster"
       preload="none"
       playsinline
+      :muted="muted"
       @click="toggle"
       @play="playing = true"
       @pause="playing = false"

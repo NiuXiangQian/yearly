@@ -403,6 +403,7 @@ onBeforeUnmount(() => {
             v-if="video && preview"
             :key="selected.id + '-' + live"
             :load-source="videoSource"
+            :autoplay="live"
           /><ImageViewer
             v-else-if="preview"
             :src="preview"

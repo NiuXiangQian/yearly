@@ -21,10 +21,33 @@ export function offsetMinutes(value: unknown): number | null {
 const text = (buffer: Uint8Array) =>
   new TextDecoder().decode(buffer).replace(/\0/g, "").trim();
 
+// Apple MakerNote tag 0x0011 pairs the still with QuickTime content.identifier.
+export function appleContentIdentifier(note: unknown): string | null {
+  if (!(note instanceof Uint8Array) || note.length < 16) return null;
+  if (text(note.slice(0, 10)) !== "Apple iOS") return null;
+  const order = text(note.slice(12, 14));
+  if (order !== "MM" && order !== "II") return null;
+  const little = order === "II";
+  const view = new DataView(note.buffer, note.byteOffset, note.byteLength);
+  const count = view.getUint16(14, little);
+  for (
+    let i = 0, entry = 16;
+    i < count && entry + 12 <= note.length;
+    i++, entry += 12
+  ) {
+    if (view.getUint16(entry, little) !== 0x0011) continue;
+    if (view.getUint16(entry + 2, little) !== 2) return null;
+    const length = view.getUint32(entry + 4, little);
+    const offset = length <= 4 ? entry + 8 : view.getUint32(entry + 8, little);
+    if (!length || offset + length > note.length) return null;
+    return text(note.slice(offset, offset + length)) || null;
+  }
+  return null;
+}
+
 // Read box headers by range, skipping mdat. Never load an entire movie or unbounded moov.
 export async function quickTime(file: Blob): Promise<Record<string, any>> {
-  const result: Record<string, any> = {},
-    keys: string[] = [];
+  const result: Record<string, any> = {};
   let boxes = 0,
     metadataBytes = 0;
   async function read(start: number, length: number) {
@@ -38,6 +61,7 @@ export async function quickTime(file: Blob): Promise<Record<string, any>> {
     depth: number,
     path: string,
     track: Record<string, any> | null = null,
+    keys: string[] = [],
   ) {
     if (depth > 12) return;
     let position = start;
@@ -74,12 +98,19 @@ export async function quickTime(file: Blob): Promise<Record<string, any>> {
         ].includes(kind)
       ) {
         const childTrack = kind === "trak" ? {} : track;
+        // ISO meta has version/flags; Apple's QuickTime meta starts with a child box.
+        let childStart = body;
+        if (kind === "meta" && length >= 4) {
+          const prefix = await read(body, 4);
+          if (new DataView(prefix.buffer).getUint32(0) === 0) childStart += 4;
+        }
         await walk(
-          body + (kind === "meta" ? 4 : 0),
+          childStart,
           position + size,
           depth + 1,
           path + "/" + kind,
           childTrack,
+          kind === "meta" ? [] : keys,
         );
         if (kind === "trak" && childTrack) {
           if (childTrack.handler === "vide") {
@@ -268,6 +299,7 @@ export async function inspectFile(
       : (await exifr.parse(file, {
           tiff: true,
           exif: true,
+          makerNote: true,
           gps: true,
           ifd1: true,
           xmp: true,
@@ -279,6 +311,10 @@ export async function inspectFile(
         })) || {};
   } catch (e) {
     error = e instanceof Error ? e.message : "解析失败";
+  }
+  if (!video && !raw.ContentIdentifier) {
+    const identifier = appleContentIdentifier(raw.makerNote || raw.MakerNote);
+    if (identifier) raw.ContentIdentifier = identifier;
   }
   const original = wallTime(raw.DateTimeOriginal),
     other = wallTime(raw.CreateDate);

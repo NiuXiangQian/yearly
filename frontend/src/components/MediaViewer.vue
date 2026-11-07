@@ -130,6 +130,7 @@ async function playbackSource() {
         v-if="isVideo && resource?.url && !failed"
         :key="`${file.id}-${original}`"
         :poster="poster"
+        :autoplay="live"
         :load-source="playbackSource"
       />
       <ImageViewer

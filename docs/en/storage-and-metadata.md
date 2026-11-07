@@ -74,11 +74,13 @@ The system stores the original time, offset, source, and a separate corrected ti
 
 ## Live Photos and iPhone limitations
 
-Reliable pairing prefers a parsed ContentIdentifier or `com.apple.quicktime.content.identifier`. `exifr` may not expose the Apple MakerNote assetIdentifier. Matching filenames alone do not trigger automatic pairing.
+Reliable pairing matches the photo's ContentIdentifier (including Apple MakerNote tag `0x0011`) with the MOV's `com.apple.quicktime.content.identifier`. Matching filenames alone do not trigger automatic pairing. A photo with a pairing identifier but no matching MOV displays “LIVE · Motion file missing” in the queue. Continuing uploads only the still photo; missing motion cannot be recovered. If the system also strips the identifier, the website cannot tell whether it was originally a Live Photo.
 
-Without an identifier, use “手动配对” (Manual pairing) in the upload list to link a static HEIC/JPEG with its MOV. They become one logical media item with two separate `media_file` records; child associations apply to the logical item. Unpair them before uploading if needed. “播放 LIVE” (Play LIVE) in the detail view plays the compressed MP4. Each original has its own download entry; the original MOV loads only when explicitly requested.
+Without an identifier, use “手动配对” (Manual pairing) in the upload list to link a static HEIC/JPEG with its MOV. They become one logical media item with two separate `media_file` records; child associations apply to the logical item. Unpair them before uploading if needed. “播放 LIVE” (Play LIVE) immediately starts the compressed MP4 muted; sound can be enabled in the player. Each original has its own download entry; the original MOV loads only when explicitly requested.
 
 iPhone Safari photo-picker files may be converted, exported with edits, or limited to the static resource. A web app cannot force access to PhotoKit originals and all pairedVideo resources. To preserve originals, export unmodified originals from Photos to Files and import both files. The system guarantees lossless transfer of the selected bytes, not camera-original authenticity based on extensions.
+
+Dragging directly from Mac Photos usually supplies a still export. Use File → Export → Export Unmodified Original, then import both the photo and paired MOV; check for LIVE in the upload queue. Pairing reads Apple MakerNote identifiers and both QuickTime and ISO meta containers.
 
 ### Selection remains in the system photo picker
 

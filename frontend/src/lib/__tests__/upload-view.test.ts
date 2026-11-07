@@ -258,6 +258,43 @@ async function queueFiles(names: string[]) {
   return host;
 }
 
+it("pairs matching Live Photo originals across imports and uploads both resources as one media", async () => {
+  metadataOverrides["still.jpg"] = { pairId: "live-asset" };
+  metadataOverrides["renamed.MOV"] = { pairId: "live-asset", video: true };
+  const host = await queueFiles(["still.jpg"]);
+  expect(host.querySelector(".file-summary")?.textContent).toContain("LIVE · 缺少动态文件");
+  const input = host.querySelector('input[aria-label="从文件导入"]')!;
+  Object.defineProperty(input, "files", { value: [new File(["motion"], "renamed.MOV")] });
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await vi.waitFor(() => {
+    expect(host.querySelectorAll(".upload-file-row")).toHaveLength(1);
+    expect(host.querySelector(".file-summary .chip")?.textContent).toBe("LIVE");
+  });
+  expect(host.querySelector(".file-summary")?.textContent).not.toContain("缺少动态文件");
+  vi.mocked(post).mockResolvedValue({ media_id: 1, timeline_day: "2024-05-01", tasks: [{ file_role: "original" }, { file_role: "live_video" }] });
+  (host.querySelector(".queue-heading button") as HTMLButtonElement).click();
+  await chooseDate("保留在 2024-05-01");
+  await vi.waitFor(() => expect(directUpload).toHaveBeenCalledTimes(2));
+  const creates = vi.mocked(post).mock.calls.filter(([path]) => path === "/uploads");
+  expect(creates).toHaveLength(1);
+  expect(creates[0][1]).toMatchObject({ media_type: "live_photo", files: [
+    { file_role: "original", original_filename: "still.jpg" },
+    { file_role: "live_video", original_filename: "renamed.MOV" },
+  ] });
+});
+
+it("does not pair matching filenames without metadata or mark a still-only upload as playable", async () => {
+  metadataOverrides["IMG.MOV"] = { video: true };
+  metadataOverrides["alone.jpg"] = { pairId: "missing-motion" };
+  const host = await queueFiles(["IMG.jpg", "IMG.MOV", "alone.jpg"]);
+  expect(host.querySelectorAll(".file-summary .chip")).toHaveLength(1);
+  expect(host.textContent).toContain("仅收到实况照片的静态部分");
+  (host.querySelector(".queue-heading button") as HTMLButtonElement).click();
+  await chooseDate("保留在 2024-05-01");
+  await vi.waitFor(() => expect(host.querySelectorAll(".file-state .success-text")).toHaveLength(3));
+  expect(vi.mocked(post).mock.calls.filter(([path]) => path === "/uploads").map(([,body]) => body.media_type)).toEqual(["photo", "video", "photo"]);
+});
+
 it("queues and uploads photos and videos when randomUUID is unavailable on HTTP", async () => {
   vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
   metadataOverrides["clip.MOV"] = { video: true };
