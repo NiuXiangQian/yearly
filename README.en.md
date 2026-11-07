@@ -26,6 +26,8 @@ Drag photos, videos, and folders into any order within a day. Folders display sm
 
 Name a batch, select people and pets, and choose an archive date. The compact file list supports bulk selection, drag-to-reorder, and file details.
 
+[Native iPhone upload](docs/en/storage-and-metadata.md#native-iphone-upload) lets you select a Live Photo in the system picker and upload its still image and paired video together.
+
 ![Fictional demo: batch naming and upload queue](docs/images/demo-upload-en.png)
 
 [Full-resolution upload screenshot](docs/images/demo-upload-en.png)
@@ -152,6 +154,17 @@ To start them separately, run each command in its own terminal:
 ./scripts/start-api.sh test --reload
 (cd frontend && npm run dev -- --port 5173)
 ./scripts/manage.sh test generate-previews --watch
+```
+
+## iOS app
+
+An iPhone client project (iOS 16+) connects to your existing HTTPS family site, with native Live Photo selection, download/share sheets, navigation and recovery. See the [iOS guide](ios/README.md) for device installation, signing, TestFlight/App Store archives and release blockers. Signing and device validation are pending; permanent account deletion must also be implemented before submission.
+
+```bash
+open ios/Yearly.xcodeproj
+./scripts/ios.sh verify
+# Requires full Xcode:
+./scripts/ios.sh build
 ```
 
 ## Environments and deployment

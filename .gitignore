@@ -31,3 +31,12 @@ credentials/
 # Local browser verification artifacts
 /output/playwright/
 /.playwright-cli/
+
+# Xcode user settings
+xcuserdata/
+
+# Local iOS signing and distribution output
+*.xcarchive/
+*.ipa
+*.mobileprovision
+DerivedData/

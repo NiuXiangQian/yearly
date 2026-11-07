@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleDisplayName</key><string>yearly</string>
+    <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
+    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>LSRequiresIPhoneOS</key><true/>
+    <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
+    <key>UILaunchScreen</key><dict/>
+    <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+    <key>NSCameraUsageDescription</key><string>在你选择拍摄时使用相机，为家庭档案添加照片或视频。</string>
+    <key>NSMicrophoneUsageDescription</key><string>在你选择录制视频时记录声音。</string>
+    <key>NSPhotoLibraryUsageDescription</key><string>在你选择导入时读取所选照片和视频，用于上传至家庭档案。</string>
+    <key>NSPhotoLibraryAddUsageDescription</key><string>在你选择保存影像时，将下载的照片或视频保存到系统相册。</string>
+    <key>YearlyDefaultSiteURL</key><string>$(YEARLY_SITE_URL)</string>
+    <key>YearlyPrivacyPolicyURL</key><string>$(YEARLY_PRIVACY_URL)</string>
+    <key>YearlySupportURL</key><string>$(YEARLY_SUPPORT_URL)</string>
+</dict></plist>

@@ -313,6 +313,77 @@ it("explains an empty picker result without claiming to know iCloud download pro
   expect(host.querySelector(".parse-progress")).toBeNull();
 });
 
+function stubNativePicker(movie: string | Error) {
+  const bridge = vi.fn(async ({ action, role }: { action: string; role?: string }) => {
+    if (action === "pick")
+      return {
+        id: "pair",
+        original: { name: "IMG_8014.HEIC", type: "image/heic", size: 5 },
+        video: { name: "IMG_8014.MOV", type: "video/quicktime", size: 5 },
+      };
+    if (action === "read") {
+      if (role === "original") return btoa("still");
+      if (movie instanceof Error) throw movie;
+      return btoa(movie);
+    }
+    return null;
+  });
+  vi.stubGlobal("webkit", { messageHandlers: { yearlyLivePhoto: { postMessage: bridge } } });
+  return bridge;
+}
+
+function clickNativePicker(host: HTMLElement) {
+  const button = [...host.querySelectorAll(".picker-actions button")].find(
+    (element) => element.textContent?.includes("选择实况照片并上传"),
+  ) as HTMLButtonElement;
+  button.click();
+}
+
+it("uploads only the native Live Photo pair even without a shared metadata identifier", async () => {
+  routeInfo.query = {};
+  family.children = [{ id: 7, name: "宝宝" }];
+  const bridge = stubNativePicker("movie");
+  metadataOverrides["IMG_8014.MOV"] = { video: true };
+  metadataOverrides["IMG_8014.HEIC"] = {
+    time_source: "unknown",
+    original_taken_at_local: null,
+  };
+  const host = await queueFiles(["manual.jpg"]);
+  vi.mocked(post).mockResolvedValue({
+    media_id: 42,
+    tasks: [{ file_role: "original" }, { file_role: "live_video" }],
+  });
+  clickNativePicker(host);
+  await vi.waitFor(() => expect(host.querySelectorAll(".file-state .success-text")).toHaveLength(1));
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(post).toHaveBeenCalledWith("/uploads", expect.objectContaining({
+    media_type: "live_photo",
+    child_ids: [7],
+    original_taken_at_local: null,
+    time_unknown: true,
+    files: [
+      expect.objectContaining({ original_filename: "IMG_8014.HEIC", file_role: "original" }),
+      expect.objectContaining({ original_filename: "IMG_8014.MOV", file_role: "live_video" }),
+    ],
+  }));
+  const uploaded = vi.mocked(directUpload).mock.calls;
+  expect(uploaded).toHaveLength(2);
+  expect(await uploaded[0][1].file.text()).toBe("still");
+  expect(await uploaded[1][1].file.text()).toBe("movie");
+  expect(inspectFile).toHaveBeenCalledWith(uploaded[0][1].file, expect.any(Function), { hasFileModified: false });
+  expect(bridge).toHaveBeenLastCalledWith({ action: "release", id: "pair" });
+});
+
+it("releases the native selection and queues nothing if the paired video cannot be read", async () => {
+  const bridge = stubNativePicker(new Error("readFailed"));
+  const host = await queueFiles(["manual.jpg"]);
+  clickNativePicker(host);
+  await vi.waitFor(() => expect(host.querySelector('[role="status"]')?.textContent).toContain("无法读取完整的实况照片"));
+  expect(host.querySelectorAll(".upload-file-row")).toHaveLength(1);
+  expect(post).not.toHaveBeenCalled();
+  expect(bridge).toHaveBeenLastCalledWith({ action: "release", id: "pair" });
+});
+
 it("queues pasted photos without opening a picker or uploading automatically, and does not use copy time as capture time", async () => {
   routeInfo.query = {};
   family.children = [{ id: 7, name: "宝宝" }];

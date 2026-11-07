@@ -26,6 +26,7 @@ import { useYearly } from "../stores/yearly";
 import { api, post, notify, bytes } from "../lib/api";
 import { inspectFile, type Inspected } from "../lib/metadata";
 import { directUpload } from "../lib/upload";
+import { iosLivePhotoBridge, pickIOSLivePhoto } from "../lib/ios-live-photo";
 import ChildPicker from "../components/ChildPicker.vue";
 const yearly = useYearly(),
   route = useRoute(),
@@ -44,6 +45,8 @@ const importMessage = ref(""),
   importErrors = ref<string[]>([]),
   readingIndex = ref(0),
   readingTotal = ref(0);
+const nativePicker = !!iosLivePhotoBridge();
+const nativeImport = new AbortController();
 let nextItemId = 0;
 const batchName = ref(""),
   targetFolder = ref<any>(null),
@@ -156,6 +159,84 @@ function fileSpec(item: Inspected, role = "original") {
     file_role: role,
   };
 }
+function enqueue(original: Inspected, live: Inspected | null, pasted = false) {
+  queue.value.push({
+    id: String(++nextItemId),
+    selected: true,
+    original,
+    live,
+    preview: null,
+    pasted,
+    child_ids: [...kids.value],
+    title: "",
+    location_name: "",
+    corrected_taken_at_local: null,
+    corrected_offset_minutes: null,
+    time_unknown:
+      (pasted || !!live) &&
+      (original.time_source === "file_modified" ||
+        original.time_source === "unknown"),
+    status: "ready",
+    progress: 0,
+    error: "",
+    tasks: null,
+    previewUrl: original.video ? "" : URL.createObjectURL(original.file),
+  });
+  return queue.value[queue.value.length - 1];
+}
+async function importIOSLivePhoto() {
+  if (!yearly.canEdit || parsing.value || busy.value || dateReview.value) return;
+  parsing.value = true;
+  parsingName.value = t("正在从 iPhone 相册读取实况照片…");
+  readingIndex.value = readingTotal.value = 0;
+  hashProgress.value = 0;
+  importMessage.value = "";
+  importErrors.value = [];
+  let item;
+  try {
+    const files = await pickIOSLivePhoto(nativeImport.signal);
+    if (!files) return;
+    nativeImport.signal.throwIfAborted();
+    readingTotal.value = 2;
+    readingIndex.value = 1;
+    parsingName.value = files.original.name;
+    const original = await inspectFile(
+      files.original,
+      (n) => (hashProgress.value = n),
+      { hasFileModified: false },
+    );
+    nativeImport.signal.throwIfAborted();
+    readingIndex.value = 2;
+    hashProgress.value = 0;
+    parsingName.value = files.video.name;
+    const video = await inspectFile(
+      files.video,
+      (n) => (hashProgress.value = n),
+      { hasFileModified: false },
+    );
+    nativeImport.signal.throwIfAborted();
+    if (original.video || !video.video) throw new Error("Invalid Live Photo pair");
+    // PhotoKit selected both resources from the same asset, even if EXIF has no pair ID.
+    item = queue.value.find(
+      (q) =>
+        q.original.hash.sha256 === original.hash.sha256 &&
+        q.live?.hash.sha256 === video.hash.sha256,
+    ) || enqueue(original, video);
+  } catch (error) {
+    if (!nativeImport.signal.aborted) {
+      importMessage.value = t(
+        error instanceof Error && error.message === "tooLarge"
+          ? "实况照片超过原生导入的 128 MiB 限制。请从文件导入原片。"
+          : "无法读取完整的实况照片。请确认原片可用后重试。",
+      );
+    }
+    return;
+  } finally {
+    parsing.value = false;
+    parsingName.value = "";
+  }
+  if (item.status !== "complete") await uploadAll([item]);
+}
 async function addFiles(
   files: FileList | File[] | null,
   source?: HTMLInputElement,
@@ -192,28 +273,7 @@ async function addFiles(
         )
       )
         continue;
-      queue.value.push({
-        id: String(++nextItemId),
-        selected: true,
-        original: inspected,
-        live: null,
-        preview: null,
-        pasted,
-        child_ids: [...kids.value],
-        title: "",
-        location_name: "",
-        corrected_taken_at_local: null,
-        corrected_offset_minutes: null,
-        time_unknown:
-          pasted &&
-          (inspected.time_source === "file_modified" ||
-            inspected.time_source === "unknown"),
-        status: "ready",
-        progress: 0,
-        error: "",
-        tasks: null,
-        previewUrl: !inspected.video ? URL.createObjectURL(file) : "",
-      });
+      enqueue(inspected, null, pasted);
     }
     // Pair only an explicit shared metadata identifier, never a coincidental filename.
     for (const item of [...queue.value]) {
@@ -457,6 +517,7 @@ async function resumeFile(e: Event) {
 }
 const notifySuccess = ref(false);
 onBeforeUnmount(() => {
+  nativeImport.abort();
   queue.value.forEach((q) => q.previewUrl && URL.revokeObjectURL(q.previewUrl));
 });
 </script>
@@ -540,6 +601,15 @@ onBeforeUnmount(() => {
           <p>{{ t("支持多选 · HEIC、JPG、RAW、MOV、MP4 与 Live Photo") }}</p>
         </div>
         <div class="picker-actions">
+          <button
+            v-if="nativePicker"
+            type="button"
+            class="button primary"
+            :disabled="parsing || busy"
+            @click="importIOSLivePhoto"
+          >
+            <Film :size="16" />{{ t("选择实况照片并上传") }}
+          </button>
           <label class="button primary file-picker main-picker">
             <Plus :size="16" />{{ queue.length ? t("继续添加") : t("选择文件") }}
             <input
@@ -577,10 +647,11 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="parsing || parsingName" class="parse-progress">
           <span>
-            <template v-if="parsing">{{ readingIndex }} / {{ readingTotal }} · </template>
-            {{ parsingName }} · {{ hashProgress }}%
-          </span
-          ><ElProgress :percentage="hashProgress" :show-text="false" />
+            <template v-if="parsing && readingTotal">{{ readingIndex }} / {{ readingTotal }} · </template>
+            {{ parsingName }}
+            <template v-if="!parsing || readingTotal"> · {{ hashProgress }}%</template>
+          </span>
+          <ElProgress v-if="!parsing || readingTotal" :percentage="hashProgress" :show-text="false" />
         </div>
       </div>
       <section class="paste-import">

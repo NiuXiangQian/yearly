@@ -92,7 +92,13 @@ For batches, follow [Apple's original-download steps](https://support.apple.com/
 
 File counts and hashing progress appear only after the browser delivers files. A read failure lists the affected filename while other files continue. Empty results show guidance without claiming to measure iCloud download progress.
 
-A future native iOS PhotoKit helper could reuse the logical-media creation, task, multipart-signing, and completion-verification APIs, submitting PHAsset original photos and pairedVideo resources as `original` and `live_video`. Session authentication, CSRF, and permission boundaries would still apply.
+### Native iPhone upload
+
+1. Deploy the updated frontend to the family HTTPS site. The existing API and OSS configuration support this flow without a database migration.
+2. Open [`ios/Yearly.xcodeproj`](../../ios/Yearly.xcodeproj) in Xcode on a Mac. Select your team under **Signing & Capabilities** for the Yearly target and set a unique bundle identifier if needed. Run on a paired iPhone with iOS 16 or later.
+3. Enter the family's HTTPS site address in the Yearly app and sign in. Set the date and people on the upload page, then tap **Choose and upload a Live Photo**. Select one item in the system picker. The app reads the still image and paired video and starts uploading after any applicable archive-date confirmation.
+
+The system picker shares the selected asset with the app. PhotoKit can retrieve its resources from iCloud. The app transfers up to 128 MiB per pair to the upload page in chunks, using the existing session, multipart verification, and retries. If either resource cannot be read, the app skips creation of the upload. On a real device, verify that a Live Photo with sound appears as a single timeline entry, offers both files for download, and plays through **Play LIVE** after the video preview is ready.
 
 ## Duplicate imports and child associations
 
