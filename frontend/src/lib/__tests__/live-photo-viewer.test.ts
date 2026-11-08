@@ -134,3 +134,33 @@ it("times out buffering and cleans up pending polling when closed", async () => 
   app.unmount();
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it("restarts from zero on every photo or LIVE click, including while playing and after ending", async () => {
+  const { host, stage, video, play } = await render();
+  for (const target of [stage, host.querySelector(".live-photo-badge")!, stage]) {
+    video.currentTime = 1.5;
+    target.dispatchEvent(new MouseEvent("click"));
+    expect(video.currentTime).toBe(0);
+    video.dispatchEvent(new Event("playing"));
+    await nextTick();
+    expect(stage.classList.contains("is-playing")).toBe(true);
+  }
+  expect(play).toHaveBeenCalledTimes(3);
+  video.dispatchEvent(new Event("ended"));
+  stage.dispatchEvent(new MouseEvent("click"));
+  expect(play).toHaveBeenCalledTimes(4);
+});
+it("does not restart after a long press or a scrolling gesture generates a click", async () => {
+  vi.useFakeTimers();
+  const { stage, play } = await render();
+  pointer(stage, "pointerdown");
+  await vi.advanceTimersByTimeAsync(180);
+  pointer(window, "pointerup");
+  stage.dispatchEvent(new MouseEvent("click"));
+  expect(play).toHaveBeenCalledTimes(1);
+  pointer(stage, "pointerdown");
+  pointer(stage, "pointermove", { clientX: 70 });
+  pointer(window, "pointerup");
+  stage.dispatchEvent(new MouseEvent("click"));
+  expect(play).toHaveBeenCalledTimes(2);
+});

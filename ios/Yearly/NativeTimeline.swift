@@ -150,16 +150,23 @@ struct NativeMediaDetail: View {
                         ScrollView { Text(item.content ?? "").frame(maxWidth: .infinity, alignment: .leading).padding() }.foregroundStyle(.white)
                     } else if let player {
                         VideoPlayer(player: player).onDisappear { player.pause() }
+                            .overlay {
+                                if item.media_type == "live_photo" {
+                                    Button(action: play) { Color.clear.contentShape(Rectangle()) }
+                                        .buttonStyle(.plain).accessibilityLabel("从头播放实况照片")
+                                }
+                            }
                             .overlay(alignment: .topLeading) {
-                                if item.media_type == "live_photo" { Label("LIVE", systemImage: "livephoto").padding(8).background(.regularMaterial, in: Capsule()).padding() }
+                                if item.media_type == "live_photo" { liveBadge }
                             }
                     } else if let file = item.primary {
                         NativeMediaImage(session: session, mediaID: item.id, fileID: file.id, purpose: item.media_type == "video" ? "thumbnail" : "preview")
                             .scaleEffect(zoom)
                             .gesture(MagnificationGesture().onChanged { zoom = min(4, max(1, imageScale * $0)) }.onEnded { _ in imageScale = zoom })
                             .clipped()
+                            .onTapGesture { if item.media_type == "live_photo" { play() } }
                             .overlay(alignment: .topLeading) {
-                                if item.media_type == "live_photo" { Label("LIVE", systemImage: "livephoto").padding(8).background(.regularMaterial, in: Capsule()).padding() }
+                                if item.media_type == "live_photo" { liveBadge }
                             }
                     }
                     if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.white).padding(.horizontal) }
@@ -182,6 +189,7 @@ struct NativeMediaDetail: View {
             }
             .task {
                 guard initial.kind != "event" else { return }
+                if initial.media_type == "live_photo" { play() }
                 do { detail = try await session.get("/media/\(initial.id)") }
                 catch { message = friendly(error) }
             }
@@ -195,6 +203,11 @@ struct NativeMediaDetail: View {
             .onDisappear { stop() }
             .onChange(of: scenePhase) { if $0 != .active { stop() } }
         }
+    }
+    private var liveBadge: some View {
+        Button(action: play) {
+            Label("LIVE", systemImage: "livephoto").padding(8).background(.regularMaterial, in: Capsule())
+        }.buttonStyle(.plain).padding().accessibilityLabel("从头播放实况照片")
     }
     private func stop() {
         observation?.invalidate(); observation = nil

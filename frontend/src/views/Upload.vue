@@ -31,6 +31,7 @@ import ChildPicker from "../components/ChildPicker.vue";
 const yearly = useYearly(),
   route = useRoute(),
   queue = ref<any[]>([]),
+  duplicateNames = ref<string[]>([]),
   kids = ref<number[]>([]),
   parsing = ref(false),
   busy = ref(false),
@@ -377,6 +378,7 @@ async function uploadAll(targets = pendingSelected.value, moveDates?: boolean) {
     return;
   }
   busy.value = true;
+  duplicateNames.value = [];
   localStorage.setItem("yearly-upload-children", JSON.stringify(kids.value));
   try {
     for (const item of targets) {
@@ -445,6 +447,7 @@ async function uploadAll(targets = pendingSelected.value, moveDates?: boolean) {
             !!fileDay(item) &&
             fileDay(item) !== archiveDate.value;
           item.duplicate = !!data.duplicate;
+          if (item.duplicate) duplicateNames.value.push(item.original.file.name);
           item.notice = data.notice || "";
         }
         for (let i = 0; i < item.tasks.length; i++) {
@@ -688,6 +691,11 @@ onBeforeUnmount(() => {
           t("粘贴得到的是系统提供的副本，可能缺少拍摄日期或 Live Photo 动态部分；缺少拍摄日期时标为未知。需要相机原件时，请从文件导入。")
         }}</small>
       </section>
+      <div v-if="duplicateNames.length" class="duplicate-notice notice" role="alert">
+        <strong>{{ t("发现重复文件，已跳过上传") }} · {{ duplicateNames.length }}</strong>
+        <p>{{ duplicateNames.slice(0, 5).join("、") }}{{ duplicateNames.length > 5 ? " …" : "" }}</p>
+        <span>{{ t("原件不会再次上传，已有照片仍可在时间线查看。其他文件继续上传。") }}</span>
+      </div>
       <p v-if="importMessage" class="notice" role="status">{{ importMessage }}</p>
       <div v-if="importErrors.length" class="notice" role="alert">
         <strong>{{ t("以下文件未能读取，其余文件已继续处理：") }}</strong>

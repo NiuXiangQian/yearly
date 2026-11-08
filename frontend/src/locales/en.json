@@ -784,5 +784,9 @@
   "实况照片 · 高清预览": "Live Photo · HD preview",
   "查看动态原件 · {p0}": "Original motion · {p0}",
   "全屏预览": "Fullscreen preview",
-  "轻点 LIVE 播放有声实况": "Tap LIVE to play with sound"
+  "轻点 LIVE 播放有声实况": "Tap LIVE to play with sound",
+  "重新播放实况": "Replay Live Photo",
+  "点击照片或 LIVE 播放 · 每次点击从头播放": "Tap the photo or LIVE to play · Each tap restarts playback",
+  "发现重复文件，已跳过上传": "Duplicate files found; upload skipped",
+  "原件不会再次上传，已有照片仍可在时间线查看。其他文件继续上传。": "Originals will not be uploaded again. Existing photos remain in the timeline; other uploads continue."
 }

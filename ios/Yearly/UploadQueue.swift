@@ -4,6 +4,8 @@ import Photos
 @MainActor final class UploadQueue: ObservableObject {
     @Published private(set) var items: [UploadItem] = []
     @Published var error = ""
+    @Published private(set) var duplicateNotice = ""
+    private var duplicateNames: [String] = []
     @Published private(set) var running = false
     private var store: UploadStore?
     private var worker: Task<Void, Never>?
@@ -27,6 +29,7 @@ import Photos
     }
     func configure(session: NativeSession) {
         if self.session !== session { pauseAll() }
+        duplicateNotice = ""; duplicateNames = []
         self.site = session.site
         self.session = session
     }
@@ -40,11 +43,20 @@ import Photos
             throw error
         }
     }
+    private func noteDuplicate(_ name: String) {
+        duplicateNames.append(name)
+        let names = duplicateNames.prefix(5).joined(separator: "、")
+        duplicateNotice = "发现 \(duplicateNames.count) 项重复文件，已阻止重复上传。\n\(names)\(duplicateNames.count > 5 ? " 等" : "")\n已存在的原件会跳过；队列中的原件请继续原任务。其他文件继续上传。"
+    }
     func add(identifiers: [String], account: UploadAccount) {
         guard let site, store != nil, session?.account?.id == account.id, session?.canEdit == true else { return }
+        duplicateNotice = ""; duplicateNames = []
         // Fetch individually: PHFetchResult does not promise picker order.
         for identifier in identifiers {
-            if items.contains(where: { $0.assetIdentifier == identifier && $0.site == site.url.absoluteString && $0.ownerID == account.id && !$0.isTerminal }) { continue }
+            if let existing = items.first(where: { $0.assetIdentifier == identifier && $0.site == site.url.absoluteString && $0.ownerID == account.id && !$0.isTerminal }) {
+                noteDuplicate(existing.name)
+                continue
+            }
             let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject
             let resource = asset.flatMap { PHAssetResource.assetResources(for: $0).first }
             var item = UploadItem(assetIdentifier: identifier, site: site.url.absoluteString, ownerID: account.id,
@@ -64,6 +76,7 @@ import Photos
                 items[index].duplicate = true
                 items[index].message = "相同原件已在本机上传队列中，已跳过，不会重复上传。"
                 skipped.append(items[index].id)
+                noteDuplicate(items[index].name)
                 continue
             }
             items[index].childIDs = childIDs.sorted()
@@ -223,6 +236,7 @@ import Photos
                         items[index].message = items[index].duplicate ? "重复原件已跳过，没有再次上传；沿用原记录并合并所选人物关联。" : "全部资源已通过服务端校验，可返回时间线查看。"
                     }
                     try persist()
+                    if items[index].duplicate { noteDuplicate(items[index].name) }
                     try store.removeFiles(id)
                 }
             } catch {
@@ -236,6 +250,8 @@ import Photos
                     // Never expose signed URLs from URLSession NSError descriptions.
                     items[index].message = error is URLError ? "网络中断，原件与已完成分片已保留，请重试。" : error.localizedDescription
                 }
+                if let http = error as? UploadHTTPError, !http.isOSS, http.status == 409,
+                   http.detail?.contains("相同原件已有未完成上传") == true { noteDuplicate(items[index].name) }
                 if let http = error as? UploadHTTPError, !http.isOSS, [401, 403].contains(http.status) {
                     self.error = http.localizedDescription
                     pauseAll()

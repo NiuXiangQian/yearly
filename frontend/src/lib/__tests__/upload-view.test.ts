@@ -123,6 +123,8 @@ it("defaults to the only child on first use and applies later child choices imme
     vi.mocked(post).mock.calls.some(([path]) => path === "/media/reorder"),
   ).toBe(false);
   expect(host.textContent).toContain("已存在");
+  expect(host.querySelector(".duplicate-notice[role=alert]")?.textContent).toContain("发现重复文件");
+  expect(host.querySelector(".duplicate-notice")?.textContent).toContain("one.jpg、two.jpg");
 });
 
 it("honors an explicit family-only choice instead of silently associating a child", async () => {

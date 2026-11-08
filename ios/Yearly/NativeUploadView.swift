@@ -16,6 +16,7 @@ struct NativeUploadView: View {
     @State private var confirming = false
     @State private var excluded: Set<UUID> = []
     @State private var message = ""
+    @State private var showingDuplicate = false
 
     private var items: [UploadItem] { queue.items.filter { $0.site == site.url.absoluteString && $0.ownerID == session.account?.id } }
     private var ready: [UploadItem] { items.filter { $0.phase == .ready && !excluded.contains($0.id) } }
@@ -28,6 +29,14 @@ struct NativeUploadView: View {
         NavigationStack {
             List {
                 Section {
+                    if !queue.duplicateNotice.isEmpty {
+                        Label("发现重复文件", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(queue.duplicateNotice).font(.callout)
+                        Button("查看重复提醒") { showingDuplicate = true }
+                            .alert("发现重复文件", isPresented: $showingDuplicate) {
+                                Button("知道了", role: .cancel) { }
+                            } message: { Text(queue.duplicateNotice) }
+                    }
                     Button { Task { await choosePhotos() } } label: { Label("从系统相册选择照片与视频", systemImage: "photo.on.rectangle.angled") }
                         .disabled(account == nil)
                     Text("按点选顺序导入；Live Photo 自动包含图片与 MOV。仅访问你选择并授权的项目。")
@@ -111,6 +120,9 @@ struct NativeUploadView: View {
                 }
             }
             .navigationTitle("珍藏原片")
+            .onChange(of: queue.duplicateNotice.isEmpty) { empty in
+                if !empty { showingDuplicate = true }
+            }
             .task { queue.configure(session: session); await loadAccount() }
             .sheet(isPresented: $showPicker) {
                 NativePhotoPicker { identifiers, unavailable in

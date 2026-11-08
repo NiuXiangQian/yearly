@@ -81,6 +81,16 @@ try {
    await page.locator('.live-photo.is-playing').waitFor();
    await page.waitForFunction(()=>document.querySelector('.live-photo-video').currentTime>0.05);
    assert.equal(await page.locator('.live-photo-video').evaluate(v=>v.muted),false);
+   await page.locator('.live-photo-video').evaluate(v => {
+    v.dataset.replays = '0';
+    v.addEventListener('play', () => { v.dataset.replays = String(Number(v.dataset.replays) + 1); });
+   });
+   for (const selector of ['.live-photo-badge', '.live-photo', '.live-photo']) {
+    const beforeReplay = await page.locator('.live-photo-video').evaluate(v => Number(v.dataset.replays));
+    if (mobile) await page.locator(selector).tap(); else await page.locator(selector).click();
+    await page.waitForFunction(n => Number(document.querySelector('.live-photo-video').dataset.replays) > n, beforeReplay);
+    await page.locator('.live-photo.is-playing').waitFor();
+   }
    await page.getByRole('button',{name:'静音',exact:true}).click();
    assert.equal(await page.locator('.live-photo-video').evaluate(v=>v.muted),true);
    await page.getByRole('button',{name:'取消静音',exact:true}).click();

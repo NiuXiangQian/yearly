@@ -18,7 +18,8 @@ const pending = ref(false), error = ref("");
 const gestureRequired = ref(false);
 const label = computed(() => error.value ? t("重试实况") : pending.value
   ? t("动态预览正在准备") : loading.value ? t("正在加载实况…")
-  : playing.value ? t("停止实况") : t("播放实况"));
+  : playing.value ? t("重新播放实况") : t("播放实况"));
+let suppressClick = false;
 let disposed = false, wanted = false, revealed = false, epoch = 0;
 let ready: Promise<void> | undefined;
 let pressTimer: ReturnType<typeof setTimeout> | undefined;
@@ -111,24 +112,27 @@ function start(reveal = true, refresh = false) {
     void prepare(refresh).then(() => playReady(ticket));
   }
 }
-function toggle() {
-  if (wanted) stop();
-  else start(true, !!error.value && !gestureRequired.value);
+function replay() { start(true, !!error.value && !gestureRequired.value); }
+function clickPhoto() {
+  if (suppressClick) { suppressClick = false; return; }
+  replay();
 }
 function down(event: PointerEvent) {
   if (event.pointerType === "mouse" || event.button !== 0) return;
-  if (pointer || !event.isPrimary) { pointer = undefined; stop(); return; }
+  if (pointer || !event.isPrimary) { suppressClick = true; pointer = undefined; stop(); return; }
+  suppressClick = false;
   pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
   start(false); // Authorize sound in the iOS gesture; reveal motion once the hold is confirmed.
   pressTimer = setTimeout(() => {
     if (!wanted) return;
+    suppressClick = true;
     revealed = true;
     if (video.value && !video.value.paused && video.value.readyState >= 2) showPlaying();
   }, 180);
 }
 function move(event: PointerEvent) {
   if (pointer?.id !== event.pointerId) return;
-  if (Math.hypot(pointer.x - event.clientX, pointer.y - event.clientY) > 10) release();
+  if (Math.hypot(pointer.x - event.clientX, pointer.y - event.clientY) > 10) { suppressClick = true; release(); }
 }
 function release() { pointer = undefined; stop(); }
 function leave(event: PointerEvent) {
@@ -161,7 +165,7 @@ onBeforeUnmount(() => {
     <div class="live-photo" :class="{ 'is-playing': playing }"
       @pointerenter="$event.pointerType === 'mouse' && !error && start()"
       @pointerleave="leave" @pointerdown="down" @pointermove="move"
-      @pointerup="releasePointer" @pointercancel="release" @contextmenu.prevent>
+      @pointerup="releasePointer" @pointercancel="suppressClick = true; release()" @click="clickPhoto" @contextmenu.prevent>
       <video ref="video" class="live-photo-video" :muted="muted" playsinline
         webkit-playsinline preload="none" aria-hidden="true"
         @playing="showPlaying" @waiting="buffer" @ended="stop" @error="fail" />
@@ -169,7 +173,7 @@ onBeforeUnmount(() => {
     </div>
     <div class="live-photo-actions">
       <button class="live-photo-badge" :aria-label="label" :aria-pressed="playing"
-        :aria-busy="loading" @click="toggle">
+        :aria-busy="loading" @click="replay">
         <LoaderCircle v-if="loading || pending" class="live-spinner" :size="18" />
         <RotateCcw v-else-if="error" :size="18" />
         <CircleDot v-else :size="18" />
@@ -181,7 +185,7 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <p class="live-photo-hint" role="status">
-      {{ error || (pending ? t('动态预览正在准备，完成后可播放') : t('长按照片播放 · 也可轻点 LIVE')) }}
+      {{ error || (pending ? t('动态预览正在准备，完成后可播放') : t('点击照片或 LIVE 播放 · 每次点击从头播放')) }}
     </p>
   </div>
 </template>
