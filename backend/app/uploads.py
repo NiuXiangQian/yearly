@@ -1,13 +1,14 @@
 import json
+import hashlib
 import math
 from datetime import timedelta
 from pathlib import PurePath
-from uuid import uuid4
+from uuid import UUID, uuid4
 import oss2
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, Response
 from sqlalchemy import select
 from .db import get_db, now
-from .models import Media, MediaFile, MediaMetadata, UploadTask
+from .models import Media, MediaFile, MediaMetadata, UploadTask, User
 from .schemas import UploadIn
 from .security import editor
 from .services import require_row, set_children, apply_time, validate_children
@@ -64,11 +65,62 @@ def owned_task(db, tid, user):
 @router.post("")
 def create_upload(
     data: UploadIn,
+    idempotency_key: str | None = Header(default=None, max_length=36),
     db=Depends(get_db),
     user=Depends(editor),
     storage=Depends(get_storage),
 ):
     cfg = settings()
+    # Opt-in for durable native clients. Existing browser requests keep their behavior.
+    # Serialize by owner, including first creation: MySQL 5.7 has no JSON unique index.
+    # The receipt lives in existing metadata; no schema or OSS key changes are needed.
+    receipt = None
+    if idempotency_key is not None:
+        try:
+            key = str(UUID(idempotency_key))
+        except ValueError:
+            raise HTTPException(422, "Idempotency-Key 必须为 UUID")
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                data.model_dump(mode="json"),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()
+        db.scalar(select(User).where(User.id == user.id).with_for_update())
+        previous = db.scalar(
+            select(MediaMetadata)
+            .join(Media, Media.id == MediaMetadata.media_id)
+            .where(
+                Media.owner_id == user.id,
+                MediaMetadata.raw_metadata["_upload_receipt"]["key"].as_string()
+                == key,
+            )
+            .with_for_update()
+        )
+        if previous:
+            if previous.raw_metadata["_upload_receipt"]["fingerprint"] != fingerprint:
+                raise HTTPException(409, "同一上传请求不能更换文件或归档信息")
+            media = db.get(Media, previous.media_id)
+            if media.status not in ("uploading", "active"):
+                raise HTTPException(409, "原上传媒体已不可用")
+            tasks = db.scalars(
+                select(UploadTask)
+                .where(UploadTask.media_id == media.id)
+                .order_by(UploadTask.file_id)
+            ).all()
+            if any(t.status != "complete" and t.expires_at < now() for t in tasks):
+                raise HTTPException(410, "上传任务已过期")
+            return {
+                "media_id": media.id,
+                "timeline_day": media.timeline_date
+                or (media.taken_at_local.date() if media.taken_at_local else None),
+                "tasks": [task_data(t, db.get(MediaFile, t.file_id)) for t in tasks],
+            }
+        receipt = {"key": key, "fingerprint": fingerprint}
+    # This internal namespace cannot be supplied by clients, even without the header.
+    data.metadata.pop("_upload_receipt", None)
     if data.folder_id:
         from .folders import active_folder
 
@@ -151,8 +203,13 @@ def create_upload(
     db.add(
         MediaMetadata(
             media_id=media.id,
-            raw_metadata=data.metadata,
-            parser_name="exifr + bounded ISO-BMFF",
+            raw_metadata={
+                **data.metadata,
+                **({"_upload_receipt": receipt} if receipt else {}),
+            },
+            parser_name="ImageIO + AVFoundation"
+            if data.metadata.get("source") == "ios_photokit"
+            else "exifr + bounded ISO-BMFF",
             parser_version="1",
             parse_status=data.metadata.get("parse_status", "partial"),
             parse_error=data.metadata.get("parse_error"),
@@ -201,7 +258,10 @@ def create_upload(
 
 
 @router.get("")
-def list_uploads(db=Depends(get_db), user=Depends(editor)):
+def list_uploads(response: Response, db=Depends(get_db), user=Depends(editor)):
+    # Native clients check this before their first create; older servers must not
+    # silently ignore Idempotency-Key and create duplicates after a lost response.
+    response.headers["X-Yearly-Upload-Protocol"] = "idempotent-v1"
     tasks = db.scalars(
         select(UploadTask)
         .where(

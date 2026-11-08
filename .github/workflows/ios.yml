@@ -1,0 +1,17 @@
+name: iOS build
+on:
+  pull_request:
+    paths: ['ios/**', 'scripts/ios.sh', '.github/workflows/ios.yml']
+  push:
+    paths: ['ios/**', 'scripts/ios.sh', '.github/workflows/ios.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  simulator:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify and build Debug and Release without signing
+        run: ./scripts/ios.sh build

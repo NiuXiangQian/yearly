@@ -26,6 +26,8 @@ Drag photos, videos, and folders into any order within a day. Folders display sm
 
 Name a batch, select people and pets, and choose an archive date. The compact file list supports bulk selection, drag-to-reorder, and file details.
 
+[Native iPhone upload](docs/en/storage-and-metadata.md#native-iphone-upload) lets you select a Live Photo in the system picker and upload its still image and paired video together.
+
 ![Fictional demo: batch naming and upload queue](docs/images/demo-upload-en.png)
 
 [Full-resolution upload screenshot](docs/images/demo-upload-en.png)
@@ -152,6 +154,17 @@ To start them separately, run each command in its own terminal:
 ./scripts/start-api.sh test --reload
 (cd frontend && npm run dev -- --port 5173)
 ./scripts/manage.sh test generate-previews --watch
+```
+
+## iOS app
+
+The existing SwiftUI + WKWebView iPhone client (iOS 16+) now includes native batch original uploads, paired Live Photo resources, and a persistent resumable queue. It supports Xcode installation with a free Personal Team and renewal after the 7-day provisioning period; paid membership, TestFlight, and App Store distribution are not prerequisites. See the [Chinese iOS development and usage guide](ios/README.md). Full iOS SDK builds, signing, and device acceptance are still pending.
+
+```bash
+open ios/Yearly.xcodeproj
+./scripts/ios.sh verify
+# Requires full Xcode:
+./scripts/ios.sh build
 ```
 
 ## Environments and deployment

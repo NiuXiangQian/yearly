@@ -94,7 +94,15 @@ For batches, follow [Apple's original-download steps](https://support.apple.com/
 
 File counts and hashing progress appear only after the browser delivers files. A read failure lists the affected filename while other files continue. Empty results show guidance without claiming to measure iCloud download progress.
 
-A future native iOS PhotoKit helper could reuse the logical-media creation, task, multipart-signing, and completion-verification APIs, submitting PHAsset original photos and pairedVideo resources as `original` and `live_video`. Session authentication, CSRF, and permission boundaries would still apply.
+### Native iPhone upload
+
+Use the upload icon in the existing SwiftUI + WKWebView app to select many photos, videos and Live Photos in the system picker. PhotoKit reads original resource bytes, including iCloud downloads, into a bounded private cache. A Live Photo requires a matching-generation still and MOV; edited full-size fallback resources are explicitly labeled. The old single-item web bridge remains available for compatibility.
+
+Confirm filenames, sizes, original capture dates, people/pets, batch name and optional archive date before upload. The native queue persists resource/task identities, pauses in background, and resumes from authoritative server parts. It does not guarantee continued execution after force-quit. Photos metadata is kept separate from PhotoKit auxiliary values and archive dates.
+
+The client reuses the existing upload, signing, completion, verification and deduplication API. An optional UUID `Idempotency-Key` uses receipts in existing media metadata to recover lost create responses without duplicating media. The client checks the existing upload-list endpoint's capability header before creating tasks; update the backend first. No database migration or OSS naming change is required. Hashing uses 4 MiB blocks; upload uses the task's returned part size (current backend defaults to 16 MiB, despite the historical 4 MiB description).
+
+See the [Chinese iOS guide](../../ios/README.md) for architecture, tests, free Apple Personal Team installation and 7-day re-signing. Full iOS SDK compilation and real-device/iCloud acceptance remain pending; automated checks use synthetic files and mocks only.
 
 ## Duplicate imports and child associations
 

@@ -289,6 +289,7 @@ export async function fingerprints(
 export async function inspectFile(
   file: File,
   progress?: (value: number) => void,
+  { hasFileModified = true } = {},
 ) {
   let raw: Record<string, any> = {},
     error = "";
@@ -320,8 +321,8 @@ export async function inspectFile(
     other = wallTime(raw.CreateDate);
   const qtDate = raw["com.apple.quicktime.creationdate"] || raw.CreationDate;
   const taken = original || other || wallTime(qtDate);
-  const modified = new Date(file.lastModified);
-  const fallback = Number.isFinite(modified.getTime())
+  const modified = hasFileModified ? new Date(file.lastModified) : null;
+  const fallback = modified && Number.isFinite(modified.getTime())
     ? `${modified.getFullYear()}-${String(modified.getMonth() + 1).padStart(2, "0")}-${String(modified.getDate()).padStart(2, "0")}T${String(modified.getHours()).padStart(2, "0")}:${String(modified.getMinutes()).padStart(2, "0")}:${String(modified.getSeconds()).padStart(2, "0")}`
     : null;
   const coordinates = String(
@@ -348,7 +349,7 @@ export async function inspectFile(
       OriginalFilename: file.name,
       MIME: file.type,
       FileSize: file.size,
-      FileModified: modified.toISOString(),
+      ...(modified && { FileModified: modified.toISOString() }),
       parse_status: error
         ? "partial"
         : Object.keys(raw).length
