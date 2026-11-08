@@ -18,6 +18,8 @@ struct NativeSharingView: View {
     @State private var confirming = false
     @State private var revoking: NativeShare?
     @State private var copied = false
+    @State private var dateRangeError = ""
+    @State private var loadingRange = false
     init(session: NativeSession, day: String? = nil, selectedItems: [NativeTimelineItem]? = nil) {
         self.selectedItems = selectedItems
         _store = StateObject(wrappedValue: NativeSharingStore(session: session))
@@ -32,6 +34,9 @@ struct NativeSharingView: View {
                     if !selectionMode {
                         DatePicker("开始日期", selection: $start, displayedComponents: .date)
                         DatePicker("结束日期", selection: $end, displayedComponents: .date)
+                        Button("从最早到最新") { Task { await useFullRange() } }.disabled(loadingRange)
+                        if loadingRange { ProgressView("正在查询可分享日期…") }
+                        if !dateRangeError.isEmpty { Text(dateRangeError).foregroundStyle(.red) }
                     } else { Label("仅分享所选 \(selectedItems?.count ?? 0) 项影像", systemImage: "checkmark.circle") }
                     Picker("链接有效期", selection: $hours) {
                         Text("1 小时").tag(1); Text("24 小时").tag(24)
@@ -43,7 +48,7 @@ struct NativeSharingView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                     Button { confirming = true } label: {
                         Label("创建限时分享链接", systemImage: "link")
-                    }.disabled(store.busy || (!selectionMode && NativeDay.string(start) > NativeDay.string(end)) || (selectionMode && (selectedItems!.isEmpty || selectedItems!.count > 200)) || !store.session.canEdit)
+                    }.disabled(store.busy || loadingRange || (!selectionMode && NativeDay.string(start) > NativeDay.string(end)) || (selectionMode && (selectedItems!.isEmpty || selectedItems!.count > 200)) || !store.session.canEdit)
                 }
                 if let selectedItems {
                     Section("确认所选内容") {
@@ -109,5 +114,20 @@ struct NativeSharingView: View {
                 if let share = revoking { Button("撤销分享", role: .destructive) { Task { await store.revoke(share) }; revoking = nil } }
             }
         }
+    }
+    private func useFullRange() async {
+        struct Bounds: Decodable { let earliest: String?; let latest: String? }
+        loadingRange = true
+        dateRangeError = ""
+        defer { loadingRange = false }
+        do {
+            let bounds: Bounds = try await store.session.get("/shares/bounds")
+            guard let first = bounds.earliest.flatMap(NativeDay.date),
+                  let last = bounds.latest.flatMap(NativeDay.date) else {
+                throw UploadFailure(message: "暂无带日期的可分享回忆。")
+            }
+            start = first
+            end = last
+        } catch { dateRangeError = friendly(error) }
     }
 }

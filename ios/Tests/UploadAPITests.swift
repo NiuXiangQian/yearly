@@ -63,7 +63,14 @@ private final class MockHTTP: URLProtocol {
         precondition(create.value(forHTTPHeaderField: "Origin") == "https://yearly.invalid")
         precondition(create.value(forHTTPHeaderField: "X-CSRF-Token") == "synthetic-csrf")
         precondition(create.value(forHTTPHeaderField: "Idempotency-Key") == key.uuidString.lowercased())
-        try await api.put(Data("synthetic-original".utf8), to: URL(string: "https://oss.invalid/part")!)
+        let payload = Data("synthetic-original".utf8)
+        var sent: Int64 = 0
+        api.onPartProgress = { bytes, speed in
+            precondition(bytes <= payload.count && speed > 0)
+            sent = bytes
+        }
+        try await api.put(payload, to: URL(string: "https://oss.invalid/part")!)
+        precondition(sent == payload.count)
         let put = MockHTTP.captured().last!
         precondition(put.httpMethod == "PUT")
         for header in ["Cookie", "Origin", "Authorization", "X-CSRF-Token", "Idempotency-Key"] {

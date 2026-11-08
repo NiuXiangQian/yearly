@@ -141,6 +141,20 @@ private final class SessionHTTP: URLProtocol {
         precondition(NativeDay.following(NativeDay.date("2024-02-28")!) == "2024-02-29")
         timeline.resetFilters()
         precondition(!timeline.hasFilters)
+        let reorderPair = try JSONDecoder().decode([NativeTimelineItem].self, from: Data(
+            #"[{"id":10,"kind":"media","timeline_day":"2026-11-08"},{"id":11,"kind":"media","timeline_day":"2026-11-08"}]"#.utf8
+        ))
+        timeline.items = reorderPair
+        var otherDay = reorderPair[1]
+        otherDay.timeline_day = "2026-11-09"
+        let beforeReorder = SessionHTTP.requests.count
+        await timeline.reorder(reorderPair[0], relativeTo: otherDay)
+        precondition(SessionHTTP.requests.count == beforeReorder, "dragging across days must not change archive dates")
+        await timeline.reorder(reorderPair[0], relativeTo: reorderPair[1])
+        let reorder = SessionHTTP.requests[beforeReorder]
+        let reorderBody = try JSONSerialization.jsonObject(with: SessionHTTP.bodyData(reorder)) as? [String: Any]
+        precondition(reorder.url?.path.hasSuffix("/media/reorder") == true && reorder.httpMethod == "POST")
+        precondition(reorderBody?["target_id"] as? Int == 11 && reorderBody?["placement"] as? String == "after")
         let sharing = NativeSharingStore(session: session)
         await sharing.load()
         precondition(sharing.shares.count == 1 && sharing.shares[0].token == nil)

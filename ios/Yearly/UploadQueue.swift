@@ -2,11 +2,21 @@ import SwiftUI
 import Photos
 
 @MainActor final class UploadQueue: ObservableObject {
+    struct Transfer {
+        let itemID: UUID
+        let inFlightBytes: Int64
+        let bytesPerSecond: Double
+        let sampledAt: Date
+    }
+
     @Published private(set) var items: [UploadItem] = []
     @Published var error = ""
     @Published private(set) var duplicateNotice = ""
     private var duplicateNames: [String] = []
     @Published private(set) var running = false
+    @Published private(set) var transfer: Transfer?
+    @Published private(set) var preparationSecondsPerItem: Double?
+    private(set) var uploadGroup: Set<UUID> = []
     private var store: UploadStore?
     private var worker: Task<Void, Never>?
     private var activeID: UUID?
@@ -31,6 +41,7 @@ import Photos
     func configure(session: NativeSession) {
         if self.session !== session || configuredOwnerID != session.account?.id {
             pauseAll()
+            uploadGroup = []
             duplicateNotice = ""; duplicateNames = []
         }
         configuredOwnerID = session.account?.id
@@ -55,6 +66,9 @@ import Photos
     func add(identifiers: [String], account: UploadAccount) {
         guard let site, store != nil, session?.account?.id == account.id, session?.canEdit == true else { return }
         duplicateNotice = ""; duplicateNames = []
+        if !items.contains(where: { $0.site == site.url.absoluteString && $0.ownerID == account.id && [.selected, .preparing].contains($0.phase) }) {
+            preparationSecondsPerItem = nil
+        }
         // Fetch individually: PHFetchResult does not promise picker order.
         for identifier in identifiers {
             if let existing = items.first(where: { $0.assetIdentifier == identifier && $0.site == site.url.absoluteString && $0.ownerID == account.id && !$0.isTerminal }) {
@@ -73,6 +87,9 @@ import Photos
     }
     func confirm(ids: Set<UUID>, childIDs: [Int], batchName: String, archiveDate: String?) {
         guard session?.canEdit == true else { return }
+        if !items.contains(where: { uploadGroup.contains($0.id) && !$0.isTerminal }) {
+            uploadGroup = []
+        }
         var skipped: [UUID] = []
         for index in items.indices where ids.contains(items[index].id) && items[index].phase == .ready && items[index].ownerID == session?.account?.id && items[index].site == site?.url.absoluteString {
             if items.contains(where: { $0.id != items[index].id && $0.confirmed && !$0.isTerminal && $0.sameOriginals(as: items[index]) }) {
@@ -87,6 +104,7 @@ import Photos
             items[index].batchName = String(batchName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(255))
             items[index].archiveDate = archiveDate
             items[index].confirmed = true
+            uploadGroup.insert(items[index].id)
             items[index].phase = .queued
             items[index].message = ""
         }
@@ -127,6 +145,7 @@ import Photos
         pendingResumes.removeAll()
         suspended = true
         worker?.cancel()
+        transfer = nil
         for i in items.indices where [.selected, .preparing, .queued, .uploading].contains(items[i].phase) { items[i].phase = .paused }
         if store != nil { do { try persist() } catch { } }
     }
@@ -171,7 +190,9 @@ import Photos
             activeID = id
             do {
                 if items[index].phase == .selected {
+                    let started = Date()
                     items[index].phase = .preparing
+                    items[index].preparationProgress = 0
                     try persist()
                     let source = items[index]
                     let extraction = Task.detached(priority: .utility) {
@@ -182,15 +203,27 @@ import Photos
                                 guard abs(self.items[i].preparationProgress - progress) >= 0.01 || self.items[i].message != message else { return }
                                 self.items[i].preparationProgress = progress
                                 self.items[i].message = message
+                                if self.preparationSecondsPerItem == nil, progress >= 0.1, progress < 0.9 {
+                                    self.preparationSecondsPerItem = max(0.1, Date().timeIntervalSince(started) / progress)
+                                }
                             }
                         }
                     }
                     let prepared = try await withTaskCancellationHandler { try await extraction.value } onCancel: { extraction.cancel() }
                     try Task.checkCancellation()
                     items[index] = prepared
+                    let elapsed = max(0.1, Date().timeIntervalSince(started))
+                    preparationSecondsPerItem = preparationSecondsPerItem.map { $0 * 0.6 + elapsed * 0.4 } ?? elapsed
                     try persist()
                 } else {
+                    uploadGroup.insert(id)
                     let service = session.uploadAPI(ownerID: items[index].ownerID)
+                    service.onPartProgress = { [weak self] bytes, rate in
+                        guard let self, self.activeID == id, self.items[index].phase == .uploading else { return }
+                        let now = Date()
+                        if let previous = self.transfer, now.timeIntervalSince(previous.sampledAt) < 0.25 { return }
+                        self.transfer = Transfer(itemID: id, inFlightBytes: bytes, bytesPerSecond: rate, sampledAt: now)
+                    }
                     items[index].phase = .uploading
                     items[index].message = "正在核对原件与上传任务…"
                     try persist()
@@ -226,10 +259,13 @@ import Photos
                             try Task.checkCancellation()
                             let resource = items[index].resources[r]
                             if resource.complete { continue }
-                            items[index].message = resource.role == "live_video" ? "正在上传 Live Photo MOV" : "正在上传原件"
+                            items[index].message = items[index].mediaType == "live_photo" ? "正在上传实况原件" : "正在上传原件"
                             try await MultipartUploader.upload(resource, file: store.file(resource, itemID: id), service: service) { bytes, complete in
                                 self.items[index].resources[r].uploadedBytes = bytes
                                 self.items[index].resources[r].complete = complete
+                                if let previous = self.transfer {
+                                    self.transfer = Transfer(itemID: id, inFlightBytes: 0, bytesPerSecond: previous.bytesPerSecond, sampledAt: previous.sampledAt)
+                                }
                                 if bytes == resource.size && !complete { self.items[index].message = "分片已传完，等待服务端完整性校验…" }
                                 try self.persist()
                             }
@@ -269,6 +305,7 @@ import Photos
                 do { try persist() } catch { return }
             }
             activeID = nil
+            transfer = nil
         }
     }
 }

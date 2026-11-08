@@ -7,6 +7,7 @@ struct NativeMediaFile: Decodable, Identifiable {
     let original_filename: String
     let mime_type: String
     let file_size: Int64
+    let sha256: String?
 }
 struct NativeTimelineItem: Decodable, Identifiable {
     let id: Int
@@ -21,6 +22,14 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var content: String?
     var remark: String?
     var location_name: String?
+    var latitude: Double?
+    var longitude: Double?
+    var corrected_taken_at_local: String?
+    var corrected_offset_minutes: Int?
+    var time_unknown: Bool?
+    var share_allowed: Bool?
+    var tags: [String]?
+    var folder_id: Int?
     var files: [NativeMediaFile]?
     var children: [UploadProfile]?
     var child_ids: [Int]?
@@ -102,6 +111,21 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     func loadProfiles() async {
         do { profiles = try await session.get("/children") }
         catch { self.error = friendly(error) }
+    }
+
+    func reorder(_ source: NativeTimelineItem, relativeTo target: NativeTimelineItem) async {
+        guard source.kind == "media", target.kind == "media", source.day == target.day,
+              source.folder_id == target.folder_id, !loading, session.canEdit,
+              let from = items.firstIndex(where: { $0.stableID == source.stableID }),
+              let to = items.firstIndex(where: { $0.stableID == target.stableID }), from != to else { return }
+        loading = true
+        defer { loading = false }
+        do {
+            try await session.write("/media/reorder", method: "POST", json: [
+                "media_ids": [source.id], "target_id": target.id, "placement": from < to ? "after" : "before",
+            ])
+            await load()
+        } catch { self.error = friendly(error) }
     }
 }
 

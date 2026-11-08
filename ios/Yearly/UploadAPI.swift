@@ -12,6 +12,17 @@ struct UploadProfile: Decodable, Identifiable {
 // No redirects, disk cookies, shared credential storage or response cache in native networking.
 // Native login stores only the session token in Keychain. Cookies are injected in memory.
 final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
+    let progress: (@Sendable (Int64) -> Void)?
+
+    init(progress: (@Sendable (Int64) -> Void)? = nil) {
+        self.progress = progress
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        progress?(totalBytesSent)
+    }
+
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
                     completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
@@ -23,6 +34,8 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
     private let cookieProvider: () async -> [HTTPCookie]
     private let session: URLSession
     private let unauthorized: ((String) -> Void)?
+    var onPartProgress: ((Int64, Double) -> Void)?
+    private var activePart: UUID?
 
     // Injectable boundaries let tests prove credential isolation without a real account or network.
     init(site: SiteOrigin, ownerID: Int? = nil, cookieProvider: @escaping () async -> [HTTPCookie], session: URLSession? = nil, unauthorized: ((String) -> Void)? = nil) {
@@ -114,10 +127,25 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         // Never send Cookie, Origin, CSRF or Authorization to OSS.
-        let (_, response) = try await session.upload(for: request, from: data)
+        let part = UUID()
+        activePart = part
+        let started = Date()
+        let partSize = Int64(data.count)
+        defer { activePart = nil }
+        let delegate = onPartProgress == nil ? nil : UploadRedirectPolicy { [weak self] bytes in
+            let elapsed = Date().timeIntervalSince(started)
+            guard elapsed >= 0.25 else { return }
+            Task { @MainActor in
+                guard let self, self.activePart == part else { return }
+                self.onPartProgress?(min(bytes, partSize), Double(bytes) / elapsed)
+            }
+        }
+        let (_, response) = try await session.upload(for: request, from: data, delegate: delegate)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw UploadHTTPError(status: (response as? HTTPURLResponse)?.statusCode ?? 0, isOSS: true)
         }
+        let elapsed = max(Date().timeIntervalSince(started), 0.05)
+        onPartProgress?(partSize, Double(partSize) / elapsed)
     }
     func complete(_ task: RemoteUpload) async throws {
         struct Completed: Decodable { let status: String }

@@ -113,12 +113,12 @@ enum PhotoOriginals {
                 try await withTaskCancellationHandler {
                     try await withCheckedThrowingContinuation { continuation in
                         writer.start(resource, progress: { fraction in
-                            progress((Double(index) + fraction) / Double(selected.count), "iCloud / 原件准备 \(Int(fraction * 100))%")
+                            progress((Double(index) + fraction * 0.9) / Double(selected.count), "iCloud / 原件准备 \(Int(fraction * 100))%")
                         }, continuation: continuation)
                     }
                     try Task.checkCancellation()
                 } onCancel: { writer.cancel() }
-                progress(Double(index + 1) / Double(selected.count), "正在流式校验 \(resource.originalFilename)")
+                progress((Double(index) + 0.9) / Double(selected.count), "正在流式校验 \(resource.originalFilename)")
                 let digest = try FileIntegrity.fingerprint(url) { try Task.checkCancellation() }
                 prepared.resources.append(UploadResource(role: role, filename: resource.originalFilename,
                     mimeType: UTType(resource.uniformTypeIdentifier)?.preferredMIMEType ?? "application/octet-stream",

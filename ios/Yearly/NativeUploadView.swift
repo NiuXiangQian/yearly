@@ -23,6 +23,7 @@ struct NativeUploadView: View {
     @State private var showingPeople = false
     @State private var profileSearch = ""
     @State private var showFinished = false
+    @State private var showAllPending = false
     @State private var confirmingIDs: Set<UUID> = []
     @State private var cancelling: UploadItem?
     private var chosenNames: String {
@@ -30,14 +31,88 @@ struct NativeUploadView: View {
         return names.isEmpty ? "仅家庭时光" : names.joined(separator: "、")
     }
     private var confirmationItems: [UploadItem] { items.filter { confirmingIDs.contains($0.id) } }
-    private var visibleItems: [UploadItem] { showFinished ? items : items.filter { !$0.isTerminal } }
-
-    private var items: [UploadItem] { queue.items.filter { $0.site == site.url.absoluteString && $0.ownerID == session.account?.id } }
+    private var items: [UploadItem] {
+        queue.items.filter { $0.site == site.url.absoluteString && $0.ownerID == session.account?.id }
+    }
     private var ready: [UploadItem] { items.filter { $0.phase == .ready && !excluded.contains($0.id) } }
-    private var totalProgress: Double {
-        let confirmed = items.filter { $0.confirmed && !$0.duplicate && $0.phase != .cancelled }
-        let bytes = confirmed.reduce(Int64(0)) { $0 + $1.size }
-        return bytes == 0 ? 0 : confirmed.reduce(0.0) { $0 + $1.progress * Double($1.size) } / Double(bytes)
+    private var pending: [UploadItem] { items.filter { !$0.isTerminal } }
+    private var finished: [UploadItem] { items.filter(\.isTerminal) }
+    private var visibleItems: [UploadItem] {
+        let active = pending.filter { [.preparing, .uploading].contains($0.phase) }
+        let waiting = pending.filter { ![.preparing, .uploading].contains($0.phase) }
+        return (showAllPending ? pending : active + Array(waiting.prefix(3))) + (showFinished ? finished : [])
+    }
+    private var preparing: [UploadItem] { items.filter { [.selected, .preparing].contains($0.phase) } }
+    private var readyCount: Int { items.filter { $0.phase == .ready }.count }
+    private var preparationRemaining: Double {
+        preparing.reduce(0) { $0 + 1 - ($1.phase == .preparing ? $1.preparationProgress : 0) }
+    }
+    private var uploadItems: [UploadItem] {
+        items.filter { $0.confirmed && !$0.duplicate && $0.phase != .cancelled &&
+            (!$0.isTerminal || queue.uploadGroup.contains($0.id)) }
+    }
+    private var remainingUploadBytes: Int64 {
+        uploadItems.filter { [.queued, .uploading].contains($0.phase) }.reduce(0) { $0 + $1.size - bytesSent($1) }
+    }
+    private var uploadSize: Int64 { uploadItems.reduce(0) { $0 + $1.size } }
+    private var sentBytes: Int64 { uploadItems.reduce(0) { $0 + bytesSent($1) } }
+    private var transfer: UploadQueue.Transfer? {
+        guard let transfer = queue.transfer,
+              uploadItems.contains(where: { $0.id == transfer.itemID && $0.phase == .uploading }) else { return nil }
+        return transfer
+    }
+
+    private func bytesSent(_ item: UploadItem) -> Int64 {
+        if item.phase == .complete { return item.size }
+        let committed = item.resources.reduce(Int64(0)) { $0 + ($1.complete ? $1.size : $1.uploadedBytes) }
+        let inFlight = queue.transfer.flatMap { $0.itemID == item.id ? $0.inFlightBytes : nil } ?? 0
+        return min(item.size, committed + inFlight)
+    }
+
+    private func eta(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "估算中" }
+        if seconds < 60 { return "\(max(1, Int(seconds.rounded(.up)))) 秒" }
+        if seconds < 3600 { return "\(Int((seconds / 60).rounded(.up))) 分钟" }
+        if seconds < 86400 { return "\(Int(seconds / 3600)) 小时 \(Int(seconds / 60) % 60) 分钟" }
+        return "超过 1 天"
+    }
+
+    @ViewBuilder private var preparationSummary: some View {
+        let count = readyCount + preparing.count
+        if count > 0 {
+            let fraction = max(0, 1 - preparationRemaining / Double(count))
+            ProgressView(value: fraction) {
+                Text("准备原件 · \(readyCount) / \(count) 项就绪")
+            } currentValueLabel: {
+                if preparing.isEmpty { Text("原件已就绪") }
+                else if let seconds = queue.preparationSecondsPerItem { Text("预计剩余 \(eta(seconds * preparationRemaining))") }
+                else { Text("预计剩余时间估算中…") }
+            }
+        }
+    }
+
+    @ViewBuilder private var uploadSummary: some View {
+        if uploadSize > 0 {
+            let done = uploadItems.allSatisfy { $0.phase == .complete }
+            let fraction = done ? 1 : min(0.99, Double(sentBytes) / Double(uploadSize))
+            ProgressView(value: fraction) {
+                Text("上传进度 · \(Int(fraction * 100))%")
+            } currentValueLabel: {
+                if done { Text("本次上传完成") }
+                else if sentBytes >= uploadSize && uploadItems.contains(where: { $0.phase == .uploading }) {
+                    Text("已传完，正在校验")
+                } else if let transfer, transfer.bytesPerSecond > 0 {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        if context.date.timeIntervalSince(transfer.sampledAt) < 5 {
+                            let rate = ByteCountFormatter.string(fromByteCount: Int64(transfer.bytesPerSecond), countStyle: .file)
+                            Text("\(rate)/秒 · 预计剩余 \(eta(Double(remainingUploadBytes) / transfer.bytesPerSecond))")
+                        } else { Text("等待传输 · 预计剩余时间估算中…") }
+                    }
+                } else if uploadItems.contains(where: { [.queued, .uploading].contains($0.phase) }) {
+                    Text("等待传输 · 网速和剩余时间估算中…")
+                } else { Text("暂停或待重试") }
+            }
+        }
     }
     var body: some View {
         NavigationStack {
@@ -54,6 +129,8 @@ struct NativeUploadView: View {
                     Button { Task { await choosePhotos() } } label: { Label("从系统相册选择照片与视频", systemImage: "photo.on.rectangle.angled") }
                         .disabled(account == nil || openingPicker)
                     if loadingAccount || openingPicker { ProgressView(openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
+                    preparationSummary
+                    uploadSummary
                     Text("按点选顺序导入；Live Photo 自动包含图片与 MOV。仅访问你选择并授权的项目。")
                         .font(.caption).foregroundStyle(.secondary)
                     if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited {
@@ -85,7 +162,6 @@ struct NativeUploadView: View {
 
                 } header: { Text("上传确认 · 人物、孩子与宠物可多选") }
                 Section {
-                    ProgressView(value: totalProgress)
                     Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .skipped }.count) 重复已跳过 · \(items.filter { $0.phase == .failed }.count) 失败 · \(items.count) 项")
                     Text("照片 \(items.filter { $0.mediaType == "photo" }.count) · Live Photo \(items.filter { $0.mediaType == "live_photo" }.count) · 视频 \(items.filter { $0.mediaType == "video" }.count)")
                         .font(.caption).foregroundStyle(.secondary)
@@ -94,6 +170,9 @@ struct NativeUploadView: View {
                         Spacer()
                         Button("继续暂停任务") { queue.resumeAll() }.disabled(account == nil)
                     }.buttonStyle(.borderless)
+                    if pending.count > 3 {
+                        Button(showAllPending ? "收起任务列表" : "展开全部 \(pending.count) 项任务") { showAllPending.toggle() }
+                    }
                     Toggle("显示已结束记录（\(items.filter { $0.isTerminal }.count) 项）", isOn: $showFinished)
                     Text("原件先提取到本机，显示准确大小后再确认上传。缓存上限 8 GiB，预留 512 MiB；达到上限时先上传已准备的项目，再重试其余项目。进入后台会暂停，回到前台续传；强制退出后请点继续。")
                         .font(.caption).foregroundStyle(.secondary)
@@ -104,7 +183,7 @@ struct NativeUploadView: View {
                             AssetThumbnail(identifier: item.assetIdentifier)
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(item.name).font(.subheadline.bold()).lineLimit(2)
-                                if item.mediaType == "live_photo" { Label("LIVE · \(item.resources.count == 2 ? "双资源已提取" : "等待完整双资源")", systemImage: "livephoto").font(.caption) }
+                                if item.mediaType == "live_photo" { Label("实况照片", systemImage: "livephoto").font(.caption) }
                                 Text(item.resources.isEmpty ? "大小：提取后显示" : ByteCountFormatter.string(fromByteCount: item.size, countStyle: .file)).font(.caption)
                                 Text("拍摄：\(item.captureDate ?? "未知")").font(.caption)
                                 if item.captureDate == nil, let date = item.photoKitDate {
@@ -119,10 +198,8 @@ struct NativeUploadView: View {
                         if !item.warning.isEmpty { Text(item.warning).font(.caption).foregroundStyle(.orange) }
                         Text(item.phase.label).font(.caption.bold())
                         if item.phase == .preparing { ProgressView(value: item.preparationProgress) }
-                        if item.confirmed { ProgressView(value: item.progress) }
-                        ForEach(item.resources, id: \.role) { resource in
-                            Text("\(resource.role == "live_video" ? "MOV" : "原件") · \(resource.filename) · \(ByteCountFormatter.string(fromByteCount: resource.size, countStyle: .file)) · \(resource.complete ? "已校验" : "\(Int(Double(resource.uploadedBytes) / Double(max(resource.size, 1)) * 100))%")")
-                                .font(.caption2).foregroundStyle(.secondary)
+                        if item.confirmed && item.size > 0 {
+                            ProgressView(value: item.phase == .complete ? 1 : min(0.99, Double(bytesSent(item)) / Double(item.size)))
                         }
                         if !item.message.isEmpty { Text(item.message).font(.caption).foregroundStyle(item.phase == .failed ? .red : .secondary) }
                         if !item.isTerminal {
@@ -151,7 +228,7 @@ struct NativeUploadView: View {
                     Button {
                         confirmingIDs = Set(ready.map(\.id)); confirming = true
                     } label: {
-                        Text(ready.isEmpty ? (visibleItems.isEmpty ? "选择照片后上传" : "等待原件准备") : "上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
+                        Text(ready.isEmpty ? (preparing.isEmpty ? "选择照片后上传" : "准备中 · \(readyCount) 项就绪") : "上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
                     }.buttonStyle(.borderedProminent).disabled(ready.isEmpty || account == nil)
                 }.padding().background(.regularMaterial)
             }
