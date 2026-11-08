@@ -23,7 +23,7 @@ const source = ref(""),
 const current = ref(0),
   duration = ref(0),
   volume = ref(1),
-  muted = ref(!!props.autoplay),
+  muted = ref(false),
   speed = ref(1);
 const expanded = ref(false);
 function fullscreenChanged() {

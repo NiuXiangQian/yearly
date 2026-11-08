@@ -51,7 +51,7 @@ it("plays the paired motion preview from LIVE and returns to the still photo", a
   expect(play).not.toHaveBeenCalled();
   (host.querySelector(".live-photo-badge") as HTMLButtonElement).click();
   await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
-  expect(host.querySelector("video")?.muted).toBe(true);
+  expect(host.querySelector("video")?.muted).toBe(false);
   expect(host.querySelector("video")?.getAttribute("src")).toBe("/motion.mp4");
   expect(mediaResource).not.toHaveBeenCalledWith(1, 3, "original");
   expect(host.querySelector(".live-photo-img")).not.toBeNull();
@@ -153,4 +153,11 @@ it("offers fullscreen for photos and restores the page on Escape", async () => {
   expect(document.body.querySelector(".media-viewer-shell.expanded")).toBeNull();
   expect(host.querySelector(".media-viewer-shell")).not.toBeNull();
   expect(document.body.style.overflow).toBe("");
+});
+
+it("enables sound for original-motion autoplay as well as ordinary video", async () => {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  const host = render(VideoPlayer, { loadSource: async () => "/original.mov", autoplay: true });
+  await vi.waitFor(() => expect(host.querySelector("video")?.getAttribute("src")).toBe("/original.mov"));
+  expect(host.querySelector("video")?.muted).toBe(false);
 });

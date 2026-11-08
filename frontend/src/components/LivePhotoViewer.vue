@@ -13,8 +13,9 @@ const props = defineProps<{
 const emit = defineEmits(["error"]);
 const video = ref<HTMLVideoElement>();
 const motion = ref("");
-const playing = ref(false), loading = ref(false), muted = ref(true);
+const playing = ref(false), loading = ref(false), muted = ref(false);
 const pending = ref(false), error = ref("");
+const gestureRequired = ref(false);
 const label = computed(() => error.value ? t("重试实况") : pending.value
   ? t("动态预览正在准备") : loading.value ? t("正在加载实况…")
   : playing.value ? t("停止实况") : t("播放实况"));
@@ -58,10 +59,13 @@ function stop() {
   loading.value = false;
   video.value?.pause();
 }
-function fail() {
+function fail(reason?: unknown) {
   if (disposed) return;
   stop();
-  error.value = t("动态暂时无法播放，照片仍可查看");
+  gestureRequired.value = (reason as { name?: string })?.name === "NotAllowedError";
+  error.value = gestureRequired.value
+    ? t("轻点 LIVE 播放有声实况")
+    : t("动态暂时无法播放，照片仍可查看");
 }
 function showPlaying() {
   if (!wanted) { video.value?.pause(); return; }
@@ -85,17 +89,18 @@ function playReady(ticket: number) {
   try {
     if (video.value.getAttribute("src") !== motion.value || video.value.error)
       video.value.src = motion.value;
-    video.value.muted = revealed ? muted.value : true;
+    video.value.muted = muted.value;
     video.value.currentTime = 0;
     const result = video.value.play();
-    result?.catch(() => {
-      if (!disposed && wanted && ticket === epoch) fail();
+    result?.catch((reason) => {
+      if (!disposed && wanted && ticket === epoch) fail(reason);
     });
-  } catch { fail(); }
+  } catch (reason) { fail(reason); }
 }
 function start(reveal = true, refresh = false) {
   stop();
   error.value = "";
+  gestureRequired.value = false;
   wanted = true;
   revealed = reveal;
   const ticket = epoch;
@@ -108,13 +113,13 @@ function start(reveal = true, refresh = false) {
 }
 function toggle() {
   if (wanted) stop();
-  else start(true, !!error.value);
+  else start(true, !!error.value && !gestureRequired.value);
 }
 function down(event: PointerEvent) {
   if (event.pointerType === "mouse" || event.button !== 0) return;
   if (pointer || !event.isPrimary) { pointer = undefined; stop(); return; }
   pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
-  start(false); // Prime muted playback in the iOS gesture, beneath the still image.
+  start(false); // Authorize sound in the iOS gesture; reveal motion once the hold is confirmed.
   pressTimer = setTimeout(() => {
     if (!wanted) return;
     revealed = true;

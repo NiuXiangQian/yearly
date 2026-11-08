@@ -63,16 +63,25 @@ try {
   for(const shared of [true,false]) {
    const before=calls.video;
    await page.goto(`http://127.0.0.1:${server.address().port}/yearly/${shared?'share/mock':''}`);
+   await page.waitForLoadState('networkidle');
    const card=page.locator(shared?'.shared-card':'.media-card').first();
+   await card.scrollIntoViewIfNeeded();
+   const thumbnails=page.locator(shared?'.shared-thumb img':'.media-visual > img');
+   await thumbnails.first().waitFor();
+   await page.waitForFunction(() => [...document.querySelectorAll('.shared-thumb img, .media-visual > img')].every(img=>img.complete && img.naturalWidth>0 && getComputedStyle(img).opacity==='1'));
+   for(const image of await thumbnails.all()) assert.equal(await image.evaluate(el=>getComputedStyle(el).objectFit),'contain','thumbnail preserves complete frame');
+   await page.screenshot({path:resolve(fixtures, `yearly-thumbnails-${shared?'shared':'private'}-${mobile?'iphone':'desktop'}.png`)});
    if(mobile) await card.tap(); else await card.click();
    await page.locator('.live-photo-img').waitFor();
    if(shared) await assertFullscreen(page);
    // Desktop hover may start once a modal appears under its cursor; move to the toolbar.
    if(!mobile) await page.mouse.move(0,0);
    if(mobile) assert.equal(calls.video,before,'no video preload');
-   await page.getByRole('button',{name:'播放实况',exact:true}).click();
+   await page.locator('.live-photo-badge').click();
    await page.locator('.live-photo.is-playing').waitFor();
    await page.waitForFunction(()=>document.querySelector('.live-photo-video').currentTime>0.05);
+   assert.equal(await page.locator('.live-photo-video').evaluate(v=>v.muted),false);
+   await page.getByRole('button',{name:'静音',exact:true}).click();
    assert.equal(await page.locator('.live-photo-video').evaluate(v=>v.muted),true);
    await page.getByRole('button',{name:'取消静音',exact:true}).click();
    assert.equal(await page.locator('.live-photo-video').evaluate(v=>v.muted),false);
@@ -105,6 +114,7 @@ try {
      } else {
       await page.getByRole('button',{name:'播放视频',exact:true}).click();
       await page.waitForFunction(()=>document.querySelector('.shared-viewer video').currentTime>0.05);
+      assert.equal(await page.locator('.shared-viewer video').evaluate(v=>v.muted),false,'ordinary video defaults to sound');
      }
      await page.screenshot({path:resolve(fixtures, `yearly-shared-${type}-${mobile?'iphone':'desktop'}.png`)});
      await page.locator('.shared-viewer-dialog .el-dialog__headerbtn').click();
@@ -117,5 +127,5 @@ try {
   }
   assert.deepEqual(errors,[]);await page.close();
  }
- console.log('WebKit iPhone + desktop: private/shared previews, real MP4 playback, no mobile preload, mute toggle, return to still, fullscreen exit, still zoom mode, shared photo/video/Live Photo immediate fullscreen and close, subpath API and no overflow passed.');
+ console.log('WebKit iPhone + desktop: private/shared previews, real MP4 playback with sound enabled, fitted thumbnails, no mobile preload, mute toggle, return to still, fullscreen exit, still zoom mode, shared photo/video/Live Photo immediate fullscreen and close, subpath API and no overflow passed.');
 } finally {await browser.close();await new Promise(r=>server.close(r));}

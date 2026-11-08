@@ -28,7 +28,7 @@ it("loads no video bytes before interaction and only fades the still once playba
   const { host, stage, video, play } = await render();
   expect(video.preload).toBe("none");
   expect(video.hasAttribute("src")).toBe(false);
-  expect(video.muted).toBe(true);
+  expect(video.muted).toBe(false);
   expect(video.hasAttribute("playsinline")).toBe(true);
   expect(play).not.toHaveBeenCalled();
   pointer(stage, "pointerenter", { pointerType: "mouse" });
@@ -48,6 +48,7 @@ it("primes synchronously on touch, reveals after a hold and stops when the finge
   const { stage, video, play, pause } = await render();
   pointer(stage, "pointerdown");
   expect(play).toHaveBeenCalledOnce();
+  expect(video.muted).toBe(false);
   Object.defineProperty(video, "paused", { configurable: true, value: false });
   Object.defineProperty(video, "readyState", { configurable: true, value: 3 });
   video.dispatchEvent(new Event("playing"));
@@ -110,11 +111,15 @@ it("refreshes the signed preview on error retry without replacing the still", as
   expect(host.querySelector("img")?.getAttribute("src")).toBe("/photo.jpg");
 });
 it("shows retry when playback is blocked, and stops playback on background/unmount", async () => {
-  const { host, video, play, pause } = await render();
+  const { host, video, play, pause, loadMotion } = await render();
   play.mockRejectedValueOnce(new DOMException("NotAllowed", "NotAllowedError"));
   (host.querySelector(".live-photo-badge") as HTMLButtonElement).click();
   await Promise.resolve(); await nextTick();
-  expect(host.textContent).toContain("动态暂时无法播放");
+  expect(host.textContent).toContain("轻点 LIVE 播放有声实况");
+  expect(video.muted).toBe(false);
+  (host.querySelector(".live-photo-badge") as HTMLButtonElement).click();
+  expect(play).toHaveBeenCalledTimes(2);
+  expect(loadMotion).toHaveBeenCalledTimes(1);
   window.dispatchEvent(new Event("blur"));
   expect(pause).toHaveBeenCalled();
   app.unmount();
