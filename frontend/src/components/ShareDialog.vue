@@ -34,7 +34,12 @@ const start = ref(""),
   hours = ref(24);
 const busy = ref(false),
   history = ref<any[]>([]),
-  link = ref("");
+  link = ref(""),
+  activeLinkID = ref<number>();
+function showLink(id: number, token: string) {
+  link.value = location.origin + sitePath(`/share/${token}`);
+  activeLinkID.value = id;
+}
 const valid = computed(
   () =>
     start.value &&
@@ -49,13 +54,12 @@ watch(
   async (open) => {
     if (!open) {
       link.value = "";
+      activeLinkID.value = undefined;
       return;
     }
-    if (!start.value && props.initialDate) {
-      startMode.value = "custom";
-      start.value = props.initialDate;
-    }
-    if (!end.value) end.value = props.initialDate || dateString(new Date());
+    startMode.value = props.initialDate ? "custom" : "earliest";
+    start.value = props.initialDate || "";
+    end.value = props.initialDate || dateString(new Date());
     try {
       const [links, bounds] = await Promise.all([
         api("/shares"),
@@ -78,7 +82,7 @@ async function create() {
       end_date: end.value,
       hours: hours.value,
     });
-    link.value = location.origin + sitePath(`/share/${data.token}`);
+    showLink(data.id, data.token);
     history.value.unshift(data);
     ElMessage.success(t("分享链接已创建"));
   } catch (e) {
@@ -99,9 +103,33 @@ async function revoke(item: any) {
   try {
     await del(`/shares/${item.id}`);
     item.revoked = true;
-    if (link.value.endsWith(item.token)) link.value = "";
+    if (activeLinkID.value === item.id) link.value = "";
   } catch (e) {
     notify(e);
+  }
+}
+async function viewRecord(item: any) {
+  busy.value = true;
+  try {
+    const data = await api(`/shares/${item.id}/link`);
+    showLink(item.id, data.token);
+  } catch (e) {
+    notify(e);
+  } finally {
+    busy.value = false;
+  }
+}
+async function copyRecord(item: any) {
+  busy.value = true;
+  try {
+    const data = await post(`/shares/${item.id}/copy`, { hours: hours.value });
+    history.value.unshift(data);
+    showLink(data.id, data.token);
+    ElMessage.success(t("分享链接已创建"));
+  } catch (e) {
+    notify(e);
+  } finally {
+    busy.value = false;
   }
 }
 </script>
@@ -188,7 +216,7 @@ async function revoke(item: any) {
     </form>
     <div v-if="link" class="created-share" role="status">
       <label
-        >{{ t("请保存链接，关闭后不再显示完整链接")
+        >{{ t("分享链接")
         }}<input
           :value="link"
           readonly
@@ -212,12 +240,20 @@ async function revoke(item: any) {
             {{ new Date(item.expires_at).toLocaleString(locale) }}</small
           >
         </div>
-        <span v-if="item.revoked || item.expired" class="muted">{{
-          item.revoked ? t("已撤销") : t("已过期")
-        }}</span
-        ><button v-else class="text-button" @click="revoke(item)">
-          <X :size="14" />{{ t("撤销分享") }}
-        </button>
+        <div class="share-link-actions">
+          <span v-if="item.revoked || item.expired" class="muted">{{ item.revoked ? t("已撤销") : t("已过期") }}</span>
+          <template v-else>
+            <template v-if="item.id === activeLinkID && link">
+              <a class="text-button" :href="link" target="_blank" rel="noreferrer">{{ t("预览分享") }}</a>
+              <button class="text-button" @click="copy">{{ t("复制链接") }}</button>
+            </template>
+            <button v-else-if="item.link_available" class="text-button" :disabled="busy" @click="viewRecord(item)">{{ t("查看链接") }}</button>
+            <button class="text-button" :disabled="busy" @click="revoke(item)"><X :size="14" />{{ t("撤销分享") }}</button>
+          </template>
+          <button v-if="item.can_copy && (!item.link_available || item.revoked || item.expired)" class="text-button"
+            :disabled="busy || !Number.isInteger(hours) || hours < 1 || hours > 168"
+            @click="copyRecord(item)">{{ t("按原范围创建新链接") }}</button>
+        </div>
       </div>
     </details>
     <p class="muted share-footnote">
@@ -253,6 +289,7 @@ async function revoke(item: any) {
 }
 .share-link-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 .share-history {
@@ -268,6 +305,10 @@ async function revoke(item: any) {
   gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
+}
+.history-row > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .history-row small {
   display: block;

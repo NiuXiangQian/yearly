@@ -48,6 +48,9 @@ private final class SessionHTTP: URLProtocol {
         case "/yearly/api/media/42": body = #"{"id":42,"media_type":"live_photo","timeline_day":"2018-01-03"}"#
         case "/yearly/api/media/43": body = #"{"id":43,"media_type":"video"}"#
         case "/yearly/api/media/44": status = 404
+        case "/yearly/api/shares/42/link": body = #"{"token":"saved_share_token"}"#
+        case "/yearly/api/shares/42/copy":
+            body = #"{"id":43,"title":"synthetic share","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T12:00:00Z","revoked":false,"expired":false,"token":"copy_share_token","link_available":true,"can_copy":true}"#
         case "/yearly/api/shares", "/yearly/api/shares/42":
             if Self.sharesFail { status = 503; break }
             if request.httpMethod == "DELETE" { Self.shareRevoked = true; break }
@@ -112,6 +115,12 @@ private final class SessionHTTP: URLProtocol {
         precondition(write.value(forHTTPHeaderField: "X-CSRF-Token") == "test-csrf")
         precondition(write.value(forHTTPHeaderField: "Cookie") == "yearly_session=test-native-session")
         let timeline = NativeTimelineStore(session: session)
+        try await timeline.setDaySharing("2026-11-08", allowed: false)
+        precondition(timeline.daySharing["2026-11-08"] == false)
+        let dayUpdate = SessionHTTP.requests.last!
+        precondition(dayUpdate.httpMethod == "PUT" && dayUpdate.url?.path == "/yearly/api/timeline/days/2026-11-08/sharing")
+        let dayPayload = try JSONSerialization.jsonObject(with: SessionHTTP.bodyData(dayUpdate)) as? [String: Bool]
+        precondition(dayPayload == ["share_allowed": false])
         timeline.selected = [1, 2]
         await timeline.load()
         precondition(timeline.items.count == 2 && !timeline.loading && timeline.total == 3)
@@ -247,6 +256,11 @@ private final class SessionHTTP: URLProtocol {
         SessionHTTP.ignoreSelection = false
         let unsafe = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T00:00:00Z","expired":false,"revoked":false,"token":"../../outside?secret"}"#.utf8))
         precondition(unsafe.link(site: site) == nil)
+        let savedShare = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":42,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T00:00:00Z","expired":false,"revoked":false,"link_available":true}"#.utf8))
+        let savedURL = await sharing.link(for: savedShare)
+        precondition(savedURL?.absoluteString == "https://native.invalid/yearly/share/saved_share_token")
+        await sharing.createCopy(of: savedShare, hours: 18)
+        precondition(sharing.created?.link(site: site)?.absoluteString == "https://native.invalid/yearly/share/copy_share_token")
         let expiredLink = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2020-01-01T00:00:00Z","expired":false,"revoked":false,"token":"synthetic_expired"}"#.utf8))
         precondition(expiredLink.link(site: site) == nil && !expiredLink.usable)
         let restored = NativeSession(site: site, store: store, transport: transport)

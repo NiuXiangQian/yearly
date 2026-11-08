@@ -8,6 +8,7 @@ vi.mock("../api", () => ({
   post: vi.fn(),
   del: vi.fn(),
   notify: vi.fn(),
+  sitePath: (path: string) => "/yearly" + path,
 }));
 vi.mock("../../components/DateField.vue", () => ({
   default: {
@@ -112,4 +113,42 @@ it("uses the earliest shareable day and calendar presets, with custom dates reta
   await nextTick();
   expect(start().value).toBe("2022-06-15");
   vi.useRealTimers();
+});
+
+it("reveals an active record and creates a new link with the scope of an old record", async () => {
+  const record = {
+    id: 3,
+    title: "家庭时光",
+    start_date: "2024-01-01",
+    end_date: "2024-01-02",
+    expires_at: "2099-01-01T00:00:00Z",
+    can_copy: true,
+  };
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === "/shares/bounds") return { earliest: "2024-01-01" };
+    if (path === "/shares/3/link") return { token: "current" };
+    return [{ ...record, link_available: true }, { ...record, id: 2, link_available: false }];
+  });
+  vi.mocked(post).mockResolvedValue({ ...record, id: 4, token: "replacement", link_available: true });
+  const open = ref(false);
+  app = createApp({
+    components: { ShareDialog },
+    setup: () => ({ open }),
+    template: '<ShareDialog :open="open" />',
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  app.mount(host);
+  open.value = true;
+  const actions = (label: string) => [...document.querySelectorAll<HTMLButtonElement>(".history-row button")]
+    .find((button) => button.textContent?.trim() === label);
+  await vi.waitFor(() => expect(actions("查看链接")).toBeDefined());
+  actions("查看链接")!.click();
+  await vi.waitFor(() => expect(document.querySelector(".history-row a")?.getAttribute("href"))
+    .toContain("/yearly/share/current"));
+  expect(api).toHaveBeenCalledWith("/shares/3/link");
+  actions("按原范围创建新链接")!.click();
+  await vi.waitFor(() => expect(document.querySelector(".history-row a")?.getAttribute("href"))
+    .toContain("/yearly/share/replacement"));
+  expect(post).toHaveBeenCalledWith("/shares/2/copy", { hours: 24 });
 });

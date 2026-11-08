@@ -35,7 +35,7 @@ ffmpeg -f lavfi -i testsrc2=size=360x640:rate=24 \
 node scripts/check-live-photo.mjs frontend/dist "$fixture_dir" /path/to/playwright/index.mjs
 ```
 
-检查手机和桌面 WebKit 下的登录后详情、日期分享和指定影像分享预览、真实 MP4 播放、连续点击画面与 LIVE 重播、静音切换、播放结束返回静态图、手机无交互不请求视频、全屏与键盘焦点、静态缩放入口、无横向溢出。截图仅含合成素材，保存在 `fixture_dir`。
+检查手机和桌面 WebKit 下的登录后详情、日期分享和指定影像分享预览、真实 MP4 播放、连续点击画面与 LIVE 重播、静音切换、播放结束返回静态图、手机无交互不请求视频、全屏与键盘焦点、静态缩放入口、无横向溢出。还会拖动分享时间轴，验证落点上下都有回忆可读，能双向翻页，并且关闭文件夹与全屏预览后页面可以继续滚动。截图仅含合成素材，保存在 `fixture_dir`。
 
 2026-11-08 实际结果：105 项前端测试通过，`/yearly/` 构建通过，WebKit 手机/桌面浏览器验收通过。构建仍有已有 HEIC 解码包较大的提示。这里的手机验收使用 WebKit 的 iPhone 视口模拟，不能代替真实 iPhone Safari/WKWebView、低电量模式、真实网络与私有 OSS 的验收。
 

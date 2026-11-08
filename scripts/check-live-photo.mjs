@@ -14,12 +14,33 @@ const calls = { video: 0, original: 0 };
 const media = { id: 1, kind: 'media', media_type: 'live_photo', title: '合成实况预览', taken_at_local: '2026-11-08T10:00:00', time_source:'exif', timeline_date:'2026-11-08', child_ids:[], children:[], tags:[], files: [{id:2,file_role:'original',mime_type:'image/heic',file_size:3000000},{id:3,file_role:'live_video',mime_type:'video/quicktime',file_size:6000000}] };
 const sharedMedia = [media, { ...media, id: 4, media_type: 'photo', title: '合成照片预览' }, { ...media, id: 5, media_type: 'video', title: '合成视频预览' }];
 const data = { share: {title:'合成素材验收', start_date:'2026-11-08', end_date:'2026-11-08', expires_at:new Date(Date.now()+3600000).toISOString()}, dates:['2026-11-08'], days:[{day:'2026-11-08',total:3,items:sharedMedia}], next_before:null };
+const navigationDates = Array.from({length: 28}, (_, i) => `2026-10-${String(i + 1).padStart(2, "0")}`);
+function navigationPage(url) {
+  if (url.pathname.endsWith("/dates")) return {dates: navigationDates};
+  if (url.pathname.includes("/folders/")) return {id: 12, name: "合成文件夹", items: sharedMedia, total: 3};
+  const {searchParams: params} = url;
+  const {anchor, before, after, order, backward} = Object.fromEntries(params);
+  const ascending = (order === "asc") !== (backward === "true");
+  const eligible = navigationDates.filter(day => (!before || day < before) && (!after || day > after) &&
+    (!anchor || (ascending ? day >= anchor : day <= anchor)));
+  if (!ascending) eligible.reverse();
+  const page = eligible.slice(0, 7);
+  if (backward) page.reverse();
+  const next = eligible.length > 7 ? eligible[6] : null;
+  return {
+    share: {...data.share, start_date: navigationDates[0], end_date: navigationDates.at(-1)},
+    days: page.map(day => ({day, items: [...sharedMedia, {kind: "folder", id: 12, name: "合成文件夹", media_count: 3, previews: sharedMedia}], total: 4})),
+    next_before: ascending ? null : next,
+    next_after: ascending ? next : null,
+  };
+}
 const server=createServer(async(req,res)=>{
  try {
   const url=new URL(req.url,'http://localhost');
   const path=url.pathname.replace(/^\/yearly/,'');
   if(path.startsWith('/api/')) {
     let value=path.includes("/public/shares/selected") ? { ...data, share: { ...data.share, scope: "selection", selected_count: 3 } } : data;
+    if (path.includes("/public/shares/navigation")) value = navigationPage(url);
     if(path.endsWith('/auth/me')) value={id:1,role:'member',username:'mock',csrf_token:'mock'};
     else if(path.endsWith('/children')) value=[];
     else if(path.endsWith('/stats')) value={media:1,children:0,people:0,pets:0,events:0,bytes:9000000};
@@ -54,6 +75,51 @@ async function assertFullscreen(page) {
  assert(Math.abs(box.width-viewport.width)<1 && Math.abs(box.height-viewport.height)<1,'fullscreen fills viewport');
  const stage=await page.locator('.shared-viewer').boundingBox();
  assert(stage.height>viewport.height*.6,'media uses available fullscreen height');
+}
+async function assertNavigation(page, mobile) {
+  await page.goto(`http://127.0.0.1:${server.address().port}/yearly/share/navigation`);
+  const rail = page.getByRole("slider");
+  const position = await rail.boundingBox();
+  assert(position, "timeline rail is visible");
+  const x = position.x + position.width / 2;
+  await page.mouse.move(x, position.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(x, position.y + position.height * 14 / 27, {steps: 6});
+  await page.mouse.up();
+  const target = page.locator("#shared-day-2026-10-14");
+  await target.waitFor();
+  const placement = await target.evaluate(day => ({top: day.getBoundingClientRect().top, scroll: scrollY}));
+  assert(placement.scroll > 0 && placement.top >= -4 && placement.top < 160, JSON.stringify(placement));
+  const neighbors = await page.locator(".shared-day").evaluateAll(days => days.map(day => day.dataset.day));
+  assert.equal(neighbors[0], "2026-10-21");
+  assert.equal(neighbors.at(-1), "2026-10-08");
+
+  const scroll = await page.evaluate(() => scrollY);
+  const scrollContent = (delta) => mobile
+    ? page.evaluate(pixels => window.scrollBy(0, pixels), delta)
+    : page.mouse.wheel(0, delta);
+  await page.mouse.move((await page.viewportSize()).width / 2, 360);
+  await scrollContent(370);
+  await page.waitForFunction(value => scrollY > value + 100, scroll);
+  await scrollContent(-520);
+  await page.waitForFunction(value => scrollY < value - 70, scroll);
+  await page.getByRole("button", {name:"更晚的日子", exact: true}).click();
+  await page.locator("#shared-day-2026-10-28").waitFor();
+  await page.getByRole("button", {name:"更早的日子", exact: true}).click();
+  await page.locator("#shared-day-2026-10-01").waitFor();
+
+  await target.locator(".shared-folder").click();
+  await page.locator(".shared-folder-dialog .shared-card").nth(1).click();
+  await assertFullscreen(page);
+  await page.locator(".shared-viewer-dialog .el-dialog__headerbtn").click();
+  await page.locator(".shared-viewer-dialog").waitFor({state:"hidden"});
+  await page.locator(".shared-folder-dialog .el-dialog__headerbtn").click();
+  await page.locator(".shared-folder-dialog").waitFor({state:"hidden"});
+  assert.equal(await page.evaluate(() => getComputedStyle(document.body).overflowY === "hidden"), false);
+  const afterClose = await page.evaluate(() => scrollY);
+  await page.mouse.move((await page.viewportSize()).width / 2, 360);
+  await scrollContent(-370);
+  await page.waitForFunction(value => scrollY < value - 100, afterClose);
 }
 const browser=await webkit.launch();
 try {
@@ -141,7 +207,8 @@ try {
    }
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
   }
+  await assertNavigation(page, mobile);
   assert.deepEqual(errors,[]);await page.close();
  }
- console.log('WebKit iPhone + desktop: private/date-share/selected-share previews, real MP4 playback with sound enabled, fitted thumbnails, no mobile preload, mute toggle, return to still, fullscreen exit, still zoom mode, shared photo/video/Live Photo immediate fullscreen and close, subpath API and no overflow passed.');
+ console.log('WebKit iPhone + desktop: existing preview flows, rail drag, two-way scrolling and pagination, nested preview dismissal, subpath API and no overflow passed.');
 } finally {await browser.close();await new Promise(r=>server.close(r));}

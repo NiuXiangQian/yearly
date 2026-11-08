@@ -8,6 +8,12 @@ struct NativeMediaFile: Decodable, Identifiable {
     let mime_type: String
     let file_size: Int64
     let sha256: String?
+    let crc64: String?
+}
+struct NativeMediaMetadata: Decodable {
+    let parser_name: String?
+    let parser_version: String?
+    let parse_status: String?
 }
 struct NativeTimelineItem: Decodable, Identifiable {
     let id: Int
@@ -19,8 +25,18 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var timeline_date: String?
     var uploaded_at: String?
     var taken_at_local: String?
+    var taken_offset_minutes: Int?
+    var time_source: String?
+    var width: Int?
+    var height: Int?
+    var device_make: String?
+    var device_model: String?
+    var metadata: NativeMediaMetadata?
     var start_at: String?
+    var end_at: String?
     var content: String?
+    var cover_media_id: Int?
+    var media_ids: [Int]?
     var remark: String?
     var location_name: String?
     var latitude: Double?
@@ -51,6 +67,7 @@ struct NativeTimelinePage: Decodable {
     let total: Int
     let next_cursor: String?
     let previous_cursor: String?
+    let day_sharing: [String: Bool]?
 }
 struct NativeMediaResource: Decodable { let url: String?; let status: String }
 
@@ -72,6 +89,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     @Published private(set) var anchorMediaID: Int?
     @Published private(set) var archiveExpanded = false
     @Published private(set) var hasNewer = false
+    @Published private(set) var daySharing: [String: Bool] = [:]
     var showingUploads: Bool { !uploadedMediaIDs.isEmpty }
     var usesUploadOrder: Bool { byUpload && !showingUploads && anchorMediaID == nil }
     var isFocused: Bool { showingUploads || anchorMediaID != nil }
@@ -107,6 +125,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         generation += 1
         items = []; total = 0; cursor = nil; loadedQuery = ""; loading = false; error = ""
         archiveExpanded = false; hasNewer = false; previousCursor = nil
+        daySharing = [:]
     }
     func locate(_ item: NativeTimelineItem) {
         resetFilters()
@@ -221,6 +240,8 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
             let page: NativeTimelinePage = try await session.get("/timeline?" + (query.percentEncodedQuery ?? ""))
             guard ticket == generation, requestedQuery == queryKey, !Task.isCancelled else { return }
             let existing = Set(items.map(\.stableID))
+            if direction == .first { daySharing = page.day_sharing ?? [:] }
+            else { daySharing.merge(page.day_sharing ?? [:]) { _, current in current } }
             switch direction {
             case .first:
                 items = page.items
@@ -238,6 +259,11 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
             total = page.total
             loadedQuery = requestedQuery
         } catch { if ticket == generation && !Task.isCancelled { self.error = friendly(error) } }
+    }
+
+    func setDaySharing(_ day: String, allowed: Bool) async throws {
+        try await session.write("/timeline/days/\(day)/sharing", json: ["share_allowed": allowed])
+        daySharing[day] = allowed
     }
     func loadProfiles() async {
         guard !profilesLoading, let owner = session.account?.id else { return }

@@ -202,14 +202,16 @@ it("reveals a folded date and fetches an unloaded date only on navigation", asyn
     rail.dispatchEvent(
       new KeyboardEvent("keydown", { key: "End", bubbles: true }),
     );
-    await vi.waitFor(() =>
-      expect(host.querySelector(".shared-day")?.getAttribute("data-day")).toBe(
-        "2023-12-31",
-      ),
-    );
+    await vi.waitFor(() => expect(
+      [...host.querySelectorAll(".shared-day")].map((day) => day.getAttribute("data-day")),
+    ).toEqual(["2024-01-02", "2024-01-01", "2023-12-31"]));
     expect(api).toHaveBeenCalledWith(
       "/public/shares/virtual?order=desc&anchor=2023-12-31",
     );
+    expect(api).toHaveBeenCalledWith(
+      "/public/shares/virtual?order=desc&backward=true&after=2023-12-31",
+    );
+    expect(rail.getAttribute("aria-valuetext")).toBe("2023-12-31");
     expect(scroll).toHaveBeenCalledTimes(2);
   } finally {
     HTMLElement.prototype.scrollIntoView = original;

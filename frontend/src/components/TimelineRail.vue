@@ -34,9 +34,11 @@ function start(event: PointerEvent) {
 function finish(event: PointerEvent) {
   if (dragging.value === null) return;
   move(event);
-  emit("select", props.dates[dragging.value]);
+  const date = props.dates[dragging.value];
   dragging.value = null;
-  track.value!.releasePointerCapture(event.pointerId);
+  if (track.value?.hasPointerCapture(event.pointerId))
+    track.value.releasePointerCapture(event.pointerId);
+  if (date) emit("select", date);
 }
 function keydown(event: KeyboardEvent) {
   if (props.disabled) return;

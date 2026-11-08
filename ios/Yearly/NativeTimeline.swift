@@ -101,6 +101,7 @@ struct NativeMediaImage: View {
 
 struct NativeTimelineView: View {
     @ObservedObject var store: NativeTimelineStore
+    let appendToDay: (String) -> Void
     @State private var showingFilter = false
     @State private var shareRequest: NativeShareRequest?
     @State private var selecting = false
@@ -109,6 +110,10 @@ struct NativeTimelineView: View {
     @State private var selectedItem: NativeTimelineItem?
     @State private var dragToken = UUID().uuidString
     @State private var showingTrash = false
+    @State private var editingItem: NativeTimelineItem?
+    @State private var daySettings: String?
+    @State private var batchEdit = false
+    @State private var diaryRequest: NativeDiaryRequest?
     @State private var positionBeforePrepend: String?
     private var timelineList: some View {
         ScrollViewReader { proxy in
@@ -218,8 +223,11 @@ struct NativeTimelineView: View {
                                 }
                                 .modifier(MediaReorderGesture(enabled: store.session.canEdit && !selecting && !store.isFocused && !store.usesUploadOrder && item.kind == "media", token: dragToken, item: item, store: store))
                                 .contextMenu {
-                                    if store.session.canEdit && item.kind == "media" {
-                                        Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
+                                    if store.session.canEdit {
+                                        Button(item.kind == "event" ? "编辑日记" : "编辑影像", systemImage: "square.and.pencil") { editingItem = item }
+                                        if item.kind == "media" {
+                                            Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
+                                        }
                                     }
                                 }
                                 if store.usesUploadOrder && !selecting {
@@ -242,8 +250,16 @@ struct NativeTimelineView: View {
                         Spacer()
                         if store.showingUploads && NativeDay.date(day) != nil {
                             Button("查看当天全部") { store.showDay(day) }.font(.caption)
-                        } else if !store.usesUploadOrder && store.session.canEdit && NativeDay.date(day) != nil {
-                            Button { shareRequest = NativeShareRequest(day: day) } label: { Label("分享当天", systemImage: "square.and.arrow.up") }.font(.caption)
+                        } else if !store.usesUploadOrder && store.session.canEdit {
+                            Menu {
+                                if NativeDay.date(day) != nil {
+                                    Button("分享当天", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(day: day) }
+                                    Button("上传到当天", systemImage: "plus") { appendToDay(day) }
+                                    Button("给当天写日记", systemImage: "book") { diaryRequest = NativeDiaryRequest(day: day) }
+                                }
+                                Button("选择当天已加载的影像", systemImage: "checkmark.circle") { selectLoadedDay(groups[day] ?? []) }
+                                Button("当天设置", systemImage: "slider.horizontal.3") { daySettings = day }
+                            } label: { Label("当天操作", systemImage: "ellipsis.circle").font(.caption) }
                         }
                     }
                 }.id("day-\(day)")
@@ -309,11 +325,17 @@ struct NativeTimelineView: View {
                     HStack {
                         Text("已选 \(chosen.count) / 200 项")
                         Spacer()
+                        Menu("更多操作") {
+                            Button("批量整理", systemImage: "slider.horizontal.3") { batchEdit = true }
+                            Button("用所选影像写日记", systemImage: "book") {
+                                diaryRequest = NativeDiaryRequest(day: chosen.first?.day, items: chosen)
+                            }
+                        }.disabled(chosen.isEmpty)
                         Button("分享所选") { shareRequest = NativeShareRequest(items: chosen) }.buttonStyle(.borderedProminent).disabled(chosen.isEmpty)
                     }.padding().background(.regularMaterial)
                 }
             }
-            .alert("一次最多分享 200 项", isPresented: $selectionLimit) { Button("知道了", role: .cancel) { } }
+            .alert("一次最多选择 200 项", isPresented: $selectionLimit) { Button("知道了", role: .cancel) { } }
             .sheet(item: $shareRequest) { request in
                 NativeSharingView(session: store.session, day: request.day, selectedItems: request.items)
             }
@@ -340,10 +362,41 @@ struct NativeTimelineView: View {
                 }
             }
             .sheet(isPresented: $showingTrash) { NativeMediaTrash(store: store) }
+            .sheet(item: $editingItem) { item in
+                if item.kind == "event" {
+                    NativeDiaryEditor(session: store.session, profiles: store.profiles, existing: item) { Task { await store.load() } }
+                } else {
+                    NativeMediaInfo(session: store.session, item: item, profiles: store.profiles) { Task { await store.load() } }
+                }
+            }
+            .sheet(item: $diaryRequest) { request in
+                NativeDiaryEditor(session: store.session, profiles: store.profiles, request: request) {
+                    chosen = []
+                    selecting = false
+                    Task { await store.load() }
+                }
+            }
+            .sheet(isPresented: Binding(get: { daySettings != nil }, set: { if !$0 { daySettings = nil } })) {
+                if let day = daySettings { NativeDaySettings(store: store, day: day) }
+            }
+            .sheet(isPresented: $batchEdit) {
+                NativeBatchMediaEditor(store: store, items: chosen) {
+                    chosen = []
+                    selecting = false
+                }
+            }
             .fullScreenCover(item: $selectedItem) { item in
                 NativeMediaPager(store: store, initial: item)
             }
         }
+    }
+
+    private func selectLoadedDay(_ items: [NativeTimelineItem]) {
+        let media = items.filter { $0.kind == "media" }
+        guard !media.isEmpty else { return }
+        chosen = Array(media.prefix(200))
+        selecting = true
+        selectionLimit = media.count > 200
     }
 }
 
@@ -382,29 +435,30 @@ private struct NativeMediaPager: View {
 
     init(store: NativeTimelineStore, initial: NativeTimelineItem) {
         self.store = store
-        _pages = State(initialValue: initial.kind == "event" ? [initial] : store.items.filter { $0.kind == "media" })
+        let media = store.items.filter { $0.kind == "media" }
+        _pages = State(initialValue: initial.kind == "event" || !media.contains(where: { $0.stableID == initial.stableID }) ? [initial] : media)
         _selection = State(initialValue: initial.stableID)
     }
 
     var body: some View {
-        let activeIndex = pages.firstIndex { $0.stableID == selection } ?? 0
-        TabView(selection: $selection) {
-            ForEach(Array(pages.enumerated()), id: \.element.stableID) { index, item in
-                Group {
-                    if abs(index - activeIndex) <= 1 {
-                        NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
-                                          active: selection == item.stableID,
-                                          onSaved: { Task { await store.load() } },
-                                          onDeleted: { remove(item) },
-                                          onLocate: store.usesUploadOrder ? { current in dismiss(); store.locate(current) } : nil)
-                    } else { Color.black }
-                }.tag(item.stableID)
+        let activeIndex = pages.firstIndex { $0.stableID == selection }
+        Group {
+            if let activeIndex {
+                let item = pages[activeIndex]
+                NativeMediaDetail(
+                    session: store.session, initial: item, profiles: store.profiles,
+                    pagePosition: pages.count > 1 ? "\(activeIndex + 1) / \(pages.count)" : nil,
+                    previous: activeIndex > 0 ? { move(-1) } : nil,
+                    next: activeIndex + 1 < pages.count ? { move(1) } : nil,
+                    onSaved: { Task { await store.load() } },
+                    onDeleted: { remove(item) },
+                    onLocate: store.usesUploadOrder ? { current in dismiss(); store.locate(current) } : nil
+                ).id(item.stableID)
             }
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
         .background(.black)
         .task(id: selection) {
-            guard pages.first?.kind == "media", activeIndex >= pages.count - 2 else { return }
+            guard let activeIndex, pages.first?.kind == "media", activeIndex >= pages.count - 2 else { return }
             let known = Set(pages.map(\.stableID))
             while let cursor = store.cursor, !Task.isCancelled {
                 await store.load(more: true)
@@ -414,6 +468,12 @@ private struct NativeMediaPager: View {
                 if store.cursor == cursor { return }
             }
         }
+    }
+
+    private func move(_ step: Int) {
+        guard let index = pages.firstIndex(where: { $0.stableID == selection }),
+              pages.indices.contains(index + step) else { return }
+        selection = pages[index + step].stableID
     }
 
     private func remove(_ item: NativeTimelineItem) {
@@ -429,7 +489,9 @@ struct NativeMediaDetail: View {
     @ObservedObject var session: NativeSession
     let initial: NativeTimelineItem
     let profiles: [UploadProfile]
-    let active: Bool
+    let pagePosition: String?
+    let previous: (() -> Void)?
+    let next: (() -> Void)?
     let onSaved: () -> Void
     let onDeleted: () -> Void
     let onLocate: ((NativeTimelineItem) -> Void)?
@@ -488,23 +550,46 @@ struct NativeMediaDetail: View {
                     if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.white).padding(.horizontal) }
                     if loading { ProgressView("正在准备预览…").tint(.white).foregroundStyle(.white) }
                     HStack {
+                        if let pagePosition {
+                            Button(action: { if let previous { stop(); previous() } }) { Image(systemName: "chevron.left").padding(8) }
+                                .accessibilityLabel("上一项").disabled(previous == nil || savingToPhotos)
+                            Text(pagePosition).monospacedDigit().font(.caption)
+                            Button(action: { if let next { stop(); next() } }) { Image(systemName: "chevron.right").padding(8) }
+                                .accessibilityLabel("下一项").disabled(next == nil || savingToPhotos)
+                        }
                         if item.media_type == "video" {
                             Button(player == nil ? "有声播放" : "重新播放") { play() }.buttonStyle(.borderedProminent).disabled(loading)
                         }
                         if zoom != 1 { Button("适应屏幕") { resetZoom() } }
-                    }.padding(.bottom)
+                    }.padding(.bottom).foregroundStyle(.white)
                 }
             }
+            .contentShape(Rectangle())
+            .simultaneousGesture(DragGesture(minimumDistance: 28).onEnded { value in
+                let x = value.translation.width
+                let y = value.translation.height
+                guard zoom == 1, !savingToPhotos, !deleting,
+                      abs(x) > 48, abs(x) > abs(y) * 1.5 else { return }
+                if let navigate = x < 0 ? next : previous { stop(); navigate() }
+            })
+            .disabled(deleting)
             .navigationTitle(item.label).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { stop(); dismiss() } }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
+                        if item.kind != "event" || session.canEdit {
+                            Button { stop(); showingInfo = true } label: {
+                                Image(systemName: session.canEdit ? "square.and.pencil" : "info.circle")
+                            }.accessibilityLabel(item.kind == "event" ? "编辑日记" : session.canEdit ? "编辑影像" : "查看影像信息")
+                        }
                         if session.canEdit && (item.kind != "event" || NativeDay.date(item.day) != nil) {
                             Button { stop(); showingShare = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel(item.kind == "event" ? "分享当天回忆" : "分享这项影像")
                         }
                         Menu {
-                            Button(session.canEdit && item.kind != "event" ? "编辑影像信息" : "查看信息", systemImage: "info.circle") { stop(); showingInfo = true }
+                            if item.kind == "event" && !session.canEdit {
+                                Button("查看信息", systemImage: "info.circle") { stop(); showingInfo = true }
+                            }
                             if let onLocate {
                                 Button("跳到归档位置", systemImage: "scope") { stop(); onLocate(item) }
                             }
@@ -520,8 +605,7 @@ struct NativeMediaDetail: View {
                     }
                 }
             }
-            .task(id: active) {
-                guard active else { stop(); resetZoom(); return }
+            .task {
                 guard initial.kind != "event" else { return }
                 if initial.media_type == "live_photo" { play() }
                 do {
@@ -535,10 +619,16 @@ struct NativeMediaDetail: View {
                 Button("取消", role: .cancel) {}
             } message: { Text("可以从时间线的回收站恢复这项影像。") }
             .sheet(isPresented: $showingShare) { NativeSharingView(session: session, day: item.day, selectedItems: item.kind == "event" ? nil : [item]) }
-            .sheet(isPresented: $showingInfo) { NativeMediaInfo(session: session, item: item, profiles: profiles) {
-                onSaved()
-                Task { do { detail = try await session.get("/media/\(initial.id)") } catch { message = friendly(error) } }
-            } }
+            .sheet(isPresented: $showingInfo) {
+                if item.kind == "event" && session.canEdit {
+                    NativeDiaryEditor(session: session, profiles: profiles, existing: item) { Task { await reloadDiary() } }
+                } else {
+                    NativeMediaInfo(session: session, item: item, profiles: profiles) {
+                        onSaved()
+                        Task { do { detail = try await session.get("/media/\(initial.id)") } catch { message = friendly(error) } }
+                    }
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
                 if let ended = notification.object as? AVPlayerItem, ended === player?.currentItem, item.motion != nil { stop() }
             }
@@ -546,6 +636,16 @@ struct NativeMediaDetail: View {
             .onChange(of: scenePhase) { if $0 != .active { stop() } }
         }
     }
+    private func reloadDiary() async {
+        do {
+            var updated: NativeTimelineItem = try await session.get("/events/\(initial.id)")
+            updated.kind = "event"
+            detail = updated
+            onSaved()
+        } catch let error as NativeAPIError where error.status == 404 { onDeleted() }
+        catch { message = friendly(error) }
+    }
+
     private func resetZoom() {
         zoom = 1
         imageScale = 1
@@ -589,7 +689,7 @@ struct NativeMediaDetail: View {
         if hadPlayer { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
     private func play() {
-        guard active, !savingToPhotos, !deleting else { return }
+        guard !savingToPhotos, !deleting else { return }
         let live = item.media_type == "live_photo"
         guard let file = live ? item.motion : item.primary else {
             message = live ? "实况照片缺少配对资源。" : "影像原件不可用。"

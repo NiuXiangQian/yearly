@@ -34,6 +34,10 @@ const railDates = computed(() =>
     ? dateIndex.value
     : [...dateIndex.value].reverse(),
 );
+const previousDate = computed(() => {
+  const first = days.value[0]?.day;
+  return first && railDates.value.indexOf(first) > 0 ? first : null;
+});
 const currentDate = ref("");
 const monthList = ref<{ reveal(date: string): void }>();
 const reading = ref<HTMLElement>();
@@ -66,13 +70,14 @@ function expire() {
   preview.value = "";
   previewGeneration++;
 }
-async function load(more = false, anchor?: string) {
+async function load(direction: "replace" | "next" | "previous" = "replace", anchor?: string) {
+  const more = direction !== "replace";
   if (more && loading.value) return;
   const generation = ++loadGeneration;
   const order = timelineOrder.value;
   loading.value = true;
   error.value = "";
-  if (!more) {
+  if (!more && !anchor) {
     days.value = [];
     nextDate.value = null;
     expanded.value = {};
@@ -80,18 +85,32 @@ async function load(more = false, anchor?: string) {
   }
   try {
     const params = new URLSearchParams({ order });
-    if (more && nextDate.value)
+    const prior = new URLSearchParams({
+      order, backward: "true",
+      [order === "asc" ? "before" : "after"]: anchor || previousDate.value || "",
+    });
+    if (direction === "next" && nextDate.value)
       params.set(order === "asc" ? "after" : "before", nextDate.value);
     if (anchor) params.set("anchor", anchor);
-    const [data, index] = await Promise.all([
-      api(`${base}?${params}`),
-      more ? Promise.resolve(null) : api(`${base}/dates`),
+    const [data, index, earlier] = await Promise.all([
+      direction === "previous" ? null : api(`${base}?${params}`),
+      more || anchor ? null : api(`${base}/dates`),
+      direction === "previous" || anchor ? api(`${base}?${prior}`) : null,
     ]);
     if (generation !== loadGeneration) return;
+    if (direction === "previous") {
+      const first = document.getElementById(`shared-day-${previousDate.value}`);
+      const top = first?.getBoundingClientRect().top;
+      days.value = [...earlier.days, ...days.value];
+      await nextTick();
+      if (first && top !== undefined && generation === loadGeneration)
+        window.scrollBy(0, first.getBoundingClientRect().top - top);
+      return;
+    }
     share.value = data.share;
     if (index) dateIndex.value = index.dates;
     if (!more) currentDate.value = data.days[0]?.day || "";
-    days.value = more ? [...days.value, ...data.days] : data.days;
+    days.value = more ? [...days.value, ...data.days] : [...(earlier?.days || []), ...data.days];
     nextDate.value = order === "asc" ? data.next_after : data.next_before;
     clearTimeout(expiryTimer);
     expiryTimer = setTimeout(
@@ -99,8 +118,10 @@ async function load(more = false, anchor?: string) {
       Math.max(0, new Date(data.share.expires_at).getTime() - Date.now()),
     );
   } catch (e) {
-    if (generation === loadGeneration)
-      error.value = e instanceof Error ? e.message : t("请求失败");
+    if (generation === loadGeneration) {
+      if (more || anchor) notify(e);
+      else error.value = e instanceof Error ? e.message : t("请求失败");
+    }
   } finally {
     if (generation === loadGeneration) loading.value = false;
   }
@@ -173,10 +194,9 @@ async function videoSource() {
 }
 async function seekDate(date: string) {
   if (loading.value) return;
-  if (!days.value.some((day) => day.day === date)) await load(false, date);
+  if (!days.value.some((day) => day.day === date)) await load("replace", date);
   if (error.value) return;
-  const target =
-    days.value.find((day) => day.day === date)?.day || days.value[0]?.day;
+  const target = days.value.find((day) => day.day === date)?.day;
   if (!target) return;
   currentDate.value = target;
   monthList.value?.reveal(target);
@@ -263,6 +283,11 @@ onBeforeUnmount(() => {
           <p v-if="share.scope !== 'selection' && dateIndex.length" class="rail-hint">
             {{ t("拖动左侧时间轴，松开跳转到对应日期") }}
           </p>
+          <div v-if="previousDate" class="shared-footer">
+            <button class="button" :disabled="loading" @click="load('previous')">
+              {{ loading ? t("正在加载…") : timelineOrder === "asc" ? t("更早的日子") : t("更晚的日子") }}
+            </button>
+          </div>
           <TimelineMonths ref="monthList" :days="days" :ungrouped="share.scope === 'selection'" v-slot="{ day }">
             <section
               class="shared-day"
@@ -347,7 +372,7 @@ onBeforeUnmount(() => {
               v-if="nextDate"
               class="button"
               :disabled="loading"
-              @click="load(true)"
+              @click="load('next')"
             >
               {{
                 loading
@@ -367,6 +392,8 @@ onBeforeUnmount(() => {
       :title="folder?.name"
       width="850px"
       class="shared-folder-dialog"
+      modal-class="shared-overlay"
+      :lock-scroll="false"
       @close="folder = null"
       ><div v-if="folder" class="shared-grid">
         <button
@@ -396,7 +423,9 @@ onBeforeUnmount(() => {
       :title="selected?.title || t('影像预览')"
       width="1000px"
       class="shared-viewer-dialog"
+      modal-class="shared-overlay"
       :fullscreen="previewFullscreen"
+      :lock-scroll="false"
       :class="{ 'shared-media-fullscreen': previewFullscreen }"
       append-to-body
       destroy-on-close
@@ -709,6 +738,9 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
+.shared-overlay .el-overlay-dialog {
+  overscroll-behavior: contain;
+}
 /* The dialog is teleported to body; override the site's mobile dialog margins. */
 .el-dialog.shared-media-fullscreen {
   width: 100vw;

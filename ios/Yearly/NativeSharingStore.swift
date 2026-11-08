@@ -31,14 +31,16 @@ struct NativeShare: Decodable, Identifiable {
     let token: String?
     let scope: String?
     let selected_count: Int?
+    let link_available: Bool?
+    let can_copy: Bool?
     var expiration: Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.date(from: expires_at) ?? ISO8601DateFormatter().date(from: expires_at)
     }
     var usable: Bool { !revoked && !expired && (expiration ?? .distantPast) > Date() }
-    func link(site: SiteOrigin) -> URL? {
-        guard usable, let token, !token.isEmpty,
+    func link(site: SiteOrigin, recoveredToken: String? = nil) -> URL? {
+        guard usable, let token = recoveredToken ?? token, !token.isEmpty,
               token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { return nil }
         return URL(string: "share/" + token, relativeTo: site.url)?.absoluteURL
     }
@@ -90,6 +92,29 @@ struct NativeShare: Decodable, Identifiable {
             try await session.write("/shares/\(share.id)", method: "DELETE", json: [:])
             if let index = shares.firstIndex(where: { $0.id == share.id }) { shares[index].revoked = true }
             if created?.id == share.id { created?.revoked = true }
+        } catch { self.error = friendly(error) }
+    }
+
+    func link(for share: NativeShare) async -> URL? {
+        guard !busy, share.usable else { return nil }
+        if let url = share.link(site: session.site) { return url }
+        struct Link: Decodable { let token: String }
+        busy = true; error = ""
+        defer { busy = false }
+        do {
+            let data: Link = try await session.get("/shares/\(share.id)/link")
+            return share.link(site: session.site, recoveredToken: data.token)
+        } catch { self.error = friendly(error); return nil }
+    }
+
+    func createCopy(of share: NativeShare, hours: Int) async {
+        guard !busy, (1...168).contains(hours) else { return }
+        busy = true; error = ""
+        defer { busy = false }
+        do {
+            let result: NativeShare = try await session.post("/shares/\(share.id)/copy", json: ["hours": hours])
+            created = result
+            shares.insert(result, at: 0)
         } catch { self.error = friendly(error) }
     }
 }

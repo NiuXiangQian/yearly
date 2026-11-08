@@ -7,6 +7,7 @@ struct NativeUploadView: View {
     @ObservedObject var session: NativeSession
     private var site: SiteOrigin { session.site }
     let profileRevision: Int
+    @Binding var requestedDay: Date?
     let onTimeline: (Destination) -> Void
     @State private var account: UploadAccount?
     @State private var profiles: [UploadProfile] = []
@@ -385,6 +386,13 @@ struct NativeUploadView: View {
             }
             .onChange(of: batchResult?.title) { title in
                 if let title { UIAccessibility.post(notification: .announcement, argument: title) }
+            }
+            .task(id: requestedDay) {
+                if let day = requestedDay {
+                    archiveDate = day
+                    useArchiveDate = true
+                    requestedDay = nil
+                }
             }
             .task(id: profileRevision) {
                 queue.configure(session: session)

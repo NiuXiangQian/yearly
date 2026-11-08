@@ -1,6 +1,8 @@
 """Public sharing has its own allowlisted payload and never grants original access."""
 import hashlib
+import hmac
 import secrets
+from base64 import urlsafe_b64encode
 from datetime import date, timedelta
 from typing import Literal, Annotated
 from types import SimpleNamespace
@@ -9,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, func, literal, union_all, or_, case
 
+from .config import settings
 from .db import get_db, now
 from .models import (
     TimelineShare,
@@ -59,8 +62,33 @@ def share_info(share):
     }
 
 
+def share_token(share):
+    # Reconstruct current links with a domain-separated server secret. The DB still
+    # stores only a hash, and links created with older secrets remain valid.
+    identity = f"yearly-share:v1:{share.id}:{share.created_by}:{share.created_at.isoformat()}"
+    return urlsafe_b64encode(
+        hmac.digest(settings().session_secret.encode(), identity.encode(), "sha256")
+    ).decode().rstrip("=")
+
+
+def token_hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def saved_token(share):
+    token = share_token(share)
+    return token if hmac.compare_digest(token_hash(token), share.token_hash) else None
+
+
+def managed_share(sid, db, user):
+    share = db.get(TimelineShare, sid)
+    if not share or (user.role != "admin" and share.created_by != user.id):
+        raise HTTPException(404, "分享不存在")
+    return share
+
+
 @router.post("/shares")
-def create_share(data: ShareCreate, db=Depends(get_db), user=Depends(editor)):
+def create_share(data: ShareCreate, response: Response, db=Depends(get_db), user=Depends(editor)):
     if data.media_ids is not None:
         # Validate the same permissions used by all public endpoints. Never silently
         # replace missing/hidden items with a broader date or folder scope.
@@ -68,9 +96,8 @@ def create_share(data: ShareCreate, db=Depends(get_db), user=Depends(editor)):
         visible = set(db.scalars(selected.with_only_columns(Media.id)))
         if visible != set(data.media_ids):
             raise HTTPException(422, "部分影像不存在、已删除或不允许分享，请重新选择")
-    token = secrets.token_urlsafe(32)
     share = TimelineShare(
-        token_hash=hashlib.sha256(token.encode()).hexdigest(),
+        token_hash=secrets.token_hex(32),
         created_by=user.id,
         title=data.title.strip(),
         media_ids=data.media_ids,
@@ -80,9 +107,13 @@ def create_share(data: ShareCreate, db=Depends(get_db), user=Depends(editor)):
         expires_at=now() + timedelta(hours=data.hours),
     )
     db.add(share)
+    db.flush()
+    db.refresh(share)
+    token = share_token(share)
+    share.token_hash = token_hash(token)
     db.commit()
-    # The bearer secret is returned once and never included in lists or exports.
-    return {**share_info(share), "token": token}
+    response.headers["Cache-Control"] = "no-store"
+    return {**share_info(share), "token": token, "link_available": True, "can_copy": True}
 
 
 @router.get("/shares")
@@ -91,16 +122,46 @@ def list_shares(db=Depends(get_db), user=Depends(editor)):
     if user.role != "admin":
         query = query.where(TimelineShare.created_by == user.id)
     return [
-        share_info(s)
+        {
+            **share_info(s),
+            "link_available": s.created_by == user.id and saved_token(s) is not None,
+            "can_copy": s.created_by == user.id,
+        }
         for s in db.scalars(query.order_by(TimelineShare.id.desc()).limit(100))
     ]
 
 
+@router.get("/shares/{sid}/link")
+def read_share_link(sid: int, response: Response, db=Depends(get_db), user=Depends(editor)):
+    share = managed_share(sid, db, user)
+    if share.created_by != user.id or share.revoked or share.expires_at <= now():
+        raise HTTPException(404, "分享链接不可用")
+    token = saved_token(share)
+    if token is None:
+        raise HTTPException(409, "此记录无法找回原链接，可按原范围创建新链接")
+    response.headers["Cache-Control"] = "no-store"
+    return {"token": token}
+
+
+class ShareCopy(BaseModel):
+    hours: int = Field(default=24, ge=1, le=168)
+
+
+@router.post("/shares/{sid}/copy")
+def copy_share(sid: int, data: ShareCopy, response: Response, db=Depends(get_db), user=Depends(editor)):
+    share = managed_share(sid, db, user)
+    if share.created_by != user.id:
+        raise HTTPException(404, "分享不存在")
+    scope = (
+        {"media_ids": share.media_ids} if share.media_ids is not None
+        else {"start_date": share.start_date, "end_date": share.end_date}
+    )
+    return create_share(ShareCreate(title=share.title, hours=data.hours, **scope), response, db, user)
+
+
 @router.delete("/shares/{sid}")
 def revoke_share(sid: int, db=Depends(get_db), user=Depends(editor)):
-    share = db.get(TimelineShare, sid)
-    if not share or (user.role != "admin" and share.created_by != user.id):
-        raise HTTPException(404, "分享不存在")
+    share = managed_share(sid, db, user)
     share.revoked = True
     db.commit()
     return {"ok": True}
@@ -110,7 +171,7 @@ def public_share(token: str, response: Response, db=Depends(get_db)):
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
     share = db.scalar(
         select(TimelineShare).where(
-            TimelineShare.token_hash == hashlib.sha256(token.encode()).hexdigest()
+            TimelineShare.token_hash == token_hash(token)
         )
     )
     if not share or share.revoked or share.expires_at <= now():
@@ -328,29 +389,34 @@ def read_share(
     after: date | None = None,
     anchor: date | None = None,
     order: Literal["asc", "desc"] = "desc",
+    backward: bool = False,
     share=Depends(public_share),
     db=Depends(get_db),
 ):
     root = root_query(share)
     query = select(root.c.day).distinct()
+    ascending = (order == "asc") != backward
     if anchor:
         query = query.where(
-            root.c.day >= anchor if order == "asc" else root.c.day <= anchor
+            root.c.day >= anchor if ascending else root.c.day <= anchor
         )
-    if order == "desc" and before:
+    if before and not ascending:
         query = query.where(root.c.day < before)
-    if order == "asc" and after:
+    if after and ascending:
         query = query.where(root.c.day > after)
     days = db.scalars(
-        query.order_by(root.c.day.asc() if order == "asc" else root.c.day.desc()).limit(
+        query.order_by(root.c.day.asc() if ascending else root.c.day.desc()).limit(
             8
         )
     ).all()
+    page = days[:7]
+    if backward:
+        page.reverse()
     return {
         "share": share_info(share),
-        "days": [entries(db, share, d, order=order) for d in days[:7]],
-        "next_before": days[6] if len(days) > 7 and order == "desc" else None,
-        "next_after": days[6] if len(days) > 7 and order == "asc" else None,
+        "days": [entries(db, share, d, order=order) for d in page],
+        "next_before": days[6] if len(days) > 7 and not ascending else None,
+        "next_after": days[6] if len(days) > 7 and ascending else None,
     }
 
 

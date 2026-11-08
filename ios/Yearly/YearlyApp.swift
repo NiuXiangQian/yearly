@@ -43,6 +43,7 @@ struct NativeAppShell: View {
     @State private var tab = 0
     @State private var loggingOut = false
     @State private var showingShares = false
+    @State private var uploadDay: Date?
     @State private var profileRevision = 0
     @State private var message = ""
     init(site: SiteOrigin, queue: UploadQueue, editSite: @escaping () -> Void) {
@@ -59,11 +60,14 @@ struct NativeAppShell: View {
                 NativeLoginView(session: session, editSite: editSite)
             } else {
                 TabView(selection: $tab) {
-                    NativeTimelineView(store: timeline)
+                    NativeTimelineView(store: timeline) { day in
+                        uploadDay = NativeDay.date(day)
+                        tab = 1
+                    }
                         .tabItem { Label("时间线", systemImage: "photo.on.rectangle") }.tag(0)
                     Group {
                         if session.canEdit {
-                            NativeUploadView(queue: queue, session: session, profileRevision: profileRevision) { destination in
+                            NativeUploadView(queue: queue, session: session, profileRevision: profileRevision, requestedDay: $uploadDay) { destination in
                                 switch destination {
                                 case .timeline:
                                     timeline.focusOnUploads([])

@@ -1,5 +1,31 @@
 import SwiftUI
 
+enum NativeLocalDateTime {
+    static let zone = TimeZone(secondsFromGMT: 0)!
+
+    private static var formatter: DateFormatter {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.calendar = Calendar(identifier: .gregorian)
+        format.timeZone = zone
+        format.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        format.isLenient = false
+        return format
+    }
+
+    static func date(_ raw: String?) -> Date? {
+        guard let raw else { return nil }
+        return formatter.date(from: String(raw.prefix(19)))
+    }
+
+    static func string(_ date: Date) -> String { formatter.string(from: date) }
+
+    static var localNow: Date {
+        let now = Date()
+        return now.addingTimeInterval(TimeInterval(TimeZone.current.secondsFromGMT(for: now)))
+    }
+}
+
 struct NativeMediaInfo: View {
     @ObservedObject var session: NativeSession
     let item: NativeTimelineItem
@@ -10,22 +36,31 @@ struct NativeMediaInfo: View {
     @State private var tags = ""
     @State private var latitude = ""
     @State private var longitude = ""
-    @State private var correction = ""
+    @State private var useCorrection = false
+    @State private var correctionDate = NativeLocalDateTime.localNow
+    @State private var loadedCorrectionDate: Date?
     @State private var utcOffset = ""
     @State private var archive = Date()
     @State private var useArchive = false
     @State private var message = ""
     @State private var saving = false
+    @State private var moving = false
+    private var current: NativeTimelineItem { draft ?? item }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("影像信息") {
-                    LabeledContent("拍摄时间", value: item.taken_at_local ?? "未知")
-                    LabeledContent("归档日期", value: item.day)
-                    if let primary = item.primary {
-                        Text(primary.original_filename)
-                        LabeledContent("原件大小", value: ByteCountFormatter.string(fromByteCount: primary.file_size + (item.motion?.file_size ?? 0), countStyle: .file))
+                    LabeledContent("拍摄时间", value: current.taken_at_local ?? "未知")
+                    LabeledContent("归档日期", value: current.day)
+                    if let source = current.time_source { LabeledContent("时间来源", value: source) }
+                    if let offset = current.taken_offset_minutes { LabeledContent("拍摄时区偏移", value: "\(offset) 分钟") }
+                    if let width = current.width, let height = current.height { LabeledContent("尺寸", value: "\(width) × \(height)") }
+                    let camera = [current.device_make, current.device_model].compactMap { $0 }.joined(separator: " ")
+                    if !camera.isEmpty { LabeledContent("拍摄设备", value: camera) }
+                    if let primary = current.primary {
+                        LabeledContent("原件", value: primary.original_filename)
+                        LabeledContent("原件大小", value: ByteCountFormatter.string(fromByteCount: primary.file_size + (current.motion?.file_size ?? 0), countStyle: .file))
                     }
                 }
                 if item.kind != "event" && session.canEdit {
@@ -41,13 +76,28 @@ struct NativeMediaInfo: View {
                             Toggle("指定归档日期", isOn: $useArchive)
                             if useArchive { DatePicker("归档日期", selection: $archive, displayedComponents: .date) }
                             Toggle("拍摄时间未知", isOn: Binding(get: { draft?.time_unknown ?? false }, set: { draft?.time_unknown = $0 }))
-                            TextField("校正时间 YYYY-MM-DD HH:mm:ss", text: $correction).keyboardType(.numbersAndPunctuation)
-                            TextField("时区偏移（分钟，如 +480）", text: $utcOffset).keyboardType(.numbersAndPunctuation)
+                            Toggle("校正拍摄时间", isOn: $useCorrection)
+                            if useCorrection {
+                                DatePicker("当地拍摄时间", selection: $correctionDate)
+                                    .environment(\.timeZone, NativeLocalDateTime.zone)
+                            }
+                            LabeledContent("时区偏移（分钟）") {
+                                TextField("随原件", text: $utcOffset)
+                                    .keyboardType(.numbersAndPunctuation).multilineTextAlignment(.trailing)
+                            }
+                            Menu("选择常用时区", systemImage: "globe") {
+                                Button("沿用原件") { utcOffset = "" }
+                                Button("中国标准时间 · UTC+08:00") { utcOffset = "480" }
+                                Button("协调世界时 · UTC+00:00") { utcOffset = "0" }
+                            }
                         }
                         Section("地点") {
                             TextField("地点名称", text: field(\.location_name))
                             TextField("纬度", text: $latitude).keyboardType(.numbersAndPunctuation)
                             TextField("经度", text: $longitude).keyboardType(.numbersAndPunctuation)
+                            if !latitude.isEmpty || !longitude.isEmpty {
+                                Button("清除坐标") { latitude = ""; longitude = "" }
+                            }
                         }
                         Section("人物与宠物") {
                             ForEach(profiles) { profile in
@@ -58,11 +108,33 @@ struct NativeMediaInfo: View {
                                 }))
                             }
                         }
+                        if NativeDay.date(current.day) != nil || current.folder_id != nil {
+                            Section("文件夹") {
+                                Button("移动到文件夹", systemImage: "folder") { moving = true }
+                            }
+                        }
                     } else if message.isEmpty { ProgressView("正在读取完整信息…") }
                     else { Button("重新加载") { Task { await load() } } }
                 } else {
                     if let remark = item.remark, !remark.isEmpty { Text(remark) }
                     if let place = item.location_name, !place.isEmpty { Text(place) }
+                }
+                if let files = current.files, !files.isEmpty {
+                    Section("文件完整性") {
+                        ForEach(files) { file in
+                            DisclosureGroup(file.original_filename) {
+                                LabeledContent("格式", value: file.mime_type)
+                                LabeledContent("大小", value: ByteCountFormatter.string(fromByteCount: file.file_size, countStyle: .file))
+                                if let sha = file.sha256 {
+                                    Text("SHA-256\n\(sha)").font(.caption.monospaced()).textSelection(.enabled)
+                                }
+                                if let crc = file.crc64 { LabeledContent("CRC64", value: crc) }
+                            }
+                        }
+                        if let metadata = current.metadata, let parser = metadata.parser_name {
+                            LabeledContent("元数据解析", value: [parser, metadata.parser_version, metadata.parse_status].compactMap { $0 }.joined(separator: " · "))
+                        }
+                    }
                 }
                 if !message.isEmpty { Text(message).foregroundStyle(.red) }
             }
@@ -80,6 +152,9 @@ struct NativeMediaInfo: View {
             }
             .interactiveDismissDisabled(saving)
             .task { if item.kind != "event" && session.canEdit { await load() } }
+            .sheet(isPresented: $moving) {
+                NativeFolderMove(session: session, items: [current]) { onSaved() }
+            }
         }
     }
 
@@ -94,7 +169,9 @@ struct NativeMediaInfo: View {
             tags = (value.tags ?? []).joined(separator: ", ")
             latitude = value.latitude.map { String($0) } ?? ""
             longitude = value.longitude.map { String($0) } ?? ""
-            correction = value.corrected_taken_at_local ?? ""
+            loadedCorrectionDate = NativeLocalDateTime.date(value.corrected_taken_at_local)
+            useCorrection = value.corrected_taken_at_local != nil
+            correctionDate = loadedCorrectionDate ?? NativeLocalDateTime.date(value.taken_at_local) ?? NativeLocalDateTime.localNow
             utcOffset = value.corrected_offset_minutes.map { String($0) } ?? ""
             let archived = value.timeline_date.flatMap(NativeDay.date)
             useArchive = archived != nil
@@ -116,13 +193,7 @@ struct NativeMediaInfo: View {
             guard minutes.isEmpty || offset.map({ (-840...840).contains($0) }) == true else {
                 throw UploadFailure(message: "时区偏移应为 −840 到 840 的整数分钟。")
             }
-            let time = correction.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ", with: "T")
-            if !time.isEmpty {
-                let pattern = #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?$"#
-                guard time.range(of: pattern, options: .regularExpression) != nil else {
-                    throw UploadFailure(message: "请按 YYYY-MM-DD HH:mm:ss 输入当地拍摄时间。")
-                }
-            }
+            let time = useCorrection ? (correctionDate == loadedCorrectionDate ? draft.corrected_taken_at_local : NativeLocalDateTime.string(correctionDate)) : nil
             let originalTags = draft.tags ?? []
             let labels = tags == originalTags.joined(separator: ", ") ? originalTags :
                 tags.split(whereSeparator: { $0 == "," || $0 == "，" })
@@ -135,7 +206,7 @@ struct NativeMediaInfo: View {
                 "remark": draft.remark ?? "", "location_name": draft.location_name ?? "",
                 "share_allowed": draft.share_allowed ?? false, "time_unknown": draft.time_unknown ?? false,
                 "timeline_date": useArchive ? NativeDay.string(archive) as Any : NSNull(),
-                "corrected_taken_at_local": time.isEmpty ? NSNull() : time as Any,
+                "corrected_taken_at_local": time as Any? ?? NSNull(),
                 "corrected_offset_minutes": offset as Any? ?? NSNull(),
                 "latitude": lat as Any? ?? NSNull(), "longitude": lon as Any? ?? NSNull(),
                 "tags": labels, "child_ids": draft.child_ids ?? [],
@@ -167,7 +238,7 @@ struct NativeMediaTrash: View {
     var body: some View {
         NavigationStack {
             List {
-                if items.isEmpty && !busy { Text("回收站没有影像").foregroundStyle(.secondary) }
+                if items.isEmpty && !busy { Text("回收站是空的").foregroundStyle(.secondary) }
                 ForEach(items, id: \.stableID) { item in
                     HStack {
                         Text(item.primary?.original_filename ?? item.label)
@@ -179,7 +250,7 @@ struct NativeMediaTrash: View {
                 if cursor != nil { Button("加载更多") { Task { await load(more: true) } }.disabled(busy) }
                 if !message.isEmpty { Text(message).foregroundStyle(.red) }
             }
-            .navigationTitle("影像回收站")
+            .navigationTitle("回收站")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .task { await load() }
             .refreshable { await load() }
@@ -200,8 +271,7 @@ struct NativeMediaTrash: View {
             ]
             if more, let cursor { query.queryItems?.append(URLQueryItem(name: "cursor", value: cursor)) }
             let page: NativeTimelinePage = try await store.session.get("/timeline?" + (query.percentEncodedQuery ?? ""))
-            let media = page.items.filter { $0.kind == "media" }
-            if more { items += media } else { items = media }
+            if more { items += page.items } else { items = page.items }
             cursor = page.next_cursor
         } catch { message = friendly(error) }
     }
@@ -212,8 +282,9 @@ struct NativeMediaTrash: View {
         message = ""
         defer { busy = false }
         do {
-            try await store.session.write("/media/\(item.id)/restore", method: "POST", json: [:])
-            items.removeAll { $0.id == item.id }
+            let resource = item.kind == "event" ? "events" : "media"
+            try await store.session.write("/\(resource)/\(item.id)/restore", method: "POST", json: [:])
+            items.removeAll { $0.stableID == item.stableID }
             await store.load()
         } catch { message = friendly(error) }
     }

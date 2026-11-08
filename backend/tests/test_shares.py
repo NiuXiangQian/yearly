@@ -247,6 +247,52 @@ def test_share_management_permissions_and_csrf(context):
     )
 
 
+def test_saved_links_can_only_be_retrieved_by_the_creator(context):
+    client = context.client
+    client.cookies.set("yearly_session", "member")
+    client.headers["X-CSRF-Token"] = "csrf-member"
+    data = share(context)
+    path = f"/api/shares/{data['id']}"
+    record = client.get("/api/shares").json()[0]
+    assert record["link_available"] and record["can_copy"]
+    assert "token" not in record
+    result = client.get(path + "/link")
+    assert result.json() == {"token": data["token"]}
+    assert result.headers["Cache-Control"] == "no-store"
+    client.cookies.set("yearly_session", "admin")
+    client.headers["X-CSRF-Token"] = "csrf-admin"
+    assert not client.get("/api/shares").json()[0]["link_available"]
+    assert client.get(path + "/link").status_code == 404
+    assert client.post(path + "/copy", json={}).status_code == 404
+    assert client.delete(path).status_code == 200
+    client.cookies.set("yearly_session", "member")
+    assert client.get(path + "/link").status_code == 404
+
+
+def test_legacy_share_can_be_copied_without_invalidating_its_url(context):
+    client = context.client
+    mid = upload(context)["media_id"]
+    data = share(context, start_date=None, end_date=None, media_ids=[mid])
+    old_token = "synthetic-legacy-token"
+    with context.db() as db:
+        record = db.get(TimelineShare, data["id"])
+        record.token_hash = hashlib.sha256(old_token.encode()).hexdigest()
+        db.commit()
+    path = f"/api/shares/{data['id']}"
+    assert not client.get("/api/shares").json()[0]["link_available"]
+    assert client.get(path + "/link").status_code == 409
+    result = client.post(path + "/copy", json={"hours": 12})
+    assert result.status_code == 200
+    new = result.json()
+    assert new["id"] != data["id"] and new["scope"] == "selection"
+    assert client.get(f"/api/shares/{new['id']}/link").json()["token"] == new["token"]
+    client.cookies.clear()
+    for token in [old_token, new["token"]]:
+        result = client.get(f"/api/public/shares/{token}")
+        assert result.status_code == 200
+        assert [item["id"] for item in result.json()["days"][0]["items"]] == [mid]
+
+
 def test_video_only_returns_compressed_preview(context):
     file = file_payload(name="clip.mp4")
     file["mime_type"] = "video/mp4"
@@ -311,6 +357,12 @@ def test_day_pagination_and_diary_exclusion(context):
     second = context.client.get(base + "?before=" + first["next_before"]).json()
     assert [d["day"] for d in second["days"]] == ["2024-04-01"]
     assert second["next_before"] is None
+    for order, boundary, expected in [
+        ("desc", "after=2024-04-02", [9, 8, 7, 6, 4, 3]),
+        ("asc", "before=2024-04-09", [1, 2, 3, 4, 6, 7, 8]),
+    ]:
+        window = context.client.get(f"{base}?order={order}&backward=true&{boundary}").json()
+        assert [d["day"] for d in window["days"]] == [f"2024-04-{day:02}" for day in expected]
     assert context.client.get(base + "/days/2024-04-05").json()["items"] == []
 
 
