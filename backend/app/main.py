@@ -825,6 +825,7 @@ def timeline(
     cursor: str | None = Query(default=None, max_length=512),
     date_basis: Literal["timeline", "capture", "upload"] = "timeline",
     anchor_media_id: int | None = Query(default=None, ge=1),
+    before: bool = False,
     order: Literal["asc", "desc"] = "desc",
     db=Depends(get_db),
     user=Depends(current_user),
@@ -835,6 +836,8 @@ def timeline(
     upload_order = date_basis == "upload"
     if anchor_media_id is not None and (date_basis != "timeline" or group_folders):
         raise HTTPException(422, "只能在归档时间线定位影像")
+    if before and anchor_media_id is None:
+        raise HTTPException(422, "加载较新的记录需要归档位置")
     sort_time = Media.taken_at_local
     sort_day = func.date(timeline_time())
     sort_position = Media.sort_order
@@ -942,17 +945,21 @@ def timeline(
         ]
     mixed = (media_query if upload_order else union_all(*queries)).subquery()
     total = db.scalar(select(func.count()).select_from(mixed))
-    chronological = lambda column: column.asc() if order == "asc" else column.desc()
-    query = select(mixed).order_by(
-        mixed.c.sort_day.is_(None).asc(),
-        chronological(mixed.c.sort_day),
-        mixed.c.sort_order.desc(),
-        mixed.c.sort_group.desc(),
-        mixed.c.sort_at.is_(None).asc(),
-        chronological(mixed.c.sort_at),
-        mixed.c.id.desc(),
-        mixed.c.kind.desc(),
-    )
+    ordering = [
+        (mixed.c.sort_day, order == "asc", True),
+        (mixed.c.sort_order, False, False),
+        (mixed.c.sort_group, False, False),
+        (mixed.c.sort_at, order == "asc", True),
+        (mixed.c.id, False, False),
+        (mixed.c.kind, False, False),
+    ]
+    sort_clauses = []
+    for column, ascending, nullable in ordering:
+        if nullable:
+            null_rank = column.is_(None)
+            sort_clauses.append(null_rank.desc() if before else null_rank.asc())
+        sort_clauses.append(column.asc() if ascending != before else column.desc())
+    query = select(mixed).order_by(*sort_clauses)
     if cursor and cursor.startswith("upload.") != upload_order:
         raise HTTPException(422, "切换时间线视图后请重新加载")
     position = None
@@ -978,28 +985,19 @@ def timeline(
             position.sort_at.date() if position.sort_at else None
         )
         prefix, alternatives = [], []
-        for column, value, ascending in [
-            (mixed.c.sort_day, sort_day, order == "asc"),
-            (mixed.c.sort_order, position.sort_order, False),
-            (mixed.c.sort_group, position.sort_group, False),
-            (mixed.c.sort_at, position.sort_at, order == "asc"),
-            (mixed.c.id, position.id, False),
-            (mixed.c.kind, position.kind, False),
-        ]:
+        values = (sort_day, position.sort_order, position.sort_group, position.sort_at, position.id, position.kind)
+        for (column, ascending, nullable), value in zip(ordering, values):
             if value is not None:
-                alternatives.append(
-                    and_(
-                        *prefix,
-                        or_(
-                            column > value if ascending else column < value,
-                            column.is_(None),
-                        ),
-                    )
-                )
+                comparison = column > value if ascending != before else column < value
+                if nullable and not before:
+                    comparison = or_(comparison, column.is_(None))
+                alternatives.append(and_(*prefix, comparison))
                 prefix.append(column == value)
             else:
+                if before:
+                    alternatives.append(and_(*prefix, column.is_not(None)))
                 prefix.append(column.is_(None))
-        if not cursor:
+        if not cursor and not before:
             alternatives.append(and_(*prefix))
         query = query.where(or_(*alternatives))
     else:
@@ -1007,14 +1005,19 @@ def timeline(
     rows = db.execute(query.limit(page_size + 1)).mappings().all()
     has_more = len(rows) > page_size
     rows = rows[:page_size]
+    if before:
+        rows.reverse()
     next_cursor = None
+    previous_cursor = None
     if has_more:
-        position = TimelineCursor(**dict(rows[-1]), order=order)
-        next_cursor = base64.urlsafe_b64encode(
+        position = TimelineCursor(**dict(rows[0] if before else rows[-1]), order=order)
+        continuation = base64.urlsafe_b64encode(
             position.model_dump_json().encode()
         ).decode()
-        if upload_order:
-            next_cursor = "upload." + next_cursor
+        if before:
+            previous_cursor = continuation
+        else:
+            next_cursor = "upload." + continuation if upload_order else continuation
     media_ids = [r["id"] for r in rows if r["kind"] == "media"]
     event_ids = [r["id"] for r in rows if r["kind"] == "event"]
     folder_ids = [r["id"] for r in rows if r["kind"] == "folder"]
@@ -1095,6 +1098,7 @@ def timeline(
         "page": page,
         "page_size": page_size,
         "next_cursor": next_cursor,
+        **({"previous_cursor": previous_cursor} if before else {}),
         "day_sharing": {
             row.timeline_date.isoformat(): row.share_allowed
             for row in db.scalars(

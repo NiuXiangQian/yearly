@@ -62,7 +62,20 @@ private final class SessionHTTP: URLProtocol {
             body = request.httpMethod == "POST" ? record + scopeJSON + ",\"token\":\"synthetic_share_token\"}" : "[" + record + "}]"
         case "/yearly/api/timeline":
             if Self.timelineFails { status = 503; body = "{}"; break }
-            let more = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "cursor" } == true
+            let params = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let more = params.contains { $0.name == "cursor" }
+            if params.contains(URLQueryItem(name: "anchor_media_id", value: "42")) {
+                if params.contains(URLQueryItem(name: "before", value: "true")) {
+                    body = more
+                        ? #"{"items":[{"id":40,"kind":"media"}],"total":4,"previous_cursor":null}"#
+                        : #"{"items":[{"id":41,"kind":"media"}],"total":4,"previous_cursor":"newer+cursor/=="}"#
+                } else {
+                    body = more
+                        ? #"{"items":[{"id":43,"kind":"media"}],"total":4,"next_cursor":null}"#
+                        : #"{"items":[{"id":42,"kind":"media"}],"total":4,"next_cursor":"older+cursor/=="}"#
+                }
+                break
+            }
             body = more ? #"{"items":[{"id":7,"kind":"media","media_type":"live_photo"},{"id":8,"kind":"media","media_type":"video"}],"total":3,"next_cursor":null}"# : #"{"items":[{"id":7,"kind":"media","media_type":"live_photo","timeline_day":"2026-11-08","child_ids":[1,2],"files":[{"id":10,"file_role":"original","original_filename":"test.heic","mime_type":"image/heic","file_size":8},{"id":11,"file_role":"live_video","original_filename":"test.mov","mime_type":"video/quicktime","file_size":9}]},{"id":7,"kind":"event","content":"synthetic diary"}],"total":3,"next_cursor":"next+cursor/=="}"#
         default: break
         }
@@ -188,6 +201,12 @@ private final class SessionHTTP: URLProtocol {
         let anchorParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(anchorParams.contains(URLQueryItem(name: "anchor_media_id", value: "42")))
         precondition(!anchorParams.contains { $0.name == "date_basis" } && timeline.groupDay(uploaded) == uploaded.day)
+        await timeline.expandArchive()
+        precondition(timeline.anchorMediaID == 42 && timeline.items.map(\.id) == [41, 42])
+        precondition(timeline.hasNewer && timeline.cursor == "older+cursor/==")
+        await timeline.load(more: true)
+        await timeline.loadNewer()
+        precondition(timeline.items.map(\.id) == [40, 41, 42, 43] && !timeline.hasNewer && timeline.cursor == nil)
         let updatedProfile = try await session.updateProfile(id: 1, json: ["nickname": "新昵称"])
         precondition(updatedProfile.nickname == "新昵称" && updatedProfile.avatar_media_id == 42 && updatedProfile.status == "archived")
         precondition(SessionHTTP.requests.last?.httpMethod == "PUT")

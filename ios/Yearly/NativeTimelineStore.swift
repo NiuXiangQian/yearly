@@ -46,10 +46,16 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var primary: NativeMediaFile? { files?.first { $0.file_role == "original" } }
     var motion: NativeMediaFile? { files?.first { $0.file_role == "live_video" } }
 }
-struct NativeTimelinePage: Decodable { let items: [NativeTimelineItem]; let total: Int; let next_cursor: String? }
+struct NativeTimelinePage: Decodable {
+    let items: [NativeTimelineItem]
+    let total: Int
+    let next_cursor: String?
+    let previous_cursor: String?
+}
 struct NativeMediaResource: Decodable { let url: String?; let status: String }
 
 @MainActor final class NativeTimelineStore: ObservableObject {
+    private enum Page { case first, older, newer }
     @Published var items: [NativeTimelineItem] = []
     @Published var profiles: [UploadProfile] = []
     @Published private(set) var profilesLoading = false
@@ -64,6 +70,8 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     @Published var endDate = Date()
     @Published private(set) var uploadedMediaIDs: [Int] = []
     @Published private(set) var anchorMediaID: Int?
+    @Published private(set) var archiveExpanded = false
+    @Published private(set) var hasNewer = false
     var showingUploads: Bool { !uploadedMediaIDs.isEmpty }
     var usesUploadOrder: Bool { byUpload && !showingUploads && anchorMediaID == nil }
     var isFocused: Bool { showingUploads || anchorMediaID != nil }
@@ -82,6 +90,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     @Published var error = ""
     @Published var total = 0
     @Published private(set) var cursor: String?
+    private var previousCursor: String?
     private var generation = 0
     private var loadedQuery = ""
     let session: NativeSession
@@ -97,6 +106,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     private func resetResults() {
         generation += 1
         items = []; total = 0; cursor = nil; loadedQuery = ""; loading = false; error = ""
+        archiveExpanded = false; hasNewer = false; previousCursor = nil
     }
     func locate(_ item: NativeTimelineItem) {
         resetFilters()
@@ -128,9 +138,8 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         focusOnUploads([])
     }
     func resetForAccountChange() {
-        generation += 1
-        loadedQuery = ""; cursor = nil; loading = false
-        items = []; profiles = []; total = 0; error = ""
+        resetResults()
+        profiles = []
         profilesError = ""
         uploadedMediaIDs = []
         anchorMediaID = nil
@@ -142,7 +151,22 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         await load()
     }
     func load(more: Bool = false) async {
-        if more && (loading || cursor == nil || loadedQuery != queryKey) { return }
+        await loadPage(more ? .older : .first)
+        if !more && archiveExpanded && error.isEmpty { await loadNewer() }
+    }
+    func expandArchive() async {
+        guard anchorMediaID != nil, !archiveExpanded, !loading, loadedQuery == queryKey else { return }
+        archiveExpanded = true
+        hasNewer = true
+        await loadNewer()
+    }
+    func loadNewer() async {
+        guard archiveExpanded, hasNewer else { return }
+        await loadPage(.newer)
+    }
+    private func loadPage(_ direction: Page) async {
+        if direction != .first && (loading || loadedQuery != queryKey) { return }
+        if direction == .older && cursor == nil { return }
         if !showingUploads && useDateRange && NativeDay.string(startDate) > NativeDay.string(endDate) {
             error = "结束日期不能早于开始日期。"; return
         }
@@ -189,16 +213,30 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
             }
         }
         params += selected.sorted().map { URLQueryItem(name: "child_id", value: String($0)) }
-        if more, let cursor { params.append(URLQueryItem(name: "cursor", value: cursor)) }
+        if direction == .newer { params.append(URLQueryItem(name: "before", value: "true")) }
+        let position = direction == .newer ? previousCursor : direction == .older ? cursor : nil
+        if let position { params.append(URLQueryItem(name: "cursor", value: position)) }
         query.queryItems = params
         do {
             let page: NativeTimelinePage = try await session.get("/timeline?" + (query.percentEncodedQuery ?? ""))
             guard ticket == generation, requestedQuery == queryKey, !Task.isCancelled else { return }
-            if more {
-                let existing = Set(items.map(\.stableID))
+            let existing = Set(items.map(\.stableID))
+            switch direction {
+            case .first:
+                items = page.items
+                cursor = page.next_cursor
+                previousCursor = nil
+                hasNewer = archiveExpanded
+            case .older:
                 items += page.items.filter { !existing.contains($0.stableID) }
-            } else { items = page.items }
-            total = page.total; cursor = page.next_cursor; loadedQuery = requestedQuery
+                cursor = page.next_cursor
+            case .newer:
+                items.insert(contentsOf: page.items.filter { !existing.contains($0.stableID) }, at: 0)
+                previousCursor = page.previous_cursor
+                hasNewer = previousCursor != nil
+            }
+            total = page.total
+            loadedQuery = requestedQuery
         } catch { if ticket == generation && !Task.isCancelled { self.error = friendly(error) } }
     }
     func loadProfiles() async {

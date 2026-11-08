@@ -77,6 +77,20 @@ def test_private_cursor_order_with_unknown_dates_and_manual_positions(context, o
             break
     assert collected == expected
     assert len(collected) == len(set(collected))
+    # Starting at an undated entry still walks back through manual positions and dates.
+    prior, cursor = [], None
+    for _ in range(10):
+        params = {"anchor_media_id": ids[5], "before": "true", "page_size": 2, "order": order}
+        if cursor:
+            params["cursor"] = cursor
+        response = context.client.get("/api/timeline", params=params)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        prior = [item["id"] for item in data["items"]] + prior
+        cursor = data["previous_cursor"]
+        if not cursor:
+            break
+    assert prior == [mid for kind, mid in expected[:-1] if kind == "media"]
 
 
 def test_upload_time_pagination_and_archive_anchor(context):
