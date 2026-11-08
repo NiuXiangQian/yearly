@@ -621,11 +621,18 @@ struct NativeMediaDetail: View {
                             .overlay(alignment: .topLeading) {
                                 if item.media_type == "live_photo" { liveBadge }
                             }
+                            .overlay {
+                                if item.media_type == "video" { videoPlayControl }
+                            }
+                    } else if item.media_type == "video" {
+                        Color.black.overlay { videoPlayControl }
                     } else {
                         Spacer(minLength: 0)
                     }
                     if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.white).padding(.horizontal) }
-                    if loading { ProgressView("正在准备预览…").tint(.white).foregroundStyle(.white) }
+                    if loading && item.media_type != "video" {
+                        ProgressView("正在准备预览…").tint(.white).foregroundStyle(.white)
+                    }
                     if let pagePosition {
                         HStack(spacing: 16) {
                             Button(action: { if let previous { stop(); previous() } }) { Image(systemName: "chevron.left").padding(8) }
@@ -642,14 +649,11 @@ struct NativeMediaDetail: View {
                                 .accessibilityLabel("下一项").disabled(next == nil || savingToPhotos)
                         }
                         .foregroundStyle(.white)
-                        .padding(.bottom, item.media_type == "video" || zoom != 1 ? 0 : 8)
+                        .padding(.bottom, zoom != 1 ? 0 : 8)
                     }
-                    HStack {
-                        if item.media_type == "video" {
-                            Button(player == nil ? "有声播放" : "重新播放") { play() }.buttonStyle(.borderedProminent).disabled(loading)
-                        }
-                        if zoom != 1 { Button("适应屏幕") { resetZoom() } }
-                    }.padding(.bottom).foregroundStyle(.white)
+                    if zoom != 1 {
+                        Button("适应屏幕") { resetZoom() }.padding(.bottom).foregroundStyle(.white)
+                    }
                 }
             }
             .contentShape(Rectangle())
@@ -769,6 +773,30 @@ struct NativeMediaDetail: View {
             Label("LIVE", systemImage: "livephoto").padding(8).background(.regularMaterial, in: Capsule())
         }.buttonStyle(.plain).padding().accessibilityLabel("从头播放实况照片")
     }
+
+    @ViewBuilder private var videoPlayControl: some View {
+        if loading {
+            ProgressView()
+                .tint(.white)
+                .frame(width: 64, height: 64)
+                .background(.black.opacity(0.64), in: Circle())
+                .accessibilityLabel("正在准备视频")
+        } else {
+            Button(action: play) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .offset(x: 2)
+                    .frame(width: 64, height: 64)
+                    .foregroundStyle(.white)
+                    .background(.black.opacity(0.64), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("播放视频")
+            .disabled(savingToPhotos)
+        }
+    }
+
     private func stop() {
         observation?.invalidate(); observation = nil
         playbackTask?.cancel(); playbackTask = nil
@@ -801,7 +829,8 @@ struct NativeMediaDetail: View {
                     if playbackItem.status == .failed {
                         Task { @MainActor in
                             guard player === value else { return }
-                            stop(); message = "播放失败，请点有声播放重新获取预览。"
+                            stop()
+                            message = live ? "播放失败，请点 LIVE 重试。" : "播放失败，请点播放图标重试。"
                         }
                     }
                 }
