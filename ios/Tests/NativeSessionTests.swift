@@ -79,7 +79,7 @@ private final class SessionHTTP: URLProtocol {
                 }
                 break
             }
-            body = more ? #"{"items":[{"id":7,"kind":"media","media_type":"live_photo"},{"id":8,"kind":"media","media_type":"video"}],"total":3,"next_cursor":null}"# : #"{"items":[{"id":7,"kind":"media","media_type":"live_photo","timeline_day":"2026-11-08","child_ids":[1,2],"files":[{"id":10,"file_role":"original","original_filename":"test.heic","mime_type":"image/heic","file_size":8},{"id":11,"file_role":"live_video","original_filename":"test.mov","mime_type":"video/quicktime","file_size":9}]},{"id":7,"kind":"event","content":"synthetic diary"}],"total":3,"next_cursor":"next+cursor/=="}"#
+            body = more ? #"{"items":[{"id":7,"kind":"media","media_type":"live_photo"},{"id":8,"kind":"media","media_type":"video","timeline_day":"2026-11-07"}],"total":3,"next_cursor":null}"# : #"{"items":[{"id":7,"kind":"media","media_type":"live_photo","timeline_day":"2026-11-08","media_position":{"index":1,"total":2,"day_index":1,"day_total":1},"child_ids":[1,2],"files":[{"id":10,"file_role":"original","original_filename":"test.heic","mime_type":"image/heic","file_size":8},{"id":11,"file_role":"live_video","original_filename":"test.mov","mime_type":"video/quicktime","file_size":9}]},{"id":7,"kind":"event","content":"synthetic diary"}],"total":3,"next_cursor":"next+cursor/=="}"#
         default: break
         }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!, cacheStoragePolicy: .notAllowed)
@@ -125,14 +125,20 @@ private final class SessionHTTP: URLProtocol {
         await timeline.load()
         precondition(timeline.items.count == 2 && !timeline.loading && timeline.total == 3)
         precondition(timeline.items[0].primary?.id == 10 && timeline.items[0].motion?.id == 11)
+        precondition(timeline.items[0].media_position?.total == 2 && timeline.items[0].media_position?.day_total == 1)
         precondition(timeline.items[0].stableID != timeline.items[1].stableID)
         let loadedRequestCount = SessionHTTP.requests.count
         await timeline.loadIfNeeded()
         precondition(SessionHTTP.requests.count == loadedRequestCount, "tab switching reuses loaded timeline")
         let filterQuery = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(filterQuery.filter { $0.name == "child_id" }.compactMap(\.value) == ["1", "2"])
+        precondition(filterQuery.contains(URLQueryItem(name: "media_positions", value: "true")))
         await timeline.load(more: true)
         precondition(timeline.items.count == 3 && timeline.cursor == nil && !timeline.loading)
+        precondition(timeline.mediaPages(timeline.items).map(\.day) == ["2026-11-08", "2026-11-07"])
+        var afterDeletion = NativeMediaPosition(index: 4, total: 5, day_index: 3, day_total: 4)
+        afterDeletion.remove(NativeMediaPosition(index: 3, total: 5, day_index: 2, day_total: 4), sameDay: true)
+        precondition(afterDeletion.index == 3 && afterDeletion.total == 4 && afterDeletion.day_index == 2 && afterDeletion.day_total == 3)
         let cursorQuery = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(cursorQuery.first { $0.name == "cursor" }?.value == "next+cursor/==")
         let beforeReset = SessionHTTP.requests.count
@@ -205,6 +211,12 @@ private final class SessionHTTP: URLProtocol {
             #"{"id":42,"kind":"media","timeline_day":"2018-01-03","uploaded_at":"2026-11-08T23:30:00.123"}"#.utf8
         ))
         precondition(uploaded.uploadDate != nil && timeline.groupDay(uploaded) != uploaded.day)
+        let uploadCount = try await timeline.uploadDayTotal(timeline.groupDay(uploaded))
+        precondition(uploadCount == 3)
+        let uploadCountParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        precondition(uploadCountParams.contains(URLQueryItem(name: "date_basis", value: "upload")))
+        precondition(uploadCountParams.contains(URLQueryItem(name: "page_size", value: "1")))
+        precondition(uploadCountParams.contains { $0.name == "start" } && uploadCountParams.contains { $0.name == "end" })
         timeline.locate(uploaded)
         await timeline.loadIfNeeded()
         let anchorParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!

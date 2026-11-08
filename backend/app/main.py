@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Response, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete, update, func, or_
+from sqlalchemy import select, delete, update, func, and_, or_, case
 from sqlalchemy.exc import IntegrityError
 from argon2.exceptions import VerificationError
 from .config import settings
@@ -41,6 +41,7 @@ from .schemas import (
     MediaReorder,
     LoginIn,
     UserIn,
+    TimelineCursor,
 )
 from .security import (
     current_user,
@@ -810,6 +811,77 @@ def export_csv(user=Depends(admin)):
     )
 
 
+def timeline_ordering(source, order):
+    return [
+        (source.c.sort_day, order == "asc", True),
+        (source.c.sort_order, False, False),
+        (source.c.sort_group, False, False),
+        (source.c.sort_at, order == "asc", True),
+        (source.c.id, False, False),
+        (source.c.kind, False, False),
+    ]
+
+
+def timeline_boundary(ordering, position, *, before, inclusive=False):
+    # Old cursors only contain sort_at; derive their day for compatibility.
+    day = position.sort_day or (position.sort_at.date() if position.sort_at else None)
+    values = (day, position.sort_order, position.sort_group, position.sort_at, position.id, position.kind)
+    prefix, alternatives = [], []
+    for (column, ascending, nullable), value in zip(ordering, values):
+        if value is not None:
+            comparison = column > value if ascending != before else column < value
+            if nullable and not before:
+                comparison = or_(comparison, column.is_(None))
+            alternatives.append(and_(*prefix, comparison))
+            prefix.append(column == value)
+        else:
+            if before:
+                alternatives.append(and_(*prefix, column.is_not(None)))
+            prefix.append(column.is_(None))
+    if inclusive:
+        alternatives.append(and_(*prefix))
+    return or_(*alternatives)
+
+
+def timeline_media_positions(db, media_query, rows, order):
+    if not rows:
+        return {}
+    first = TimelineCursor(**dict(rows[0]), order=order)
+    media = media_query.subquery()
+    day = media.c.sort_day
+    prior_on_first_day = and_(
+        day == first.sort_day,
+        timeline_boundary(timeline_ordering(media, order), first, before=True),
+    )
+    # Count within the current filters, including days outside the loaded cursor window.
+    groups = db.execute(
+        select(day, func.count(), func.count(case((prior_on_first_day, 1))))
+        .group_by(day)
+        .order_by(day.is_(None), day.asc() if order == "asc" else day.desc())
+    ).all()
+    counts = {value: count for value, count, _ in groups}
+    previous_in_day = {value: earlier for value, _, earlier in groups}
+    index = 0
+    for value, count, earlier in groups:
+        if value == first.sort_day:
+            index += earlier
+            break
+        index += count
+    total = sum(counts.values())
+    positions = {}
+    for row in rows:
+        value = row["sort_day"]
+        index += 1
+        previous_in_day[value] += 1
+        positions[row["id"]] = {
+            "index": index,
+            "total": total,
+            "day_index": previous_in_day[value],
+            "day_total": counts[value],
+        }
+    return positions
+
+
 @app.get("/api/timeline")
 def timeline(
     group_folders: bool = False,
@@ -827,11 +899,11 @@ def timeline(
     anchor_media_id: int | None = Query(default=None, ge=1),
     before: bool = False,
     order: Literal["asc", "desc"] = "desc",
+    media_positions: bool = False,
     db=Depends(get_db),
     user=Depends(current_user),
 ):
-    from sqlalchemy import literal, union_all, and_
-    from .schemas import TimelineCursor
+    from sqlalchemy import literal, union_all
 
     upload_order = date_basis == "upload"
     if anchor_media_id is not None and (date_basis != "timeline" or group_folders):
@@ -945,14 +1017,7 @@ def timeline(
         ]
     mixed = (media_query if upload_order else union_all(*queries)).subquery()
     total = db.scalar(select(func.count()).select_from(mixed))
-    ordering = [
-        (mixed.c.sort_day, order == "asc", True),
-        (mixed.c.sort_order, False, False),
-        (mixed.c.sort_group, False, False),
-        (mixed.c.sort_at, order == "asc", True),
-        (mixed.c.id, False, False),
-        (mixed.c.kind, False, False),
-    ]
+    ordering = timeline_ordering(mixed, order)
     sort_clauses = []
     for column, ascending, nullable in ordering:
         if nullable:
@@ -980,26 +1045,9 @@ def timeline(
             raise HTTPException(404, "归档位置已不可用")
         position = TimelineCursor(**dict(anchor), order=order)
     if position is not None:
-        # Old cursors only contain sort_at; derive their day for compatibility.
-        sort_day = position.sort_day or (
-            position.sort_at.date() if position.sort_at else None
-        )
-        prefix, alternatives = [], []
-        values = (sort_day, position.sort_order, position.sort_group, position.sort_at, position.id, position.kind)
-        for (column, ascending, nullable), value in zip(ordering, values):
-            if value is not None:
-                comparison = column > value if ascending != before else column < value
-                if nullable and not before:
-                    comparison = or_(comparison, column.is_(None))
-                alternatives.append(and_(*prefix, comparison))
-                prefix.append(column == value)
-            else:
-                if before:
-                    alternatives.append(and_(*prefix, column.is_not(None)))
-                prefix.append(column.is_(None))
-        if not cursor and not before:
-            alternatives.append(and_(*prefix))
-        query = query.where(or_(*alternatives))
+        query = query.where(timeline_boundary(
+            ordering, position, before=before, inclusive=not cursor and not before
+        ))
     else:
         query = query.offset((page - 1) * page_size)
     rows = db.execute(query.limit(page_size + 1)).mappings().all()
@@ -1063,6 +1111,9 @@ def timeline(
     media_map = {
         m.id: m for m in db.scalars(select(Media).where(Media.id.in_(media_ids)))
     }
+    positions = timeline_media_positions(
+        db, media_query, [row for row in rows if row["kind"] == "media"], order
+    ) if media_positions and not group_folders else {}
     event_map = {
         e.id: e for e in db.scalars(select(Event).where(Event.id.in_(event_ids)))
     }
@@ -1070,6 +1121,8 @@ def timeline(
     for row in rows:
         if row["kind"] == "media":
             item = {**media_data(media_map[row["id"]], child_id), "kind": "media"}
+            if row["id"] in positions:
+                item["media_position"] = positions[row["id"]]
             if upload_order:
                 item["uploaded_at"] = row["sort_at"]
             items.append(item)

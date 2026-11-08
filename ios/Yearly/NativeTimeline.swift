@@ -133,11 +133,7 @@ struct NativeTimelineView: View {
 
     private var timelineContent: some View {
         let groups = Dictionary(grouping: store.items, by: store.groupDay)
-        let days = groups.keys.sorted { a, b in
-            if a == "日期未知" { return false }
-            if b == "日期未知" { return true }
-            return store.ascending ? a < b : a > b
-        }
+        let days = store.orderedDays(groups.keys)
         return LazyVStack(alignment: .leading, spacing: 22) {
             if store.showingUploads {
                 HStack {
@@ -427,29 +423,40 @@ private struct MediaReorderGesture: ViewModifier {
     }
 }
 
+struct NativePreviewPosition {
+    let day: String
+    let withinDay: String
+    let overall: String
+}
+
 private struct NativeMediaPager: View {
     @ObservedObject var store: NativeTimelineStore
     @Environment(\.dismiss) private var dismiss
     @State private var pages: [NativeTimelineItem]
     @State private var selection: String
+    @State private var uploadTotal: Int
+    @State private var uploadDayTotals: [String: Int] = [:]
+    @State private var paging = false
+    @State private var pendingStep: Int?
 
     init(store: NativeTimelineStore, initial: NativeTimelineItem) {
         self.store = store
-        let media = store.items.filter { $0.kind == "media" }
+        let media = store.mediaPages(store.items)
         _pages = State(initialValue: initial.kind == "event" || !media.contains(where: { $0.stableID == initial.stableID }) ? [initial] : media)
         _selection = State(initialValue: initial.stableID)
+        _uploadTotal = State(initialValue: store.total)
     }
 
     var body: some View {
         let activeIndex = pages.firstIndex { $0.stableID == selection }
+        let activeItem = activeIndex.map { pages[$0] }
         Group {
-            if let activeIndex {
-                let item = pages[activeIndex]
+            if let activeIndex, let item = activeItem {
                 NativeMediaDetail(
                     session: store.session, initial: item, profiles: store.profiles,
-                    pagePosition: pages.count > 1 ? "\(activeIndex + 1) / \(pages.count)" : nil,
-                    previous: activeIndex > 0 ? { move(-1) } : nil,
-                    next: activeIndex + 1 < pages.count ? { move(1) } : nil,
+                    pagePosition: item.kind == "media" ? position(at: activeIndex) : nil,
+                    previous: activeIndex > 0 || store.hasNewer && item.kind == "media" ? { move(-1) } : nil,
+                    next: activeIndex + 1 < pages.count || store.cursor != nil && item.kind == "media" ? { move(1) } : nil,
                     onSaved: { Task { await store.load() } },
                     onDeleted: { remove(item) },
                     onLocate: store.usesUploadOrder ? { current in dismiss(); store.locate(current) } : nil
@@ -458,27 +465,95 @@ private struct NativeMediaPager: View {
         }
         .background(.black)
         .task(id: selection) {
-            guard let activeIndex, pages.first?.kind == "media", activeIndex >= pages.count - 2 else { return }
-            let known = Set(pages.map(\.stableID))
-            while let cursor = store.cursor, !Task.isCancelled {
-                await store.load(more: true)
-                guard !Task.isCancelled else { return }
-                let next = store.items.filter { $0.kind == "media" && !known.contains($0.stableID) }
-                if !next.isEmpty { pages += next; return }
-                if store.cursor == cursor { return }
+            guard let activeIndex, activeItem?.kind == "media" else { return }
+            if activeIndex >= pages.count - 2, store.cursor != nil { await extend(1) }
+            else if activeIndex <= 1, store.hasNewer { await extend(-1) }
+        }
+        .task(id: activeItem.map(store.groupDay)) {
+            guard store.usesUploadOrder, let activeItem, activeItem.kind == "media" else { return }
+            let day = store.groupDay(activeItem)
+            guard uploadDayTotals[day] == nil, store.cursor != nil,
+                  pages.last.map(store.groupDay) == day else { return }
+            if let count = try? await store.uploadDayTotal(day), !Task.isCancelled {
+                uploadDayTotals[day] = count
             }
         }
     }
 
+    private func position(at index: Int) -> NativePreviewPosition {
+        let item = pages[index]
+        let day = store.groupDay(item)
+        let heading = day.replacingOccurrences(of: "-", with: ".")
+        if let position = item.media_position {
+            return NativePreviewPosition(day: heading,
+                                         withinDay: "当天 \(position.day_index) / \(position.day_total)",
+                                         overall: "全部 \(position.index) / \(position.total)")
+        }
+        let sameDay = pages.filter { store.groupDay($0) == day }
+        let dayIndex = (sameDay.firstIndex { $0.stableID == item.stableID } ?? 0) + 1
+        let completeBefore = store.anchorMediaID == nil || store.archiveExpanded && !store.hasNewer
+        let wholeDay = (completeBefore || pages.first.map(store.groupDay) != day) &&
+                       (store.cursor == nil || pages.last.map(store.groupDay) != day)
+        let dayTotal = uploadDayTotals[day] ?? (wholeDay ? sameDay.count : nil)
+        let overall = store.usesUploadOrder && uploadTotal >= pages.count
+            ? "全部 \(index + 1) / \(uploadTotal)"
+            : "\(completeBefore && store.cursor == nil ? "全部" : "已加载") \(index + 1) / \(pages.count)"
+        return NativePreviewPosition(day: store.usesUploadOrder ? "上传 · \(heading)" : heading,
+                                     withinDay: dayTotal.map { "当天 \(dayIndex) / \($0)" } ?? "当天已加载 \(dayIndex) / \(sameDay.count)",
+                                     overall: overall)
+    }
+
     private func move(_ step: Int) {
+        if selectAdjacent(step) { pendingStep = nil; return }
+        pendingStep = step
+        Task { await extend(step) }
+    }
+
+    @discardableResult
+    private func selectAdjacent(_ step: Int) -> Bool {
         guard let index = pages.firstIndex(where: { $0.stableID == selection }),
-              pages.indices.contains(index + step) else { return }
+              pages.indices.contains(index + step) else { return false }
         selection = pages[index + step].stableID
+        return true
+    }
+
+    private func extend(_ step: Int) async {
+        guard !paging else { return }
+        paging = true
+        defer {
+            paging = false
+            if let pendingStep {
+                self.pendingStep = nil
+                selectAdjacent(pendingStep)
+            }
+        }
+        while !Task.isCancelled && (step > 0 ? store.cursor != nil : store.hasNewer) {
+            let edge = (step > 0 ? store.items.last : store.items.first)?.stableID
+            if step > 0 { await store.load(more: true) }
+            else { await store.loadNewer() }
+            guard !Task.isCancelled else { return }
+            let known = Set(pages.map(\.stableID))
+            let added = store.items.filter { $0.kind == "media" && !known.contains($0.stableID) }
+            if !added.isEmpty {
+                pages = store.mediaPages(step > 0 ? pages + added : added + pages)
+                return
+            }
+            if (step > 0 ? store.items.last : store.items.first)?.stableID == edge { return }
+        }
     }
 
     private func remove(_ item: NativeTimelineItem) {
         guard let index = pages.firstIndex(where: { $0.stableID == item.stableID }) else { return }
         pages.remove(at: index)
+        if let position = item.media_position {
+            for offset in pages.indices {
+                let sameDay = store.groupDay(pages[offset]) == store.groupDay(item)
+                pages[offset].media_position?.remove(position, sameDay: sameDay)
+            }
+        } else if store.usesUploadOrder {
+            uploadTotal -= 1
+            uploadDayTotals[store.groupDay(item)]? -= 1
+        }
         if pages.isEmpty { dismiss() }
         else { selection = pages[min(index, pages.count - 1)].stableID }
         Task { await store.load() }
@@ -489,7 +564,7 @@ struct NativeMediaDetail: View {
     @ObservedObject var session: NativeSession
     let initial: NativeTimelineItem
     let profiles: [UploadProfile]
-    let pagePosition: String?
+    let pagePosition: NativePreviewPosition?
     let previous: (() -> Void)?
     let next: (() -> Void)?
     let onSaved: () -> Void
@@ -546,17 +621,30 @@ struct NativeMediaDetail: View {
                             .overlay(alignment: .topLeading) {
                                 if item.media_type == "live_photo" { liveBadge }
                             }
+                    } else {
+                        Spacer(minLength: 0)
                     }
                     if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.white).padding(.horizontal) }
                     if loading { ProgressView("正在准备预览…").tint(.white).foregroundStyle(.white) }
-                    HStack {
-                        if let pagePosition {
+                    if let pagePosition {
+                        HStack(spacing: 16) {
                             Button(action: { if let previous { stop(); previous() } }) { Image(systemName: "chevron.left").padding(8) }
                                 .accessibilityLabel("上一项").disabled(previous == nil || savingToPhotos)
-                            Text(pagePosition).monospacedDigit().font(.caption)
+                            VStack(spacing: 4) {
+                                Text(pagePosition.day).font(.headline)
+                                ViewThatFits {
+                                    HStack(spacing: 12) { Text(pagePosition.withinDay); Text(pagePosition.overall) }
+                                    VStack(spacing: 2) { Text(pagePosition.withinDay); Text(pagePosition.overall) }
+                                }.font(.caption).foregroundStyle(.white.opacity(0.75))
+                            }
+                            .monospacedDigit().accessibilityElement(children: .combine)
                             Button(action: { if let next { stop(); next() } }) { Image(systemName: "chevron.right").padding(8) }
                                 .accessibilityLabel("下一项").disabled(next == nil || savingToPhotos)
                         }
+                        .foregroundStyle(.white)
+                        .padding(.bottom, item.media_type == "video" || zoom != 1 ? 0 : 8)
+                    }
+                    HStack {
                         if item.media_type == "video" {
                             Button(player == nil ? "有声播放" : "重新播放") { play() }.buttonStyle(.borderedProminent).disabled(loading)
                         }

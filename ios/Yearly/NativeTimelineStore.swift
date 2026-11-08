@@ -15,6 +15,21 @@ struct NativeMediaMetadata: Decodable {
     let parser_version: String?
     let parse_status: String?
 }
+struct NativeMediaPosition: Decodable {
+    var index: Int
+    var total: Int
+    var day_index: Int
+    var day_total: Int
+
+    mutating func remove(_ deleted: Self, sameDay: Bool) {
+        total -= 1
+        if index > deleted.index { index -= 1 }
+        if sameDay {
+            day_total -= 1
+            if day_index > deleted.day_index { day_index -= 1 }
+        }
+    }
+}
 struct NativeTimelineItem: Decodable, Identifiable {
     let id: Int
     var kind: String?
@@ -50,6 +65,7 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var files: [NativeMediaFile]?
     var children: [UploadProfile]?
     var child_ids: [Int]?
+    var media_position: NativeMediaPosition?
     var stableID: String { "\(kind ?? "media")-\(id)" }
     var label: String { [title, batch_name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "珍藏的瞬间" }
     var day: String { String((timeline_day ?? timeline_date ?? taken_at_local ?? start_at ?? "日期未知").prefix(10)) }
@@ -96,6 +112,17 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     func groupDay(_ item: NativeTimelineItem) -> String {
         guard usesUploadOrder else { return item.day }
         return item.uploadDate.map(NativeDay.string) ?? "日期未知"
+    }
+    func orderedDays<S: Sequence>(_ days: S) -> [String] where S.Element == String {
+        days.sorted { a, b in
+            if a == b || a == "日期未知" { return false }
+            if b == "日期未知" { return true }
+            return ascending ? a < b : a > b
+        }
+    }
+    func mediaPages(_ items: [NativeTimelineItem]) -> [NativeTimelineItem] {
+        let groups = Dictionary(grouping: items.filter { $0.kind == "media" }, by: groupDay)
+        return orderedDays(groups.keys).flatMap { groups[$0] ?? [] }
     }
     var queryKey: String {
         if showingUploads { return "uploads|\(uploadedMediaIDs)" }
@@ -183,6 +210,37 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         guard archiveExpanded, hasNewer else { return }
         await loadPage(.newer)
     }
+
+    private var timelineFilters: [URLQueryItem] {
+        var params = [URLQueryItem(name: "group_folders", value: "false"), URLQueryItem(name: "order", value: ascending ? "asc" : "desc")]
+        if usesUploadOrder { params.append(URLQueryItem(name: "date_basis", value: "upload")) }
+        if let anchorMediaID { params.append(URLQueryItem(name: "anchor_media_id", value: String(anchorMediaID))) }
+        let queryText = String(search.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+        if !queryText.isEmpty { params.append(URLQueryItem(name: "q", value: queryText)) }
+        if ["photo", "video", "live_photo"].contains(mediaType) { params.append(URLQueryItem(name: "media_type", value: mediaType)) }
+        params += selected.sorted().map { URLQueryItem(name: "child_id", value: String($0)) }
+        return params
+    }
+
+    private func uploadRange(_ start: Date, _ end: Date) -> [URLQueryItem] {
+        let calendar = Calendar(identifier: .gregorian)
+        let first = calendar.startOfDay(for: start)
+        let last = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: end))!
+        return [
+            URLQueryItem(name: "start", value: String(first.ISO8601Format().dropLast())),
+            URLQueryItem(name: "end", value: String(last.ISO8601Format().dropLast())),
+        ]
+    }
+
+    func uploadDayTotal(_ day: String) async throws -> Int? {
+        guard usesUploadOrder, let date = NativeDay.date(day) else { return nil }
+        let request = queryKey
+        var query = URLComponents()
+        query.queryItems = timelineFilters + uploadRange(date, date) + [URLQueryItem(name: "page_size", value: "1")]
+        let result: NativeTimelinePage = try await session.get("/timeline?" + (query.percentEncodedQuery ?? ""))
+        return request == queryKey ? result.total : nil
+    }
+
     private func loadPage(_ direction: Page) async {
         if direction != .first && (loading || loadedQuery != queryKey) { return }
         if direction == .older && cursor == nil { return }
@@ -213,25 +271,16 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
             return
         }
         var query = URLComponents()
-        var params = [URLQueryItem(name: "page_size", value: "40"), URLQueryItem(name: "group_folders", value: "false"), URLQueryItem(name: "order", value: ascending ? "asc" : "desc")]
-        if usesUploadOrder { params.append(URLQueryItem(name: "date_basis", value: "upload")) }
-        if let anchorMediaID { params.append(URLQueryItem(name: "anchor_media_id", value: String(anchorMediaID))) }
-        let queryText = String(search.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
-        if !queryText.isEmpty { params.append(URLQueryItem(name: "q", value: queryText)) }
-        if ["photo", "video", "live_photo"].contains(mediaType) { params.append(URLQueryItem(name: "media_type", value: mediaType)) }
+        var params = timelineFilters + [URLQueryItem(name: "page_size", value: "40")]
+        if !usesUploadOrder { params.append(URLQueryItem(name: "media_positions", value: "true")) }
         if useDateRange {
             if usesUploadOrder {
-                let calendar = Calendar(identifier: .gregorian)
-                let start = calendar.startOfDay(for: startDate)
-                let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endDate))!
-                params.append(URLQueryItem(name: "start", value: String(start.ISO8601Format().dropLast())))
-                params.append(URLQueryItem(name: "end", value: String(end.ISO8601Format().dropLast())))
+                params += uploadRange(startDate, endDate)
             } else {
                 params.append(URLQueryItem(name: "start", value: NativeDay.string(startDate) + "T00:00:00"))
                 params.append(URLQueryItem(name: "end", value: NativeDay.following(endDate) + "T00:00:00"))
             }
         }
-        params += selected.sorted().map { URLQueryItem(name: "child_id", value: String($0)) }
         if direction == .newer { params.append(URLQueryItem(name: "before", value: "true")) }
         let position = direction == .newer ? previousCursor : direction == .older ? cursor : nil
         if let position { params.append(URLQueryItem(name: "cursor", value: position)) }

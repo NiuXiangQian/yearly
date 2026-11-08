@@ -164,6 +164,52 @@ def test_upload_time_pagination_and_archive_anchor(context):
     assert [item["id"] for item in response.json()["items"]] == [undated_id]
 
 
+@pytest.mark.parametrize("order", ["asc", "desc"])
+def test_preview_positions_count_media_across_pages_and_archive_anchors(context, order):
+    with context.db() as db:
+        dated = datetime(2024, 3, 31, 12)
+        old = Media(owner_id=1, media_type="photo", status="active", taken_at_local=datetime(2024, 3, 30))
+        manual = Media(owner_id=1, media_type="live_photo", status="active", taken_at_local=dated, sort_order=9)
+        second = Media(owner_id=1, media_type="video", status="active", taken_at_local=dated)
+        unknown = Media(owner_id=1, media_type="photo", status="active")
+        db.add_all([old, manual, second, unknown, Event(title="日记", start_at=dated, created_by=1)])
+        db.commit()
+        old_id, manual_id, second_id, unknown_id = (m.id for m in (old, manual, second, unknown))
+
+    params = {"media_positions": True, "page_size": 1, "order": order}
+    expected = [old_id, manual_id, second_id, unknown_id] if order == "asc" else [manual_id, second_id, old_id, unknown_id]
+    known = {}
+    cursor = None
+    while True:
+        response = context.client.get("/api/timeline", params={**params, **({"cursor": cursor} if cursor else {})})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["total"] == 5
+        for row in data["items"]:
+            if row["kind"] == "media":
+                known[row["id"]] = row["media_position"]
+            else:
+                assert "media_position" not in row
+        cursor = data["next_cursor"]
+        if not cursor:
+            break
+    assert list(known) == expected
+    assert known == {
+        mid: {"index": index, "total": 4, "day_index": 2 if mid == second_id else 1, "day_total": 2 if mid in (manual_id, second_id) else 1}
+        for index, mid in enumerate(expected, 1)
+    }
+    for anchor in [second_id, unknown_id]:
+        forward = context.client.get("/api/timeline", params={**params, "anchor_media_id": anchor}).json()
+        assert forward["items"][0]["media_position"] == known[anchor]
+        reverse = context.client.get("/api/timeline", params={**params, "anchor_media_id": anchor, "before": True, "page_size": 10}).json()
+        assert all(row["media_position"] == known[row["id"]] for row in reverse["items"] if row["kind"] == "media")
+
+    filtered = context.client.get("/api/timeline", params={**params, "media_type": "live_photo"}).json()
+    assert filtered["items"][0]["media_position"] == {"index": 1, "total": 1, "day_index": 1, "day_total": 1}
+    unchanged = context.client.get("/api/timeline?media_type=live_photo").json()
+    assert "media_position" not in unchanged["items"][0]
+
+
 def test_share_bounds_respect_content_permissions(context):
     with context.db() as db:
         private_folder = TimelineFolder(
