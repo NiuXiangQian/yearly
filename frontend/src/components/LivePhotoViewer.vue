@@ -2,9 +2,10 @@
 // Layered playback and press-to-play adapted from WebLivePhoto (MIT).
 // See frontend/THIRD_PARTY_NOTICES.md for attribution and pinned source blobs.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { CircleDot, LoaderCircle, RotateCcw, Volume2, VolumeX } from "lucide-vue-next";
+import { LoaderCircle, RotateCcw, Volume2, VolumeX } from "lucide-vue-next";
 import { t } from "../lib/i18n";
 import type { MediaResource } from "../lib/media-resource";
+import LivePhotoIcon from "./LivePhotoIcon.vue";
 const props = defineProps<{
   src: string;
   alt?: string;
@@ -176,7 +177,7 @@ onBeforeUnmount(() => {
         :aria-busy="loading" @click="replay">
         <LoaderCircle v-if="loading || pending" class="live-spinner" :size="18" />
         <RotateCcw v-else-if="error" :size="18" />
-        <CircleDot v-else :size="18" />
+        <LivePhotoIcon v-else />
         <span>LIVE</span><small>{{ label }}</small>
       </button>
       <button class="live-photo-sound" :aria-label="muted ? t('取消静音') : t('静音')"

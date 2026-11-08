@@ -140,6 +140,11 @@ try {
    await card.scrollIntoViewIfNeeded();
    const thumbnails=page.locator(shared?'.shared-thumb img':'.media-visual > img');
    await thumbnails.first().waitFor();
+   if (shared) {
+    assert.equal(await card.locator('.shared-live-badge').innerText(), 'LIVE');
+    assert.equal(await card.locator('.shared-live-badge .live-photo-icon circle').count(), 3);
+    assert.equal(await page.locator('.shared-live-badge').count(), 1, 'only the Live Photo gets a LIVE badge');
+   }
    await page.waitForFunction(() => [...document.querySelectorAll('.shared-thumb img, .media-visual > img')].every(img=>img.complete && img.naturalWidth>0 && getComputedStyle(img).opacity==='1'));
    for(const image of await thumbnails.all()) assert.equal(await image.evaluate(el=>getComputedStyle(el).objectFit),'contain','thumbnail preserves complete frame');
    await page.screenshot({path:resolve(fixtures, `yearly-thumbnails-${shared?'shared':'private'}-${mobile?'iphone':'desktop'}.png`)});
@@ -151,6 +156,7 @@ try {
    if(mobile) assert.equal(calls.video,before,'no video preload');
    await page.locator('.live-photo-badge').click();
    await page.locator('.live-photo.is-playing').waitFor();
+   await page.locator('.live-photo-badge .live-photo-icon').waitFor();
    await page.waitForFunction(()=>document.querySelector('.live-photo-video').currentTime>0.05);
    assert.equal(await page.locator('.live-photo-video').evaluate(v=>v.muted),false);
    await page.locator('.live-photo-video').evaluate(v => {
