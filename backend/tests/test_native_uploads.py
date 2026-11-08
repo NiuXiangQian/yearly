@@ -83,11 +83,16 @@ def test_native_key_is_owner_scoped_and_cannot_be_injected(context):
     first = context.client.post("/api/uploads", json=body, headers=key).json()
     context.client.cookies.set("yearly_session", "member")
     context.client.headers["X-CSRF-Token"] = "csrf-member"
+    blocked = context.client.post("/api/uploads", json=body, headers=key)
+    assert blocked.status_code == 409
+    assert "media_id" not in blocked.json() and "tasks" not in blocked.json()
+    body["files"][0] = file_payload(b"other-owner-still", "other.heic")
     other = context.client.post("/api/uploads", json=body, headers=key).json()
     assert first["media_id"] != other["media_id"]
     assert context.client.post(f"/api/uploads/{first['tasks'][0]['id']}/sign?number=1").status_code == 403
     with context.db() as db:
         assert db.get(MediaMetadata, first["media_id"]).raw_metadata["_upload_receipt"]["key"] == key["Idempotency-Key"]
+    body["files"][0] = file_payload(b"no-header-still", "third.heic")
     no_header = context.client.post("/api/uploads", json=body).json()
     with context.db() as db:
         assert "_upload_receipt" not in db.get(MediaMetadata, no_header["media_id"]).raw_metadata

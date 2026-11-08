@@ -160,7 +160,7 @@ chmod 600 .env.test
 
 ## iOS App
 
-提供 iPhone（iOS 16+）SwiftUI + WKWebView 客户端，保留现有家庭站点，新增原生批量无损上传、Live Photo 双资源、任务持久化和暂停续传。使用免费 Apple Personal Team 在 Xcode 安装并按 7 天有效期续签，无需付费账号、TestFlight 或 App Store。开发、安装和使用步骤见 [中文 iOS 指南](ios/README.md)。当前尚未完成完整 iOS SDK 构建、签名和真机验收。
+提供 iPhone（iOS 16+）SwiftUI 原生客户端：原生登录、家庭时间线、图片/视频/Live Photo 预览、家人筛选、批量无损上传和持久续传，不再内嵌网页。免费 Apple Personal Team 可通过 Xcode 安装，并按 7 天有效期续签，无需付费账号或 TestFlight。构建、安装与真实验收范围见 [中文 iOS 指南](ios/README.md)。
 
 ```bash
 open ios/Yearly.xcodeproj

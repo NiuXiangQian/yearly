@@ -4,6 +4,12 @@
 	classes = {};
 	objectVersion = 56;
 	objects = {
+        A00000000000000000000008 /* NativeTimelineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineStore.swift; sourceTree = "<group>"; };
+        B00000000000000000000008 /* NativeTimelineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000008; };
+		A00000000000000000000007 /* NativeTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimeline.swift; sourceTree = "<group>"; };
+		B00000000000000000000007 /* NativeTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000007; };
+		A00000000000000000000006 /* NativeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSession.swift; sourceTree = "<group>"; };
+		B00000000000000000000006 /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000006; };
 		A00000000000000000000000 /* UploadCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadCore.swift; sourceTree = "<group>"; };
 		B00000000000000000000000 /* UploadCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000000 /* UploadCore.swift */; };
 		A00000000000000000000001 /* UploadAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadAPI.swift; sourceTree = "<group>"; };
@@ -18,21 +24,13 @@
 		B00000000000000000000005 /* NativeUploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* NativeUploadView.swift */; };
 		F00000000000000000000004 /* SiteOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000015; };
 		F00000000000000000000015 /* SiteOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteOrigin.swift; sourceTree = "<group>"; };
-		F00000000000000000000005 /* BrowserState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000016; };
-		F00000000000000000000016 /* BrowserState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserState.swift; sourceTree = "<group>"; };
-		F00000000000000000000006 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000017; };
-		F00000000000000000000017 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		F00000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000018; };
 		F00000000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F00000000000000000000008 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000019; };
 		F00000000000000000000019 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		F00000000000000000000001 /* YearlyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000011 /* YearlyApp.swift */; };
-		F00000000000000000000002 /* SiteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000012 /* SiteView.swift */; };
-		F00000000000000000000003 /* LivePhotoTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000013 /* LivePhotoTransfer.swift */; };
 
 		F00000000000000000000011 /* YearlyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyApp.swift; sourceTree = "<group>"; };
-		F00000000000000000000012 /* SiteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteView.swift; sourceTree = "<group>"; };
-		F00000000000000000000013 /* LivePhotoTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LivePhotoTransfer.swift; sourceTree = "<group>"; };
 		F00000000000000000000014 /* Yearly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Yearly.app; sourceTree = BUILT_PRODUCTS_DIR; };
 
 		F00000000000000000000020 = {
@@ -43,18 +41,17 @@
 		F00000000000000000000021 /* Yearly */ = {
 			isa = PBXGroup;
 			children = (
+                A00000000000000000000008 /* NativeTimelineStore.swift */,
 				F00000000000000000000011 /* YearlyApp.swift */,
-				F00000000000000000000012 /* SiteView.swift */,
-				F00000000000000000000013 /* LivePhotoTransfer.swift */,
 				F00000000000000000000015 /* SiteOrigin.swift */,
-				F00000000000000000000016 /* BrowserState.swift */,
-				F00000000000000000000017 /* DownloadManager.swift */,
 				A00000000000000000000000 /* UploadCore.swift */,
 				A00000000000000000000001 /* UploadAPI.swift */,
 				A00000000000000000000002 /* PhotoOriginals.swift */,
 				A00000000000000000000003 /* OriginalMetadata.swift */,
 				A00000000000000000000004 /* UploadQueue.swift */,
 				A00000000000000000000005 /* NativeUploadView.swift */,
+				A00000000000000000000007 /* NativeTimeline.swift */,
+				A00000000000000000000006 /* NativeSession.swift */,
 				F00000000000000000000018 /* Assets.xcassets */,
 				F00000000000000000000019 /* PrivacyInfo.xcprivacy */,
 			);
@@ -71,7 +68,7 @@
 		F00000000000000000000030 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (B00000000000000000000000, B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000005, F00000000000000000000001 /* YearlyApp.swift in Sources */, F00000000000000000000002 /* SiteView.swift in Sources */, F00000000000000000000003 /* LivePhotoTransfer.swift in Sources */, F00000000000000000000004 /* SiteOrigin.swift in Sources */, F00000000000000000000005 /* BrowserState.swift in Sources */, F00000000000000000000006 /* DownloadManager.swift in Sources */);
+			files = (B00000000000000000000008, B00000000000000000000007, B00000000000000000000006, B00000000000000000000000, B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000005, F00000000000000000000001 /* YearlyApp.swift in Sources */, F00000000000000000000004 /* SiteOrigin.swift in Sources */);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F00000000000000000000031 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };

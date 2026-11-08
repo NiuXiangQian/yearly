@@ -151,6 +151,21 @@ import UniformTypeIdentifiers
         live.childIDs = [1, 2, 3]
         live.archiveDate = "2024-01-02"
         try store.save([live])
+        var duplicate = live
+        duplicate.name = "renamed original"
+        duplicate.resources.reverse()
+        expect(live.sameOriginals(as: duplicate), "duplicate identity ignores name and resource order")
+        duplicate.resources[0].sha256 = "different-motion"
+        expect(!live.sameOriginals(as: duplicate), "different Live Photo motion is not the same original set")
+        duplicate = live
+        duplicate.resources.removeLast()
+        expect(!live.sameOriginals(as: duplicate), "static-only copy is not a complete Live Photo duplicate")
+        duplicate = live
+        duplicate.phase = .skipped
+        duplicate.duplicate = true
+        try store.save([duplicate])
+        expect(try store.load()[0].phase == .skipped && duplicate.isTerminal, "duplicate skip survives restart as terminal")
+        try store.save([live])
         let recovered = try store.load()[0]
         expect(recovered.phase == .paused && recovered.id == live.id, "restart preserves stable create key and pauses")
         expect(recovered.resources[0].complete && !recovered.resources[1].complete, "restart preserves partial Live Photo completion")

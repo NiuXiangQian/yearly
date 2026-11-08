@@ -1,13 +1,11 @@
 import SwiftUI
 import PhotosUI
-import WebKit
 
 struct NativeUploadView: View {
     @ObservedObject var queue: UploadQueue
-    let site: SiteOrigin
-    let cookieStore: WKHTTPCookieStore
+    @ObservedObject var session: NativeSession
+    private var site: SiteOrigin { session.site }
     let onTimeline: () -> Void
-    @Environment(\.dismiss) private var dismiss
     @State private var account: UploadAccount?
     @State private var profiles: [UploadProfile] = []
     @State private var children: Set<Int> = []
@@ -19,10 +17,10 @@ struct NativeUploadView: View {
     @State private var excluded: Set<UUID> = []
     @State private var message = ""
 
-    private var items: [UploadItem] { queue.items.filter { $0.site == site.url.absoluteString && (account == nil || $0.ownerID == account?.id) } }
+    private var items: [UploadItem] { queue.items.filter { $0.site == site.url.absoluteString && $0.ownerID == session.account?.id } }
     private var ready: [UploadItem] { items.filter { $0.phase == .ready && !excluded.contains($0.id) } }
     private var totalProgress: Double {
-        let confirmed = items.filter { $0.confirmed && $0.phase != .cancelled }
+        let confirmed = items.filter { $0.confirmed && !$0.duplicate && $0.phase != .cancelled }
         let bytes = confirmed.reduce(Int64(0)) { $0 + $1.size }
         return bytes == 0 ? 0 : confirmed.reduce(0.0) { $0 + $1.progress * Double($1.size) } / Double(bytes)
     }
@@ -55,7 +53,7 @@ struct NativeUploadView: View {
                 } header: { Text("上传确认 · 人物、孩子与宠物可多选") }
                 Section {
                     ProgressView(value: totalProgress)
-                    Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .failed }.count) 失败 · \(items.count) 项")
+                    Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .skipped }.count) 重复已跳过 · \(items.filter { $0.phase == .failed }.count) 失败 · \(items.count) 项")
                     Text("照片 \(items.filter { $0.mediaType == "photo" }.count) · Live Photo \(items.filter { $0.mediaType == "live_photo" }.count) · 视频 \(items.filter { $0.mediaType == "video" }.count)")
                         .font(.caption).foregroundStyle(.secondary)
                     HStack {
@@ -109,12 +107,11 @@ struct NativeUploadView: View {
                     }
                 }
                 Section {
-                    Button("返回网页时间线") { dismiss(); onTimeline() }
+                    Button("查看家庭时间线") { onTimeline() }
                 }
             }
             .navigationTitle("珍藏原片")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } } }
-            .task { queue.configure(site: site, cookieStore: cookieStore); await loadAccount() }
+            .task { queue.configure(session: session); await loadAccount() }
             .sheet(isPresented: $showPicker) {
                 NativePhotoPicker { identifiers, unavailable in
                     showPicker = false
@@ -138,7 +135,7 @@ struct NativeUploadView: View {
     }
     private func loadAccount() async {
         do {
-            let api = UploadAPI(site: site, cookieStore: cookieStore)
+            let api = session.uploadAPI()
             let current = try await api.account()
             let loaded = try await api.profiles()
             account = current

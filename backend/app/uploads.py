@@ -71,8 +71,12 @@ def create_upload(
     storage=Depends(get_storage),
 ):
     cfg = settings()
+    # All upload creators share a short DB-only critical section. A per-owner lock
+    # cannot prevent two family members reserving the same originals concurrently.
+    # Use an existing stable row; no MySQL-8 feature or schema migration is needed.
+    db.scalar(select(User.id).order_by(User.id).limit(1).with_for_update())
     # Opt-in for durable native clients. Existing browser requests keep their behavior.
-    # Serialize by owner, including first creation: MySQL 5.7 has no JSON unique index.
+    # The shared creation lock also serializes first-use receipts without a JSON unique index.
     # The receipt lives in existing metadata; no schema or OSS key changes are needed.
     receipt = None
     if idempotency_key is not None:
@@ -88,7 +92,6 @@ def create_upload(
                 ensure_ascii=False,
             ).encode()
         ).hexdigest()
-        db.scalar(select(User).where(User.id == user.id).with_for_update())
         previous = db.scalar(
             select(MediaMetadata)
             .join(Media, Media.id == MediaMetadata.media_id)
@@ -102,13 +105,14 @@ def create_upload(
         if previous:
             if previous.raw_metadata["_upload_receipt"]["fingerprint"] != fingerprint:
                 raise HTTPException(409, "同一上传请求不能更换文件或归档信息")
-            media = db.get(Media, previous.media_id)
+            media = db.scalar(select(Media).where(Media.id == previous.media_id).with_for_update())
             if media.status not in ("uploading", "active"):
                 raise HTTPException(409, "原上传媒体已不可用")
             tasks = db.scalars(
                 select(UploadTask)
                 .where(UploadTask.media_id == media.id)
                 .order_by(UploadTask.file_id)
+                .with_for_update()
             ).all()
             if any(t.status != "complete" and t.expires_at < now() for t in tasks):
                 raise HTTPException(410, "上传任务已过期")
@@ -116,7 +120,9 @@ def create_upload(
                 "media_id": media.id,
                 "timeline_day": media.timeline_date
                 or (media.taken_at_local.date() if media.taken_at_local else None),
-                "tasks": [task_data(t, db.get(MediaFile, t.file_id)) for t in tasks],
+                "tasks": [task_data(t, db.scalar(select(MediaFile).where(
+                    MediaFile.id == t.file_id
+                ).with_for_update())) for t in tasks],
             }
         receipt = {"key": key, "fingerprint": fingerprint}
     # This internal namespace cannot be supplied by clients, even without the header.
@@ -161,26 +167,45 @@ def create_upload(
         select(Media)
         .join(MediaFile, MediaFile.media_id == Media.id)
         .where(
-            Media.status == "active",
+            Media.status.in_(["active", "uploading"]),
             Media.purpose == data.purpose,
             Media.media_type == data.media_type,
             MediaFile.file_role == "original",
             MediaFile.sha256 == original.sha256,
-            MediaFile.upload_status == "complete",
         )
         .order_by(Media.id)
+        .with_for_update()
     ).unique()
     for existing in candidates:
+        # Locking reads see commits made while waiting for the creation lock even
+        # under MySQL REPEATABLE READ; lazy relationships would use an old snapshot.
+        existing_files = db.scalars(select(MediaFile).where(
+            MediaFile.media_id == existing.id
+        ).with_for_update()).all()
         if (
             sorted(
                 (f.file_role, f.sha256, f.file_size)
-                for f in existing.files
-                if f.file_role != "preview" and f.upload_status == "complete"
+                for f in existing_files
+                if f.file_role != "preview"
             )
             != signature
         ):
             continue
-        child_ids = sorted({c.id for c in existing.children} | set(data.child_ids))
+        if existing.status == "uploading":
+            tasks = db.scalars(select(UploadTask).where(
+                UploadTask.media_id == existing.id,
+                UploadTask.status != "complete",
+                UploadTask.expires_at >= now(),
+            ).with_for_update()).all()
+            if tasks:
+                raise HTTPException(409, "相同原件已有未完成上传，请继续原任务，不能重复创建")
+            continue
+        if any(f.upload_status != "complete" for f in existing_files if f.file_role != "preview"):
+            continue
+        existing_child_ids = db.scalars(select(MediaChild.child_id).where(
+            MediaChild.media_id == existing.id
+        ).with_for_update()).all()
+        child_ids = sorted(set(existing_child_ids) | set(data.child_ids))
         set_children(db, existing.id, child_ids, MediaChild)
         db.commit()
         notice = "已存在，已跳过重复上传；保留已有日期和信息"

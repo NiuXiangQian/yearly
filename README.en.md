@@ -158,7 +158,7 @@ To start them separately, run each command in its own terminal:
 
 ## iOS app
 
-The existing SwiftUI + WKWebView iPhone client (iOS 16+) now includes native batch original uploads, paired Live Photo resources, and a persistent resumable queue. It supports Xcode installation with a free Personal Team and renewal after the 7-day provisioning period; paid membership, TestFlight, and App Store distribution are not prerequisites. See the [Chinese iOS development and usage guide](ios/README.md). Full iOS SDK builds, signing, and device acceptance are still pending.
+The existing iOS 16+ project now uses native SwiftUI login, timeline, profile filtering, photo/video/Live Photo previews and durable original uploads, without an embedded website. It supports installation and 7-day re-signing with a free Apple Personal Team. See the [Chinese iOS development and usage guide](ios/README.md) for builds, installation and the limits of device validation.
 
 ```bash
 open ios/Yearly.xcodeproj

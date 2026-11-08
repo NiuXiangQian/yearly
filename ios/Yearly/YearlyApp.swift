@@ -1,93 +1,24 @@
 import SwiftUI
-import WebKit
 
 @main
 struct YearlyApp: App {
-    var body: some Scene {
-        WindowGroup { YearlyRootView() }
-    }
+    var body: some Scene { WindowGroup { YearlyRootView() } }
 }
 
 struct YearlyRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("yearlySite") private var address = AppConfiguration.defaultSite
-    @StateObject private var browser = BrowserState()
     @StateObject private var uploads = UploadQueue()
     @State private var editingSite = false
-    @State private var showingUploads = false
-
     var body: some View {
         Group {
             if let site = SiteOrigin(address) {
-                VStack(spacing: 0) {
-                    HStack {
-                        Button { browser.webView?.goBack() } label: {
-                            Image(systemName: "chevron.backward").frame(width: 44, height: 44)
-                        }
-                        .disabled(!browser.canGoBack)
-                        .accessibilityLabel("返回")
-                        Spacer(minLength: 0)
-                        Label(site.url.host ?? "yearly", systemImage: "lock.fill")
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        Spacer(minLength: 0)
-                        Button { showingUploads = true } label: {
-                            Image(systemName: "square.and.arrow.up").frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("原生相册上传与任务")
-                        Menu {
-                            Button("原生相册上传与任务") { showingUploads = true }
-                            Button { browser.retry(site: site) } label: {
-                                Label("重新加载", systemImage: "arrow.clockwise")
-                            }
-                            Button { editingSite = true } label: {
-                                Label("站点与关于", systemImage: "gearshape")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("App 菜单")
-                    }
-                    .padding(.horizontal, 8)
-                    Divider()
-                    ZStack {
-                        SiteView(site: site, state: browser).id(address)
-                        if browser.loadFailed {
-                            VStack(spacing: 18) {
-                                Image(systemName: "wifi.exclamationmark").font(.largeTitle)
-                                Text("暂时无法连接家庭站点").font(.headline)
-                                Text("请检查网络、站点地址和 HTTPS 证书，然后重试。")
-                                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                                Button("重新连接") { browser.retry(site: site) }.buttonStyle(.borderedProminent)
-                                Button("修改站点地址") { editingSite = true }
-                            }
-                            .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color(.systemBackground))
-                        } else if browser.isLoading {
-                            ProgressView("正在连接…")
-                                .padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                NativeAppShell(site: site, queue: uploads) { editingSite = true }.id(address)
+                    .sheet(isPresented: $editingSite) {
+                        SiteSettings(address: address, canCancel: true) { newAddress in
+                            uploads.pauseAll(); address = newAddress; editingSite = false
                         }
                     }
-                    if browser.isDownloading {
-                        HStack { ProgressView(); Text("正在下载，完成后可存储到文件…").font(.caption) }
-                            .padding(10)
-                    }
-                }
-                .sheet(isPresented: $editingSite) {
-                    SiteSettings(address: address, canCancel: true) { newAddress in
-                        uploads.pauseAll()
-                        address = newAddress
-                        editingSite = false
-                    }
-                }
-                .sheet(isPresented: $showingUploads) {
-                    NativeUploadView(queue: uploads, site: site,
-                                     cookieStore: browser.webView?.configuration.websiteDataStore.httpCookieStore ?? WKWebsiteDataStore.default().httpCookieStore) {
-                        browser.webView?.load(URLRequest(url: site.url))
-                    }
-                }
-                .alert("下载未完成", isPresented: $browser.downloadFailed) {
-                    Button("好", role: .cancel) {}
-                } message: { Text("请检查网络后重试，并等待当前操作完成。") }
             } else {
                 SiteSettings(address: address, canCancel: false) { address = $0 }
             }
@@ -98,13 +29,157 @@ struct YearlyRootView: View {
             if phase == .active { uploads.enteredForeground() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
-            uploads.pauseAll()
-            uploads.error = "系统内存紧张，已保存并暂停任务，请稍后继续。"
+            uploads.pauseAll(); uploads.error = "系统内存紧张，已保存并暂停任务，请稍后继续。"
         }
     }
 }
 
-private struct SiteSettings: View {
+struct NativeAppShell: View {
+    @StateObject private var session: NativeSession
+    @StateObject private var timeline: NativeTimelineStore
+    @ObservedObject var queue: UploadQueue
+    let editSite: () -> Void
+    @State private var tab = 0
+    @State private var loggingOut = false
+    @State private var message = ""
+    init(site: SiteOrigin, queue: UploadQueue, editSite: @escaping () -> Void) {
+        let session = NativeSession(site: site)
+        _session = StateObject(wrappedValue: session)
+        _timeline = StateObject(wrappedValue: NativeTimelineStore(session: session))
+        self.queue = queue; self.editSite = editSite
+    }
+    var body: some View {
+        Group {
+            if session.restoring {
+                ProgressView("正在恢复安全登录状态…")
+            } else if session.account == nil {
+                NativeLoginView(session: session, editSite: editSite)
+            } else {
+                TabView(selection: $tab) {
+                    NativeTimelineView(store: timeline)
+                        .tabItem { Label("时间线", systemImage: "photo.on.rectangle") }.tag(0)
+                    Group {
+                        if session.canEdit {
+                            NativeUploadView(queue: queue, session: session) { tab = 0; Task { await timeline.load() } }
+                        } else {
+                            NavigationStack { Text("此账号为只读账号，可以浏览家庭回忆。上传需要家庭编辑权限。").padding().navigationTitle("珍藏原片") }
+                        }
+                    }.tabItem { Label("上传", systemImage: "square.and.arrow.up") }.tag(1)
+                    NavigationStack {
+                        List(timeline.profiles) { profile in
+                            Button { timeline.selected = [profile.id]; tab = 0 } label: {
+                                Label(profile.label, systemImage: profile.profile_type == "pet" ? "pawprint" : "person.crop.circle")
+                            }
+                        }.navigationTitle("家人与宠物")
+                            .refreshable { await timeline.loadProfiles() }
+                            .task { await timeline.loadProfiles() }
+                    }.tabItem { Label("家人", systemImage: "person.2") }.tag(2)
+                    NavigationStack {
+                        Form {
+                            Section("家庭账号") {
+                                LabeledContent("账号", value: session.account?.username ?? "家庭成员")
+                                LabeledContent("权限", value: session.canEdit ? "家庭编辑" : "只读浏览")
+                                Button("退出登录", role: .destructive) { loggingOut = true }
+                            }
+                            Section("家庭站点") {
+                                Text(session.site.url.absoluteString).font(.caption).textSelection(.enabled)
+                                Button("站点与关于") { queue.pauseAll(); editSite() }
+                            }
+                            Section("原生 App") {
+                                Label("原生相册、时间线和播放器", systemImage: "iphone")
+                                Text("登录会话保存在 Keychain，密码不保存。进入后台时上传暂停，返回前台可续传。")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                            if !message.isEmpty { Text(message).foregroundStyle(.red) }
+                        }.navigationTitle("我的")
+                            .confirmationDialog("退出后上传将安全暂停", isPresented: $loggingOut, titleVisibility: .visible) {
+                                Button("退出登录", role: .destructive) {
+                                    queue.pauseAll()
+                                    Task { do { try await session.logout() } catch { session.error = friendly(error) } }
+                                }
+                            }
+                    }.tabItem { Label("我的", systemImage: "person.crop.circle") }.tag(3)
+                }
+            }
+        }
+        .task { await session.restore(); queue.configure(session: session) }
+        .onChange(of: session.account?.id) { _ in
+            queue.pauseAll(); queue.configure(session: session)
+            timeline.items = []; timeline.selected = []; tab = 0
+        }
+        .onDisappear { queue.pauseAll() }
+    }
+}
+
+struct NativeLoginView: View {
+    @ObservedObject var session: NativeSession
+    let editSite: () -> Void
+    @State private var username = ""
+    @State private var password = ""
+    @State private var answer = ""
+    @State private var captcha: LoginCaptcha?
+    @State private var loading = false
+    @State private var message = ""
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(systemName: "leaf.fill").font(.largeTitle).foregroundStyle(.tint)
+                        Text("让成长有迹可循").font(.title2.bold())
+                        Text("登录自己的家庭站点，珍藏原片与实况影像。")
+                            .foregroundStyle(.secondary)
+                    }.padding(.vertical)
+                }
+                Section("登录家庭账号") {
+                    TextField("用户名", text: $username).textContentType(.username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    SecureField("密码", text: $password).textContentType(.password)
+                    HStack {
+                        TextField("图片验证码", text: $answer).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                        Button { Task { await refreshCaptcha() } } label: {
+                            if let data = captcha?.png, let image = UIImage(data: data) {
+                                Image(uiImage: image).resizable().scaledToFit().frame(width: 150, height: 48)
+                            } else { Label("加载验证码", systemImage: "arrow.clockwise").font(.caption) }
+                        }.buttonStyle(.borderless).accessibilityLabel("刷新图片验证码").disabled(loading)
+                    }
+                    Button {
+                        guard let captcha else { return }
+                        loading = true; message = ""
+                        Task {
+                            do {
+                                try await session.login(username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password, captcha: captcha, answer: answer)
+                                password = ""; answer = ""
+                            } catch {
+                                message = friendly(error)
+                                password = ""
+                                await refreshCaptcha()
+                            }
+                            loading = false
+                        }
+                    } label: {
+                        HStack { Text("登录"); if loading { ProgressView() } }
+                    }.disabled(loading || captcha == nil || username.isEmpty || password.isEmpty || answer.isEmpty)
+                    if !message.isEmpty { Text(message).foregroundStyle(.red).font(.caption) }
+                    if !session.error.isEmpty { Text(session.error).foregroundStyle(.secondary).font(.caption) }
+                }
+                Section {
+                    Text(session.site.url.absoluteString).font(.caption)
+                    Button("修改家庭站点地址", action: editSite)
+                    Text("首次使用原生版本需重新登录。密码不会写入本机存储，登录会话仅保存到 Keychain。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }.navigationTitle("Yearly")
+                .task { await refreshCaptcha() }
+        }
+    }
+    private func refreshCaptcha() async {
+        answer = ""; captcha = nil
+        do { captcha = try await session.captcha() }
+        catch { message = friendly(error) }
+    }
+}
+
+struct SiteSettings: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: String
     let canCancel: Bool
@@ -142,7 +217,7 @@ private struct SiteSettings: View {
                 }
                 Section("数据与隐私") {
                     Label("照片仅在你选择并上传后发送至家庭站点配置的存储。", systemImage: "photo.on.rectangle")
-                    Label("登录状态保存在 App 内；退出账号请使用站点中的退出登录。", systemImage: "lock.shield")
+                    Label("登录会话安全保存在 Keychain，可在 App 的“我的”页退出；密码不会保存。", systemImage: "lock.shield")
                     if let privacy = AppConfiguration.url(for: "YearlyPrivacyPolicyURL") {
                         Link("隐私政策", destination: privacy)
                     }

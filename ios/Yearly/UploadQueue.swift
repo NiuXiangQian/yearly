@@ -1,6 +1,5 @@
 import SwiftUI
 import Photos
-import WebKit
 
 @MainActor final class UploadQueue: ObservableObject {
     @Published private(set) var items: [UploadItem] = []
@@ -13,7 +12,7 @@ import WebKit
     private var backgroundResume: Set<UUID> = []
     private var pendingResumes: Set<UUID> = []
     private var site: SiteOrigin?
-    private var cookieStore: WKHTTPCookieStore?
+    private weak var session: NativeSession?
 
     init() {
         do {
@@ -26,10 +25,10 @@ import WebKit
             self.error = "无法读取上传队列，已停止写入以保护缓存：\(error.localizedDescription)"
         }
     }
-    func configure(site: SiteOrigin, cookieStore: WKHTTPCookieStore) {
-        if self.site?.url != site.url { pauseAll() }
-        self.site = site
-        self.cookieStore = cookieStore
+    func configure(session: NativeSession) {
+        if self.session !== session { pauseAll() }
+        self.site = session.site
+        self.session = session
     }
     private func persist() throws {
         guard let store else { throw UploadFailure(message: "队列存储不可用。") }
@@ -42,7 +41,7 @@ import WebKit
         }
     }
     func add(identifiers: [String], account: UploadAccount) {
-        guard let site, store != nil else { return }
+        guard let site, store != nil, session?.account?.id == account.id, session?.canEdit == true else { return }
         // Fetch individually: PHFetchResult does not promise picker order.
         for identifier in identifiers {
             if items.contains(where: { $0.assetIdentifier == identifier && $0.site == site.url.absoluteString && $0.ownerID == account.id && !$0.isTerminal }) { continue }
@@ -57,7 +56,16 @@ import WebKit
         do { try persist(); suspended = false; start() } catch { }
     }
     func confirm(ids: Set<UUID>, childIDs: [Int], batchName: String, archiveDate: String?) {
-        for index in items.indices where ids.contains(items[index].id) && items[index].phase == .ready {
+        guard session?.canEdit == true else { return }
+        var skipped: [UUID] = []
+        for index in items.indices where ids.contains(items[index].id) && items[index].phase == .ready && items[index].ownerID == session?.account?.id && items[index].site == site?.url.absoluteString {
+            if items.contains(where: { $0.id != items[index].id && $0.confirmed && !$0.isTerminal && $0.sameOriginals(as: items[index]) }) {
+                items[index].phase = .skipped
+                items[index].duplicate = true
+                items[index].message = "相同原件已在本机上传队列中，已跳过，不会重复上传。"
+                skipped.append(items[index].id)
+                continue
+            }
             items[index].childIDs = childIDs.sorted()
             items[index].batchName = String(batchName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(255))
             items[index].archiveDate = archiveDate
@@ -65,11 +73,12 @@ import WebKit
             items[index].phase = .queued
             items[index].message = ""
         }
-        do { try persist(); suspended = false; start() } catch { }
+        do { try persist(); for id in skipped { try store?.removeFiles(id) }; suspended = false; start() } catch { }
     }
     func resume(_ id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }), !items[i].isTerminal,
-              [.paused, .failed].contains(items[i].phase) else { return }
+              items[i].ownerID == session?.account?.id, items[i].site == site?.url.absoluteString,
+              session?.canEdit == true, [.paused, .failed].contains(items[i].phase) else { return }
         if activeID == id && worker != nil {
             pendingResumes.insert(id)
             suspended = false
@@ -80,8 +89,8 @@ import WebKit
         do { try persist(); suspended = false; start() } catch { }
     }
     func resumeAll() {
-        guard let site else { return }
-        for i in items.indices where items[i].site == site.url.absoluteString && items[i].phase == .paused {
+        guard let site, session?.canEdit == true else { return }
+        for i in items.indices where items[i].site == site.url.absoluteString && items[i].ownerID == session?.account?.id && items[i].phase == .paused {
             if activeID == items[i].id && worker != nil {
                 pendingResumes.insert(items[i].id)
                 continue
@@ -126,21 +135,21 @@ import WebKit
         for id in ids { resume(id) }
     }
     private func start() {
-        guard worker == nil, !suspended, let site, let cookieStore, store != nil else { return }
+        guard worker == nil, !suspended, let site, let session, session.canEdit, store != nil else { return }
         running = true
         worker = Task {
-            await run(site: site, cookieStore: cookieStore)
+            await run(site: site, session: session)
             activeID = nil
             worker = nil
             running = false
             // A per-item cancellation must not discard the other items in this batch.
-            if !suspended && items.contains(where: { $0.site == self.site?.url.absoluteString && [.selected, .queued].contains($0.phase) }) { start() }
+            if !suspended && items.contains(where: { $0.site == self.site?.url.absoluteString && $0.ownerID == self.session?.account?.id && [.selected, .queued].contains($0.phase) }) { start() }
         }
     }
-    private func run(site: SiteOrigin, cookieStore: WKHTTPCookieStore) async {
+    private func run(site: SiteOrigin, session: NativeSession) async {
         guard let store else { return }
         while !suspended && !Task.isCancelled {
-            guard let index = items.firstIndex(where: { $0.site == site.url.absoluteString && [.selected, .queued].contains($0.phase) }) else { return }
+            guard let index = items.firstIndex(where: { $0.site == site.url.absoluteString && $0.ownerID == session.account?.id && [.selected, .queued].contains($0.phase) }) else { return }
             let id = items[index].id
             activeID = id
             do {
@@ -162,7 +171,7 @@ import WebKit
                     items[index] = prepared
                     try persist()
                 } else {
-                    let service = UploadAPI(site: site, cookieStore: cookieStore, ownerID: items[index].ownerID)
+                    let service = session.uploadAPI(ownerID: items[index].ownerID)
                     items[index].phase = .uploading
                     items[index].message = "正在核对原件与上传任务…"
                     try persist()
@@ -210,8 +219,8 @@ import WebKit
                     }
                     // A successful server completion cannot be undone by cancelling the local UI.
                     if items[index].phase != .cancelled {
-                        items[index].phase = .complete
-                        items[index].message = items[index].duplicate ? "已存在：沿用原记录并合并所选人物关联。" : "全部资源已通过服务端校验，可返回时间线查看。"
+                        items[index].phase = items[index].duplicate ? .skipped : .complete
+                        items[index].message = items[index].duplicate ? "重复原件已跳过，没有再次上传；沿用原记录并合并所选人物关联。" : "全部资源已通过服务端校验，可返回时间线查看。"
                     }
                     try persist()
                     try store.removeFiles(id)

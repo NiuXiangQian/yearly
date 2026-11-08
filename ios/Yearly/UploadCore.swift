@@ -9,12 +9,13 @@ struct UploadFailure: LocalizedError {
 struct UploadHTTPError: LocalizedError {
     let status: Int
     let isOSS: Bool
+    var detail: String? = nil
     var errorDescription: String? {
         if isOSS { return "OSS 上传失败（\(status)），已保留分片，可重试。" }
         switch status {
-        case 401: return "登录已失效，请回到网页重新登录后继续。"
+        case 401: return "登录已失效，请在 App 重新登录后继续。"
         case 403: return "没有上传权限、登录账号已变化或安全校验失败，请重新登录。"
-        case 409: return "服务端状态或完整性校验冲突（409），未标记成功。请核查后重试。"
+        case 409: return detail ?? "服务端状态或完整性校验冲突（409），未标记成功。请核查后重试。"
         case 410: return "上传任务已超过服务端 7 天有效期，请取消后重新选择原件。"
         default: return "家庭站点请求失败（\(status)），请稍后重试。"
         }
@@ -22,7 +23,7 @@ struct UploadHTTPError: LocalizedError {
 }
 
 enum UploadPhase: String, Codable {
-    case selected, preparing, ready, queued, uploading, paused, failed, complete, cancelled
+    case selected, preparing, ready, queued, uploading, paused, failed, complete, cancelled, skipped
     var label: String {
         switch self {
         case .selected: return "等待提取"
@@ -34,6 +35,7 @@ enum UploadPhase: String, Codable {
         case .failed: return "失败，可重试"
         case .complete: return "已完成"
         case .cancelled: return "已取消"
+        case .skipped: return "重复已跳过"
         }
     }
 }
@@ -94,13 +96,20 @@ struct UploadItem: Codable, Identifiable {
     var mediaID: Int?
     var duplicate = false
 
-    var isTerminal: Bool { phase == .complete || phase == .cancelled }
+    var isTerminal: Bool { phase == .complete || phase == .cancelled || phase == .skipped }
     var size: Int64 { resources.reduce(0) { $0 + $1.size } }
     var progress: Double {
         if phase == .complete { return 1 }
         guard size > 0 else { return 0 }
         let fraction = Double(resources.reduce(Int64(0)) { $0 + ($1.complete ? $1.size : $1.uploadedBytes) }) / Double(size)
         return min(fraction, 0.99) // Reserve success/100% for verified completion of the logical media.
+    }
+    func sameOriginals(as other: UploadItem) -> Bool {
+        guard site == other.site, ownerID == other.ownerID, mediaType == other.mediaType,
+              !resources.isEmpty, resources.count == other.resources.count else { return false }
+        return resources.allSatisfy { file in other.resources.contains {
+            $0.role == file.role && $0.sha256 == file.sha256 && $0.size == file.size
+        } }
     }
     func body() throws -> Data {
         guard resources.count == (mediaType == "live_photo" ? 2 : 1),

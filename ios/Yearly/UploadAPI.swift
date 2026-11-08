@@ -1,7 +1,6 @@
 import Foundation
-import WebKit
 
-struct UploadAccount: Decodable { let id: Int; let role: String; let csrf_token: String }
+struct UploadAccount: Decodable { let id: Int; let role: String; let csrf_token: String; var username: String? = nil }
 struct UploadProfile: Decodable, Identifiable {
     let id: Int
     let name: String
@@ -11,7 +10,7 @@ struct UploadProfile: Decodable, Identifiable {
 }
 
 // No redirects, disk cookies, shared credential storage or response cache in native networking.
-// Login remains in the existing WKWebView. Session cookies are copied in memory for each API call.
+// Native login stores only the session token in Keychain. Cookies are injected in memory.
 final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
@@ -23,15 +22,14 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
     let ownerID: Int?
     private let cookieProvider: () async -> [HTTPCookie]
     private let session: URLSession
+    private let unauthorized: ((String) -> Void)?
 
-    convenience init(site: SiteOrigin, cookieStore: WKHTTPCookieStore, ownerID: Int? = nil) {
-        self.init(site: site, ownerID: ownerID, cookieProvider: { await cookieStore.allCookies() })
-    }
     // Injectable boundaries let tests prove credential isolation without a real account or network.
-    init(site: SiteOrigin, ownerID: Int? = nil, cookieProvider: @escaping () async -> [HTTPCookie], session: URLSession? = nil) {
+    init(site: SiteOrigin, ownerID: Int? = nil, cookieProvider: @escaping () async -> [HTTPCookie], session: URLSession? = nil, unauthorized: ((String) -> Void)? = nil) {
         self.site = site
         self.cookieProvider = cookieProvider
         self.ownerID = ownerID
+        self.unauthorized = unauthorized
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
@@ -68,7 +66,10 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         if let key { request.setValue(key.uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key") }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw UploadHTTPError(status: (response as? HTTPURLResponse)?.statusCode ?? 0, isOSS: false)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401 { unauthorized?(cookie) }
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            throw UploadHTTPError(status: status, isOSS: false, detail: (json?["detail"] as? String).map { String($0.prefix(300)) })
         }
         if requireIdempotency && http.value(forHTTPHeaderField: "X-Yearly-Upload-Protocol") != "idempotent-v1" {
             throw UploadFailure(message: "家庭服务尚未支持可靠的原生任务恢复，请先更新本分支的上传接口。未创建上传任务。")

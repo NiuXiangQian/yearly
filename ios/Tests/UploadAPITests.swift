@@ -51,7 +51,8 @@ private final class MockHTTP: URLProtocol {
         let cookie = HTTPCookie(properties: [.name: "yearly_session", .value: "synthetic-session", .domain: "yearly.invalid", .path: "/yearly/", .secure: "TRUE"])!
         let wrong = HTTPCookie(properties: [.name: "yearly_session", .value: "wrong-site-session", .domain: "elsewhere.invalid", .path: "/yearly/", .secure: "TRUE"])!
         let rootCookie = HTTPCookie(properties: [.name: "yearly_session", .value: "root-session", .domain: "yearly.invalid", .path: "/", .secure: "TRUE"])!
-        let api = UploadAPI(site: site, ownerID: 1, cookieProvider: { [wrong, rootCookie, cookie] }, session: session)
+        var rejectedCookies: [String] = []
+        let api = UploadAPI(site: site, ownerID: 1, cookieProvider: { [wrong, rootCookie, cookie] }, session: session, unauthorized: { rejectedCookies.append($0) })
         let key = UUID()
         let result = try await api.create(body: Data("{}".utf8), key: key)
         precondition(result.duplicate == true && result.media_id == 42)
@@ -73,6 +74,7 @@ private final class MockHTTP: URLProtocol {
             do { _ = try await api.create(body: Data("{}".utf8), key: key); fatalError("Must reject before create") }
             catch { precondition(!MockHTTP.captured().contains { $0.httpMethod == "POST" }) }
         }
+        precondition(rejectedCookies == ["yearly_session=synthetic-session"])
         MockHTTP.reset()
         let switched = UploadAPI(site: site, ownerID: 2, cookieProvider: { [cookie] }, session: session)
         do { _ = try await switched.create(body: Data("{}".utf8), key: key); fatalError("Must reject changed account") }

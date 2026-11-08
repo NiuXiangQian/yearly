@@ -25,6 +25,8 @@ for phase in phases:
         assert ref in group_children, f'Build input is outside the Yearly project group: {path}'
         assert (root / source_group['path'] / path).exists(), f'Missing build input: {path}'
 assert set(packaged['PBXSourcesBuildPhase']) == {p.name for p in (root / 'Yearly').glob('*.swift')}
+for path in (root / 'Yearly').glob('*.swift'):
+    assert 'import WebKit' not in path.read_text() and 'WKWebView' not in path.read_text(), f'Native target embeds a web shell: {path}'
 assert {'PrivacyInfo.xcprivacy', 'Assets.xcassets'} <= set(packaged['PBXResourcesBuildPhase'])
 configurations = objects[target['buildConfigurationList']]['buildConfigurations']
 for key in configurations:

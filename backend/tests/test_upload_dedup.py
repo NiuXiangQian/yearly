@@ -65,3 +65,105 @@ def test_recycled_media_does_not_silently_steal_a_new_upload(context):
     assert result["media_id"] != original["media_id"]
     with context.db() as db:
         assert db.get(Media, original["media_id"]).status == "deleted"
+
+
+def test_inflight_original_cannot_create_a_second_upload(context):
+    payload = {"media_type": "photo", "files": [file_payload(b"reserved", "a.heic")]}
+    first = context.client.post("/api/uploads", json=payload)
+    assert first.status_code == 200
+    payload["files"][0]["original_filename"] = "renamed.heic"
+    second = context.client.post("/api/uploads", json=payload)
+    assert second.status_code == 409
+    assert "未完成上传" in second.json()["detail"]
+    with context.db() as db:
+        assert db.scalar(select(func.count()).select_from(Media)) == 1
+        assert db.scalar(select(func.count()).select_from(MediaFile)) == 1
+    assert context.storage.initiations == 0
+
+
+def test_inflight_live_photo_matches_both_resources(context):
+    payload = {"media_type": "live_photo", "files": [
+        file_payload(b"still", "a.heic"), file_payload(b"motion", "a.mov", "live_video")
+    ]}
+    assert context.client.post("/api/uploads", json=payload).status_code == 200
+    assert context.client.post("/api/uploads", json=payload).status_code == 409
+    payload["files"][1] = file_payload(b"another-motion", "b.mov", "live_video")
+    assert context.client.post("/api/uploads", json=payload).status_code == 200
+
+
+def test_same_idempotency_request_can_still_resume_inflight(context):
+    from uuid import uuid4
+    headers = {"Idempotency-Key": str(uuid4())}
+    payload = {"media_type": "photo", "files": [file_payload(b"resuming", "a.heic")]}
+    first = context.client.post("/api/uploads", json=payload, headers=headers)
+    second = context.client.post("/api/uploads", json=payload, headers=headers)
+    assert first.status_code == second.status_code == 200
+    assert first.json()["media_id"] == second.json()["media_id"]
+    assert [t["id"] for t in first.json()["tasks"]] == [t["id"] for t in second.json()["tasks"]]
+
+
+def test_concurrent_creation_and_receipt_use_current_reads(mysql_engine):
+    """Two independent MySQL transactions with snapshots established before either commit."""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from uuid import uuid4
+    from sqlalchemy import delete
+    from sqlalchemy.orm import sessionmaker
+    from fastapi import HTTPException
+    from app.models import User, UploadTask, MediaMetadata
+    from app.schemas import UploadIn
+    from app.uploads import create_upload
+    from conftest import FakeStorage
+
+    factory = sessionmaker(bind=mysql_engine, expire_on_commit=False)
+    marker = uuid4().hex
+    ids = []
+    storage = FakeStorage()
+    try:
+        with factory.begin() as db:
+            for n in range(2):
+                user = User(username=f"race-{marker}-{n}", password_hash="synthetic-unused", role="member")
+                db.add(user)
+                db.flush()
+                ids.append(user.id)
+
+        for replay in (False, True):
+            barrier = Barrier(2)
+            key = str(uuid4()) if replay else None
+            payload = {"media_type": "live_photo", "files": [
+                file_payload(f"still-{marker}-{replay}".encode(), "race.heic"),
+                file_payload(f"motion-{marker}-{replay}".encode(), "race.mov", "live_video"),
+            ]}
+
+            def create(n):
+                with factory() as db:
+                    # Auth normally creates this consistent-read snapshot before upload locking.
+                    user = db.get(User, ids[0] if replay else ids[n])
+                    db.scalar(select(func.count()).select_from(Media))
+                    barrier.wait(timeout=10)
+                    try:
+                        return 200, create_upload(UploadIn(**payload), key, db, user, storage)
+                    except HTTPException as error:
+                        return error.status_code, error.detail
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(create, (0, 1)))
+            if replay:
+                assert [code for code, _ in results] == [200, 200]
+                assert results[0][1]["media_id"] == results[1][1]["media_id"]
+                assert [t["id"] for t in results[0][1]["tasks"]] == [t["id"] for t in results[1][1]["tasks"]]
+            else:
+                assert sorted(code for code, _ in results) == [200, 409]
+        assert storage.initiations == 0
+        with factory() as db:
+            assert db.scalar(select(func.count()).select_from(Media).where(Media.owner_id.in_(ids))) == 2
+    finally:
+        # Only remove records owned by these unique synthetic users; leave other test data intact.
+        if ids:
+            with factory.begin() as db:
+                mids = list(db.scalars(select(Media.id).where(Media.owner_id.in_(ids))))
+                db.execute(delete(UploadTask).where(UploadTask.owner_id.in_(ids)))
+                db.execute(delete(MediaMetadata).where(MediaMetadata.media_id.in_(mids)))
+                db.execute(delete(MediaFile).where(MediaFile.media_id.in_(mids)))
+                db.execute(delete(Media).where(Media.id.in_(mids)))
+                db.execute(delete(User).where(User.id.in_(ids)))

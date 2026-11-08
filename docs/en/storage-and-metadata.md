@@ -96,13 +96,13 @@ File counts and hashing progress appear only after the browser delivers files. A
 
 ### Native iPhone upload
 
-Use the upload icon in the existing SwiftUI + WKWebView app to select many photos, videos and Live Photos in the system picker. PhotoKit reads original resource bytes, including iCloud downloads, into a bounded private cache. A Live Photo requires a matching-generation still and MOV; edited full-size fallback resources are explicitly labeled. The old single-item web bridge remains available for compatibility.
+Use the Upload tab in the native SwiftUI app (native login, timeline, profile filters and AVPlayer previews; no embedded website) to select many photos, videos and Live Photos in the system picker. PhotoKit reads original resource bytes, including iCloud downloads, into a bounded private cache. A Live Photo requires a matching-generation still and MOV; edited full-size fallback resources are explicitly labeled. Old web-shell sources are archived outside the app target.
 
 Confirm filenames, sizes, original capture dates, people/pets, batch name and optional archive date before upload. The native queue persists resource/task identities, pauses in background, and resumes from authoritative server parts. It does not guarantee continued execution after force-quit. Photos metadata is kept separate from PhotoKit auxiliary values and archive dates.
 
 The client reuses the existing upload, signing, completion, verification and deduplication API. An optional UUID `Idempotency-Key` uses receipts in existing media metadata to recover lost create responses without duplicating media. The client checks the existing upload-list endpoint's capability header before creating tasks; update the backend first. No database migration or OSS naming change is required. Hashing uses 4 MiB blocks; upload uses the task's returned part size (current backend defaults to 16 MiB, despite the historical 4 MiB description).
 
-See the [Chinese iOS guide](../../ios/README.md) for architecture, tests, free Apple Personal Team installation and 7-day re-signing. Full iOS SDK compilation and real-device/iCloud acceptance remain pending; automated checks use synthetic files and mocks only.
+See the [Chinese iOS guide](../../ios/README.md) for architecture, tests, free Apple Personal Team installation and 7-day re-signing. See the guide and delivery report for actual build/install results; real iCloud and private-library acceptance still requires device testing. Automated checks use synthetic files and mocks only.
 
 ## Duplicate imports and child associations
 
