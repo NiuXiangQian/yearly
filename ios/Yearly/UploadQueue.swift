@@ -22,7 +22,7 @@ import Photos
     @Published private(set) var running = false
     @Published private(set) var transfer: Transfer?
     @Published private(set) var preparation: Preparation?
-    private(set) var uploadGroup: Set<UUID> = []
+    @Published private(set) var uploadGroup: Set<UUID> = []
     private var store: UploadStore?
     private var worker: Task<Void, Never>?
     private var activeID: UUID?
@@ -92,11 +92,10 @@ import Photos
     }
     func confirm(ids: Set<UUID>, childIDs: [Int], batchName: String, archiveDate: String?) {
         guard session?.canEdit == true else { return }
-        if !items.contains(where: { uploadGroup.contains($0.id) && !$0.isTerminal }) {
-            uploadGroup = []
-        }
+        beginBatchIfNeeded()
         var skipped: [UUID] = []
         for index in items.indices where ids.contains(items[index].id) && items[index].phase == .ready && items[index].ownerID == session?.account?.id && items[index].site == site?.url.absoluteString {
+            uploadGroup.insert(items[index].id)
             if items.contains(where: { $0.id != items[index].id && $0.confirmed && !$0.isTerminal && $0.sameOriginals(as: items[index]) }) {
                 items[index].phase = .skipped
                 items[index].duplicate = true
@@ -109,7 +108,6 @@ import Photos
             items[index].batchName = String(batchName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(255))
             items[index].archiveDate = archiveDate
             items[index].confirmed = true
-            uploadGroup.insert(items[index].id)
             items[index].phase = .queued
             items[index].message = ""
         }
@@ -135,6 +133,11 @@ import Photos
                 phases.contains(item.phase) && (id == nil || item.id == id)
         }
         guard !matches.isEmpty else { return }
+        let uploads = matches.filter { items[$0].confirmed }.map { items[$0].id }
+        if !uploads.isEmpty {
+            beginBatchIfNeeded()
+            uploadGroup.formUnion(uploads)
+        }
         for i in matches {
             if activeID == items[i].id && worker != nil {
                 pendingResumes.insert(items[i].id)
@@ -150,6 +153,11 @@ import Photos
         items[index].phase = item.resources.isEmpty ? .selected : item.confirmed ? .queued : .ready
         items[index].message = ""
     }
+    private func beginBatchIfNeeded() {
+        if !items.contains(where: { uploadGroup.contains($0.id) && ($0.phase.canPause || $0.phase == .paused) }) {
+            uploadGroup = []
+        }
+    }
     func pause(_ id: UUID) {
         pendingResumes.remove(id)
         guard let i = items.firstIndex(where: { $0.id == id }), !items[i].isTerminal else { return }
@@ -163,7 +171,7 @@ import Photos
         worker?.cancel()
         transfer = nil
         preparation = nil
-        for i in items.indices where [.selected, .preparing, .queued, .uploading].contains(items[i].phase) { items[i].phase = .paused }
+        for i in items.indices where items[i].phase.canPause { items[i].phase = .paused }
         if store != nil { do { try persist() } catch { } }
     }
     func cancel(_ id: UUID) {
@@ -178,7 +186,7 @@ import Photos
         } catch { self.error = error.localizedDescription }
     }
     func enteredBackground() {
-        backgroundResume = Set(items.filter { [.selected, .preparing, .queued, .uploading].contains($0.phase) }.map(\.id))
+        backgroundResume = Set(items.filter { $0.phase.canPause }.map(\.id))
         pauseAll()
     }
     func enteredForeground() {
@@ -297,7 +305,7 @@ import Photos
                     }
                     try persist()
                     if items[index].duplicate { noteDuplicate(items[index].name) }
-                    try store.removeFiles(id)
+                    try? store.removeFiles(id)
                 }
             } catch {
                 if items[index].phase == .cancelled {

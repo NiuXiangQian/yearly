@@ -109,9 +109,14 @@ struct NativeTimelineView: View {
     @State private var selectedItem: NativeTimelineItem?
     @State private var dragToken = UUID().uuidString
     @State private var showingTrash = false
-    private var days: [String] { Array(Set(store.items.map(\.day))).sorted { a, b in a == "日期未知" ? false : b == "日期未知" ? true : store.ascending ? a < b : a > b } }
     private var timelineList: some View {
-        ScrollView {
+        let groups = Dictionary(grouping: store.items, by: store.groupDay)
+        let days = groups.keys.sorted { a, b in
+            if a == "日期未知" { return false }
+            if b == "日期未知" { return true }
+            return store.ascending ? a < b : a > b
+        }
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
                 if store.showingUploads {
                     HStack {
@@ -119,13 +124,23 @@ struct NativeTimelineView: View {
                         Spacer()
                         Button("返回时间线") { store.focusOnUploads([]) }.font(.subheadline)
                     }
+                } else if store.anchorMediaID != nil {
+                    HStack {
+                        Label("归档位置", systemImage: "scope").foregroundStyle(.tint)
+                        Spacer()
+                        Button("查看完整时间线") { store.focusOnUploads([]) }.font(.subheadline)
+                    }
                 } else {
+                    Picker("查看方式", selection: Binding(get: { store.byUpload }, set: store.setUploadOrder)) {
+                        Text("按归档日期").tag(false)
+                        Text("按上传时间").tag(true)
+                    }.pickerStyle(.segmented)
                     Picker("影像类型", selection: $store.mediaType) {
                         Text("全部").tag(""); Text("照片").tag("photo")
                         Text("实况").tag("live_photo"); Text("视频").tag("video")
                     }.pickerStyle(.segmented)
                     HStack {
-                        Text("\(store.total) 份家庭回忆").font(.subheadline).foregroundStyle(.secondary)
+                        Text(store.usesUploadOrder ? "\(store.total) 项已上传影像" : "\(store.total) 份家庭回忆").font(.subheadline).foregroundStyle(.secondary)
                         Spacer()
                         if store.hasFilters { Button("清除筛选") { store.resetFilters() }.font(.caption) }
                     }
@@ -136,44 +151,60 @@ struct NativeTimelineView: View {
                 }
                 if store.items.isEmpty && !store.loading && store.error.isEmpty {
                     if store.showingUploads { Text("这批影像已移除或暂时无法查看。") }
+                    else if store.usesUploadOrder && !store.hasFilters { Text("还没有已上传的影像。") }
                     else { Text(store.hasFilters ? "没有符合条件的回忆，试试其他关键词或日期。" : "还没有回忆，去上传页珍藏第一张照片吧。") }
                 }
                 ForEach(days, id: \.self) { day in
                     Section {
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                            ForEach(store.items.filter { $0.day == day }, id: \.stableID) { item in
-                                Button {
-                                    if selecting {
-                                        if let index = chosen.firstIndex(where: { $0.id == item.id }) { chosen.remove(at: index) }
-                                        else if chosen.count < 200 { chosen.append(item) }
-                                        else { selectionLimit = true }
-                                    } else { selectedItem = item }
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        if let file = item.primary {
-                                            NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
-                                                .frame(height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
-                                                .overlay(alignment: .bottomLeading) {
-                                                    if item.media_type == "live_photo" { Label("LIVE", systemImage: "livephoto").font(.caption2.bold()).padding(5).background(.regularMaterial, in: Capsule()).padding(7) }
-                                                    if item.media_type == "video" { Image(systemName: "play.fill").padding(8).background(.regularMaterial, in: Circle()).padding(7) }
-                                                }
-                                        } else {
-                                            Image(systemName: "book.closed").frame(maxWidth: .infinity).frame(height: 150).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                            ForEach(groups[day] ?? [], id: \.stableID) { item in
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Button {
+                                        if selecting {
+                                            if let index = chosen.firstIndex(where: { $0.id == item.id }) { chosen.remove(at: index) }
+                                            else if chosen.count < 200 { chosen.append(item) }
+                                            else { selectionLimit = true }
+                                        } else { selectedItem = item }
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 7) {
+                                            if let file = item.primary {
+                                                NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
+                                                    .frame(height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
+                                                    .overlay(alignment: .bottomLeading) {
+                                                        if item.media_type == "live_photo" { Label("LIVE", systemImage: "livephoto").font(.caption2.bold()).padding(5).background(.regularMaterial, in: Capsule()).padding(7) }
+                                                        if item.media_type == "video" { Image(systemName: "play.fill").padding(8).background(.regularMaterial, in: Circle()).padding(7) }
+                                                    }
+                                            } else {
+                                                Image(systemName: "book.closed").frame(maxWidth: .infinity).frame(height: 150).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                                            }
+                                            Text(item.label).font(.caption).lineLimit(2)
+                                            if item.kind == "media" && store.anchorMediaID == item.id {
+                                                Label("当前影像", systemImage: "scope").font(.caption.bold()).foregroundStyle(.tint)
+                                            }
                                         }
-                                        Text(item.label).font(.caption).lineLimit(2)
+                                    }.buttonStyle(.plain)
+                                    .disabled(selecting && item.kind != "media")
+                                    .overlay(alignment: .topTrailing) {
+                                        if selecting && item.kind == "media" {
+                                            Image(systemName: chosen.contains(where: { $0.id == item.id }) ? "checkmark.circle.fill" : "circle")
+                                                .font(.title2).foregroundStyle(.tint).padding(7).background(.regularMaterial, in: Circle()).allowsHitTesting(false)
+                                        }
                                     }
-                                }.buttonStyle(.plain)
-                                .disabled(selecting && item.kind != "media")
-                                .overlay(alignment: .topTrailing) {
-                                    if selecting && item.kind == "media" {
-                                        Image(systemName: chosen.contains(where: { $0.id == item.id }) ? "checkmark.circle.fill" : "circle")
-                                            .font(.title2).foregroundStyle(.tint).padding(7).background(.regularMaterial, in: Circle()).allowsHitTesting(false)
+                                    .modifier(MediaReorderGesture(enabled: store.session.canEdit && !selecting && !store.isFocused && !store.usesUploadOrder && item.kind == "media", token: dragToken, item: item, store: store))
+                                    .contextMenu {
+                                        if store.session.canEdit && item.kind == "media" {
+                                            Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
+                                        }
                                     }
-                                }
-                                .modifier(MediaReorderGesture(enabled: store.session.canEdit && !selecting && !store.showingUploads && item.kind == "media", token: dragToken, item: item, store: store))
-                                .contextMenu {
-                                    if store.session.canEdit && item.kind == "media" {
-                                        Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
+                                    if store.usesUploadOrder && !selecting {
+                                        if let date = item.uploadDate {
+                                            Text("上传于 \(date.formatted(date: .omitted, time: .shortened))")
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                        }
+                                        Button { store.locate(item) } label: {
+                                            Label("跳到归档 · \(item.day)", systemImage: "arrow.turn.down.right")
+                                                .font(.caption)
+                                        }.buttonStyle(.borderless)
                                     }
                                 }
                             }
@@ -184,7 +215,7 @@ struct NativeTimelineView: View {
                             Spacer()
                             if store.showingUploads && NativeDay.date(day) != nil {
                                 Button("查看当天全部") { store.showDay(day) }.font(.caption)
-                            } else if store.session.canEdit && NativeDay.date(day) != nil {
+                            } else if !store.usesUploadOrder && store.session.canEdit && NativeDay.date(day) != nil {
                                 Button { shareRequest = NativeShareRequest(day: day) } label: { Label("分享当天", systemImage: "square.and.arrow.up") }.font(.caption)
                             }
                         }
@@ -199,7 +230,7 @@ struct NativeTimelineView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.showingUploads { timelineList.id(store.uploadedMediaIDs) }
+                if store.isFocused { timelineList.id(store.queryKey) }
                 else { timelineList.searchable(text: $store.search, prompt: "搜索标题、批次、备注或地点") }
             }
             .navigationTitle(store.showingUploads ? "刚上传的回忆" : "家庭时光")
@@ -207,6 +238,8 @@ struct NativeTimelineView: View {
                 selecting = false
                 chosen = []
             }
+            .onChange(of: store.byUpload) { _ in selecting = false; chosen = [] }
+            .onChange(of: store.anchorMediaID) { _ in selecting = false; chosen = [] }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
@@ -214,7 +247,7 @@ struct NativeTimelineView: View {
                             Button { showingTrash = true } label: { Image(systemName: "trash") }.accessibilityLabel("回收站")
                             Button(selecting ? "取消" : "选择") { selecting.toggle(); chosen = [] }
                             Button { shareRequest = NativeShareRequest() } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享与管理") }
-                        if !store.showingUploads {
+                        if !store.isFocused {
                             Button { showingFilter = true } label: { Image(systemName: "line.3.horizontal.decrease.circle") }.accessibilityLabel("人物、日期与排序")
                         }
                     }
@@ -223,7 +256,7 @@ struct NativeTimelineView: View {
             .refreshable { await store.loadProfiles(); await store.load() }
             .task { await store.loadProfiles() }
             .task(id: store.queryKey) {
-                if store.showingUploads { await store.loadIfNeeded() }
+                if store.isFocused { await store.loadIfNeeded() }
                 else {
                     do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.loadIfNeeded() } catch { }
                 }
@@ -250,7 +283,7 @@ struct NativeTimelineView: View {
                             if store.useDateRange {
                                 DatePicker("开始日期", selection: $store.startDate, displayedComponents: .date)
                                 DatePicker("结束日期", selection: $store.endDate, displayedComponents: .date)
-                                Text("按归档日期查找，包含结束当天。未知日期不在日期范围中。")
+                                Text(store.usesUploadOrder ? "按上传日期查找，包含结束当天。" : "按归档日期查找，包含结束当天。未知日期不在日期范围中。")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
@@ -319,7 +352,8 @@ private struct NativeMediaPager: View {
                         NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
                                           active: selection == item.stableID,
                                           onSaved: { Task { await store.load() } },
-                                          onDeleted: { remove(item) })
+                                          onDeleted: { remove(item) },
+                                          onLocate: store.usesUploadOrder ? { current in dismiss(); store.locate(current) } : nil)
                     } else { Color.black }
                 }.tag(item.stableID)
             }
@@ -355,6 +389,7 @@ struct NativeMediaDetail: View {
     let active: Bool
     let onSaved: () -> Void
     let onDeleted: () -> Void
+    let onLocate: ((NativeTimelineItem) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var detail: NativeTimelineItem?
@@ -427,6 +462,9 @@ struct NativeMediaDetail: View {
                         }
                         Menu {
                             Button(session.canEdit && item.kind != "event" ? "编辑影像信息" : "查看信息", systemImage: "info.circle") { stop(); showingInfo = true }
+                            if let onLocate {
+                                Button("跳到归档位置", systemImage: "scope") { stop(); onLocate(item) }
+                            }
                             if item.kind != "event" {
                                 Button("保存到相册", systemImage: "square.and.arrow.down") { Task { await saveToPhotos() } }
                                     .disabled(savingToPhotos || deleting)

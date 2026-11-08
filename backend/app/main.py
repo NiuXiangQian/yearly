@@ -23,6 +23,7 @@ from .models import (
     Child,
     Media,
     MediaFile,
+    UploadTask,
     TimelineFolder,
     TimelineDay,
     VideoPreview,
@@ -822,7 +823,8 @@ def timeline(
     page: int = Query(default=1, ge=1, le=1000000),
     page_size: int = Query(default=40, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=512),
-    date_basis: Literal["timeline", "capture"] = "timeline",
+    date_basis: Literal["timeline", "capture", "upload"] = "timeline",
+    anchor_media_id: int | None = Query(default=None, ge=1),
     order: Literal["asc", "desc"] = "desc",
     db=Depends(get_db),
     user=Depends(current_user),
@@ -830,13 +832,31 @@ def timeline(
     from sqlalchemy import literal, union_all, and_
     from .schemas import TimelineCursor
 
+    upload_order = date_basis == "upload"
+    if anchor_media_id is not None and (date_basis != "timeline" or group_folders):
+        raise HTTPException(422, "只能在归档时间线定位影像")
+    sort_time = Media.taken_at_local
+    sort_day = func.date(timeline_time())
+    sort_position = Media.sort_order
+    if upload_order:
+        # The last verified resource completes the logical media. Restored records
+        # may have no upload tasks, so fall back to their original creation time.
+        completed_at = (
+            select(func.max(UploadTask.updated_at))
+            .where(UploadTask.media_id == Media.id, UploadTask.status == "complete")
+            .correlate(Media)
+            .scalar_subquery()
+        )
+        sort_time = func.coalesce(completed_at, Media.created_at)
+        sort_day = func.date(sort_time)
+        sort_position = literal(0)
     media_query = filter_children(
         select(
             literal("media").label("kind"),
             Media.id.label("id"),
-            Media.taken_at_local.label("sort_at"),
-            func.date(timeline_time()).label("sort_day"),
-            Media.sort_order.label("sort_order"),
+            sort_time.label("sort_at"),
+            sort_day.label("sort_day"),
+            sort_position.label("sort_order"),
             literal(0).label("sort_group"),
         ).where(Media.status == status, Media.purpose == "memory"),
         MediaChild,
@@ -858,7 +878,7 @@ def timeline(
         child_id,
         match,
     )
-    filter_time = Media.taken_at_local if date_basis == "capture" else timeline_time()
+    filter_time = sort_time if date_basis != "timeline" else timeline_time()
     if start:
         media_query = media_query.where(filter_time >= start)
         event_query = event_query.where(Event.start_at >= start)
@@ -883,7 +903,7 @@ def timeline(
     if media_type:
         media_query = media_query.where(Media.media_type == media_type)
         event_query = event_query.where(literal(False))
-    queries = [media_query, event_query]
+    queries = [media_query] if upload_order else [media_query, event_query]
     if group_folders and status == "active" and date_basis == "timeline":
         # Reuse the already-filtered media query so folders respect child, search and type filters.
         matching = select(Media.folder_id).where(
@@ -920,7 +940,7 @@ def timeline(
             event_query,
             folder_query,
         ]
-    mixed = union_all(*queries).subquery()
+    mixed = (media_query if upload_order else union_all(*queries)).subquery()
     total = db.scalar(select(func.count()).select_from(mixed))
     chronological = lambda column: column.asc() if order == "asc" else column.desc()
     query = select(mixed).order_by(
@@ -933,15 +953,26 @@ def timeline(
         mixed.c.id.desc(),
         mixed.c.kind.desc(),
     )
+    if cursor and cursor.startswith("upload.") != upload_order:
+        raise HTTPException(422, "切换时间线视图后请重新加载")
+    position = None
     if cursor:
         try:
             position = TimelineCursor.model_validate_json(
-                base64.urlsafe_b64decode(cursor)
+                base64.urlsafe_b64decode(cursor.removeprefix("upload."))
             )
         except ValueError:
             raise HTTPException(422, "分页游标无效")
         if position.order != order:
             raise HTTPException(422, "切换时间顺序后请重新加载")
+    elif anchor_media_id is not None:
+        anchor = db.execute(
+            select(mixed).where(mixed.c.kind == "media", mixed.c.id == anchor_media_id)
+        ).mappings().one_or_none()
+        if anchor is None:
+            raise HTTPException(404, "归档位置已不可用")
+        position = TimelineCursor(**dict(anchor), order=order)
+    if position is not None:
         # Old cursors only contain sort_at; derive their day for compatibility.
         sort_day = position.sort_day or (
             position.sort_at.date() if position.sort_at else None
@@ -968,6 +999,8 @@ def timeline(
                 prefix.append(column == value)
             else:
                 prefix.append(column.is_(None))
+        if not cursor:
+            alternatives.append(and_(*prefix))
         query = query.where(or_(*alternatives))
     else:
         query = query.offset((page - 1) * page_size)
@@ -980,6 +1013,8 @@ def timeline(
         next_cursor = base64.urlsafe_b64encode(
             position.model_dump_json().encode()
         ).decode()
+        if upload_order:
+            next_cursor = "upload." + next_cursor
     media_ids = [r["id"] for r in rows if r["kind"] == "media"]
     event_ids = [r["id"] for r in rows if r["kind"] == "event"]
     folder_ids = [r["id"] for r in rows if r["kind"] == "folder"]
@@ -1031,9 +1066,10 @@ def timeline(
     items = []
     for row in rows:
         if row["kind"] == "media":
-            items.append(
-                {**media_data(media_map[row["id"]], child_id), "kind": "media"}
-            )
+            item = {**media_data(media_map[row["id"]], child_id), "kind": "media"}
+            if upload_order:
+                item["uploaded_at"] = row["sort_at"]
+            items.append(item)
         elif row["kind"] == "folder":
             items.append(
                 {

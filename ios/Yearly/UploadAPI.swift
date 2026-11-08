@@ -6,6 +6,18 @@ struct UploadProfile: Decodable, Identifiable {
     let name: String
     let nickname: String
     let profile_type: String
+    let relationship: String?
+    let species: String?
+    let breed: String?
+    let birthday: String?
+    let birth_time: String?
+    let gender: String?
+    let description: String?
+    let growth_enabled: Bool?
+    let theme_color: String?
+    let sort_order: Int?
+    let status: String?
+    let avatar_media_id: Int?
     var label: String { (nickname.isEmpty ? name : nickname) + (profile_type == "pet" ? " · 宠物" : profile_type == "child" ? " · 孩子" : " · 人物") }
 }
 

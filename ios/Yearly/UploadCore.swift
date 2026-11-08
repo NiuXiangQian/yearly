@@ -24,6 +24,7 @@ struct UploadHTTPError: LocalizedError {
 
 enum UploadPhase: String, Codable {
     case selected, preparing, ready, queued, uploading, paused, failed, complete, cancelled, skipped
+    var canPause: Bool { [.selected, .preparing, .queued, .uploading].contains(self) }
     var label: String {
         switch self {
         case .selected: return "等待提取"

@@ -43,6 +43,8 @@ private final class SessionHTTP: URLProtocol {
             status = Self.authorized ? 200 : 401
             body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"csrf_token\":\"test-csrf\"}"
         case "/yearly/api/children": body = "[]"
+        case "/yearly/api/children/1":
+            body = #"{"id":1,"name":"家庭成员","nickname":"新昵称","profile_type":"person","birthday":"2020-01-03","avatar_media_id":42,"status":"archived"}"#
         case "/yearly/api/media/42": body = #"{"id":42,"media_type":"live_photo","timeline_day":"2018-01-03"}"#
         case "/yearly/api/media/43": body = #"{"id":43,"media_type":"video"}"#
         case "/yearly/api/media/44": status = 404
@@ -173,6 +175,22 @@ private final class SessionHTTP: URLProtocol {
         let dayParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(dayParams.first { $0.name == "start" }?.value == "2018-01-03T00:00:00")
         precondition(dayParams.first { $0.name == "end" }?.value == "2018-01-04T00:00:00")
+        timeline.showRecentUploads()
+        await timeline.loadIfNeeded()
+        let recentParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        precondition(recentParams.contains(URLQueryItem(name: "date_basis", value: "upload")))
+        let uploaded = try JSONDecoder().decode(NativeTimelineItem.self, from: Data(
+            #"{"id":42,"kind":"media","timeline_day":"2018-01-03","uploaded_at":"2026-11-08T23:30:00.123"}"#.utf8
+        ))
+        precondition(uploaded.uploadDate != nil && timeline.groupDay(uploaded) != uploaded.day)
+        timeline.locate(uploaded)
+        await timeline.loadIfNeeded()
+        let anchorParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        precondition(anchorParams.contains(URLQueryItem(name: "anchor_media_id", value: "42")))
+        precondition(!anchorParams.contains { $0.name == "date_basis" } && timeline.groupDay(uploaded) == uploaded.day)
+        let updatedProfile = try await session.updateProfile(id: 1, json: ["nickname": "新昵称"])
+        precondition(updatedProfile.nickname == "新昵称" && updatedProfile.avatar_media_id == 42 && updatedProfile.status == "archived")
+        precondition(SessionHTTP.requests.last?.httpMethod == "PUT")
         let sharing = NativeSharingStore(session: session)
         await sharing.load()
         precondition(sharing.shares.count == 1 && sharing.shares[0].token == nil)

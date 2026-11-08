@@ -17,6 +17,7 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var media_type: String?
     var timeline_day: String?
     var timeline_date: String?
+    var uploaded_at: String?
     var taken_at_local: String?
     var start_at: String?
     var content: String?
@@ -36,6 +37,12 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var stableID: String { "\(kind ?? "media")-\(id)" }
     var label: String { [title, batch_name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "珍藏的瞬间" }
     var day: String { String((timeline_day ?? timeline_date ?? taken_at_local ?? start_at ?? "日期未知").prefix(10)) }
+    var uploadDate: Date? {
+        guard let uploaded_at else { return nil }
+        let utc = uploaded_at + "Z" // The server stores upload timestamps as UTC without a suffix.
+        return (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(utc))
+            ?? (try? Date.ISO8601FormatStyle().parse(utc))
+    }
     var primary: NativeMediaFile? { files?.first { $0.file_role == "original" } }
     var motion: NativeMediaFile? { files?.first { $0.file_role == "live_video" } }
 }
@@ -45,18 +52,28 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
 @MainActor final class NativeTimelineStore: ObservableObject {
     @Published var items: [NativeTimelineItem] = []
     @Published var profiles: [UploadProfile] = []
+    @Published private(set) var profilesLoading = false
+    @Published private(set) var profilesError = ""
     @Published var selected: Set<Int> = []
     @Published var search = ""
     @Published var mediaType = ""
     @Published var ascending = false
+    @Published private(set) var byUpload = false
     @Published var useDateRange = false
     @Published var startDate = Date()
     @Published var endDate = Date()
     @Published private(set) var uploadedMediaIDs: [Int] = []
+    @Published private(set) var anchorMediaID: Int?
     var showingUploads: Bool { !uploadedMediaIDs.isEmpty }
+    var usesUploadOrder: Bool { byUpload && !showingUploads && anchorMediaID == nil }
+    var isFocused: Bool { showingUploads || anchorMediaID != nil }
+    func groupDay(_ item: NativeTimelineItem) -> String {
+        guard usesUploadOrder else { return item.day }
+        return item.uploadDate.map(NativeDay.string) ?? "日期未知"
+    }
     var queryKey: String {
         if showingUploads { return "uploads|\(uploadedMediaIDs)" }
-        return "\(selected.sorted())|\(search)|\(mediaType)|\(ascending)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
+        return "\(selected.sorted())|\(search)|\(mediaType)|\(ascending)|\(byUpload)|\(anchorMediaID ?? 0)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
     }
     var hasFilters: Bool { !selected.isEmpty || !search.isEmpty || !mediaType.isEmpty || useDateRange }
     func resetFilters() { selected = []; search = ""; mediaType = ""; useDateRange = false }
@@ -71,14 +88,42 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     init(session: NativeSession) { self.session = session }
     func focusOnUploads(_ ids: [Int]) {
         let ids = Set(ids.filter { $0 > 0 }).sorted()
-        guard uploadedMediaIDs != ids else { return }
-        generation += 1
-        items = []; total = 0; cursor = nil; loadedQuery = ""; loading = !ids.isEmpty; error = ""
+        guard uploadedMediaIDs != ids || anchorMediaID != nil else { return }
+        anchorMediaID = nil
+        resetResults()
+        loading = !ids.isEmpty
         uploadedMediaIDs = ids
+    }
+    private func resetResults() {
+        generation += 1
+        items = []; total = 0; cursor = nil; loadedQuery = ""; loading = false; error = ""
+    }
+    func locate(_ item: NativeTimelineItem) {
+        resetFilters()
+        byUpload = false
+        ascending = false
+        uploadedMediaIDs = []
+        anchorMediaID = item.id
+        resetResults()
+        loading = true
+    }
+    func showRecentUploads() {
+        focusOnUploads([])
+        resetFilters()
+        byUpload = true
+        ascending = false
+        resetResults()
+    }
+    func setUploadOrder(_ enabled: Bool) {
+        guard byUpload != enabled else { return }
+        byUpload = enabled
+        resetResults()
+        loading = true
     }
     func showDay(_ day: String) {
         guard let date = NativeDay.date(day) else { return }
         resetFilters()
+        byUpload = false
         startDate = date; endDate = date; useDateRange = true
         focusOnUploads([])
     }
@@ -86,7 +131,10 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         generation += 1
         loadedQuery = ""; cursor = nil; loading = false
         items = []; profiles = []; total = 0; error = ""
+        profilesError = ""
         uploadedMediaIDs = []
+        anchorMediaID = nil
+        byUpload = false
         resetFilters()
     }
     func loadIfNeeded() async {
@@ -123,12 +171,22 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         }
         var query = URLComponents()
         var params = [URLQueryItem(name: "page_size", value: "40"), URLQueryItem(name: "group_folders", value: "false"), URLQueryItem(name: "order", value: ascending ? "asc" : "desc")]
+        if usesUploadOrder { params.append(URLQueryItem(name: "date_basis", value: "upload")) }
+        if let anchorMediaID { params.append(URLQueryItem(name: "anchor_media_id", value: String(anchorMediaID))) }
         let queryText = String(search.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
         if !queryText.isEmpty { params.append(URLQueryItem(name: "q", value: queryText)) }
         if ["photo", "video", "live_photo"].contains(mediaType) { params.append(URLQueryItem(name: "media_type", value: mediaType)) }
         if useDateRange {
-            params.append(URLQueryItem(name: "start", value: NativeDay.string(startDate) + "T00:00:00"))
-            params.append(URLQueryItem(name: "end", value: NativeDay.following(endDate) + "T00:00:00"))
+            if usesUploadOrder {
+                let calendar = Calendar(identifier: .gregorian)
+                let start = calendar.startOfDay(for: startDate)
+                let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endDate))!
+                params.append(URLQueryItem(name: "start", value: String(start.ISO8601Format().dropLast())))
+                params.append(URLQueryItem(name: "end", value: String(end.ISO8601Format().dropLast())))
+            } else {
+                params.append(URLQueryItem(name: "start", value: NativeDay.string(startDate) + "T00:00:00"))
+                params.append(URLQueryItem(name: "end", value: NativeDay.following(endDate) + "T00:00:00"))
+            }
         }
         params += selected.sorted().map { URLQueryItem(name: "child_id", value: String($0)) }
         if more, let cursor { params.append(URLQueryItem(name: "cursor", value: cursor)) }
@@ -144,12 +202,21 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         } catch { if ticket == generation && !Task.isCancelled { self.error = friendly(error) } }
     }
     func loadProfiles() async {
-        do { profiles = try await session.get("/children") }
-        catch { self.error = friendly(error) }
+        guard !profilesLoading, let owner = session.account?.id else { return }
+        profilesLoading = true
+        profilesError = ""
+        defer { profilesLoading = false }
+        do {
+            let current: [UploadProfile] = try await session.get("/children")
+            guard !Task.isCancelled, session.account?.id == owner else { return }
+            profiles = current
+        } catch {
+            if !Task.isCancelled && session.account?.id == owner { profilesError = friendly(error) }
+        }
     }
 
     func reorder(_ source: NativeTimelineItem, relativeTo target: NativeTimelineItem) async {
-        guard source.kind == "media", target.kind == "media", source.day == target.day,
+        guard !usesUploadOrder, !isFocused, source.kind == "media", target.kind == "media", source.day == target.day,
               source.folder_id == target.folder_id, !loading, session.canEdit,
               let from = items.firstIndex(where: { $0.stableID == source.stableID }),
               let to = items.firstIndex(where: { $0.stableID == target.stableID }), from != to else { return }

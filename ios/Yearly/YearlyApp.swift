@@ -43,6 +43,7 @@ struct NativeAppShell: View {
     @State private var tab = 0
     @State private var loggingOut = false
     @State private var showingShares = false
+    @State private var profileRevision = 0
     @State private var message = ""
     init(site: SiteOrigin, queue: UploadQueue, editSite: @escaping () -> Void) {
         let session = NativeSession(site: site)
@@ -62,24 +63,29 @@ struct NativeAppShell: View {
                         .tabItem { Label("时间线", systemImage: "photo.on.rectangle") }.tag(0)
                     Group {
                         if session.canEdit {
-                            NativeUploadView(queue: queue, session: session) { mediaIDs in
-                                timeline.focusOnUploads(mediaIDs)
+                            NativeUploadView(queue: queue, session: session, profileRevision: profileRevision) { destination in
+                                switch destination {
+                                case .timeline:
+                                    timeline.focusOnUploads([])
+                                    Task { await timeline.load() }
+                                case .batch(let mediaIDs):
+                                    timeline.focusOnUploads(mediaIDs)
+                                case .recentUploads:
+                                    timeline.showRecentUploads()
+                                    Task { await timeline.load() }
+                                }
                                 tab = 0
-                                if mediaIDs.isEmpty { Task { await timeline.load() } }
                             }
                         } else {
                             NavigationStack { Text("此账号为只读账号，可以浏览家庭回忆。上传需要家庭编辑权限。").padding().navigationTitle("珍藏原片") }
                         }
                     }.tabItem { Label("上传", systemImage: "square.and.arrow.up") }.tag(1)
-                    NavigationStack {
-                        List(timeline.profiles) { profile in
-                            Button { timeline.focusOnUploads([]); timeline.selected = [profile.id]; tab = 0 } label: {
-                                Label(profile.label, systemImage: profile.profile_type == "pet" ? "pawprint" : "person.crop.circle")
-                            }
-                        }.navigationTitle("家人与宠物")
-                            .refreshable { await timeline.loadProfiles() }
-                            .task { await timeline.loadProfiles() }
-                    }.tabItem { Label("家人", systemImage: "person.2") }.tag(2)
+                    NativeFamilyView(store: timeline, showTimeline: { profile in
+                        timeline.focusOnUploads([])
+                        timeline.selected = [profile.id]
+                        tab = 0
+                    }, onProfileUpdated: { profileRevision += 1 })
+                    .tabItem { Label("家人", systemImage: "person.2") }.tag(2)
                     NavigationStack {
                         Form {
                             Section("家庭账号") {

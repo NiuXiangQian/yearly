@@ -2,10 +2,12 @@ import SwiftUI
 import PhotosUI
 
 struct NativeUploadView: View {
+    enum Destination { case timeline, recentUploads, batch([Int]) }
     @ObservedObject var queue: UploadQueue
     @ObservedObject var session: NativeSession
     private var site: SiteOrigin { session.site }
-    let onTimeline: ([Int]) -> Void
+    let profileRevision: Int
+    let onTimeline: (Destination) -> Void
     @State private var account: UploadAccount?
     @State private var profiles: [UploadProfile] = []
     @State private var children: Set<Int> = []
@@ -20,6 +22,7 @@ struct NativeUploadView: View {
     @State private var loadingAccount = false
     @State private var openingPicker = false
     @State private var hasLoaded = false
+    @State private var loadedProfileRevision: Int?
     @State private var showingPeople = false
     @State private var profileSearch = ""
     @State private var showFinished = false
@@ -38,6 +41,8 @@ struct NativeUploadView: View {
     private var pending: [UploadItem] { items.filter { !$0.isTerminal } }
     private var finished: [UploadItem] { items.filter(\.isTerminal) }
     private var failedCount: Int { items.filter { $0.phase == .failed }.count }
+    private var canPause: Bool { items.contains { $0.phase.canPause } }
+    private var hasPaused: Bool { items.contains { $0.phase == .paused } }
     private var visibleItems: [UploadItem] {
         let active = pending.filter { [.preparing, .uploading].contains($0.phase) }
         let waiting = pending.filter { ![.preparing, .uploading].contains($0.phase) }
@@ -53,13 +58,24 @@ struct NativeUploadView: View {
     }
     private var uploadItems: [UploadItem] {
         items.filter { $0.confirmed && !$0.duplicate && $0.phase != .cancelled &&
-            (!$0.isTerminal || queue.uploadGroup.contains($0.id)) }
+            (queue.uploadGroup.isEmpty ? !$0.isTerminal : queue.uploadGroup.contains($0.id)) }
     }
-    private var quickReviewIDs: [Int] {
+    private var batchResult: (title: String, detail: String, ids: [Int], success: Bool)? {
         let group = items.filter { queue.uploadGroup.contains($0.id) }
-        guard (1...5).contains(group.count), group.allSatisfy(\.isTerminal),
-              !uploadItems.contains(where: { [.queued, .uploading].contains($0.phase) }) else { return [] }
-        return group.filter { $0.phase == .complete }.compactMap(\.mediaID)
+        guard !group.isEmpty, group.allSatisfy({ $0.isTerminal || $0.phase == .failed }) else { return nil }
+        let ids = group.filter { $0.phase == .complete }.compactMap(\.mediaID)
+        let failures = group.filter { $0.phase == .failed }.count
+        let skipped = group.filter { $0.phase == .skipped }.count
+        let cancelled = group.filter { $0.phase == .cancelled }.count
+        let title: String
+        if failures > 0 { title = "上传结束，\(failures) 项失败" }
+        else if !ids.isEmpty { title = "上传完成" }
+        else if skipped > 0 { title = "本批已处理" }
+        else { title = "本批已取消" }
+        var detail = ["\(ids.count) 项上传成功"]
+        if skipped > 0 { detail.append("\(skipped) 项重复已跳过") }
+        if cancelled > 0 { detail.append("\(cancelled) 项已取消") }
+        return (title, detail.joined(separator: " · "), ids, failures == 0 && cancelled == 0)
     }
     private var uploadSize: Int64 { uploadItems.reduce(0) { $0 + $1.size } }
     private var sentBytes: Int64 { uploadItems.reduce(0) { $0 + bytesSent($1) } }
@@ -129,8 +145,7 @@ struct NativeUploadView: View {
     }
 
     @ViewBuilder private var uploadSummary: some View {
-        if uploadSize > 0 {
-            let done = uploadItems.allSatisfy { $0.phase == .complete }
+        if uploadSize > 0 && batchResult == nil {
             let blocked = uploadItems.contains { [.paused, .failed].contains($0.phase) }
             let progress = ByteProgress(processed: sentBytes, total: uploadSize)
             let fraction = progress.fraction ?? 0
@@ -139,8 +154,7 @@ struct NativeUploadView: View {
             } currentValueLabel: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("已上传 \(progressLabel(progress))")
-                    if done { Text("本次上传完成") }
-                    else if blocked { Text("有任务暂停或失败，继续后估算剩余时间") }
+                    if blocked { Text("有任务暂停或失败，继续后估算剩余时间") }
                     else if fraction == 1 && uploadItems.contains(where: { $0.phase == .uploading }) {
                         Text("已传完，正在校验")
                     } else if let transfer, let seconds = progress.remainingTime(bytesPerSecond: transfer.bytesPerSecond) {
@@ -155,6 +169,27 @@ struct NativeUploadView: View {
                     }
                 }
             }
+        }
+    }
+    @ViewBuilder private var completionBanner: some View {
+        if let result = batchResult {
+            let tint: Color = result.success ? .green : .orange
+            VStack(alignment: .leading, spacing: 10) {
+                Label(result.title, systemImage: result.success ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    .font(.title3.bold()).foregroundStyle(tint)
+                    .accessibilityAddTraits(.isHeader)
+                Text(result.detail).font(.subheadline)
+                if !result.ids.isEmpty {
+                    Button {
+                        onTimeline(result.ids.count <= 5 ? .batch(result.ids) : .recentUploads)
+                    } label: {
+                        Label(result.ids.count <= 5 ? "查看刚上传的影像" : "按上传时间查看", systemImage: "photo.on.rectangle")
+                    }.buttonStyle(.borderedProminent)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
         }
     }
     var body: some View {
@@ -174,19 +209,13 @@ struct NativeUploadView: View {
                     if loadingAccount || openingPicker { ProgressView(openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
                     preparationSummary
                     uploadSummary
+                    completionBanner
                     if failedCount > 0 {
                         Button {
                             queue.retryFailed()
                         } label: {
                             Label("全部重试（\(failedCount) 项失败）", systemImage: "arrow.clockwise")
                         }.disabled(account == nil)
-                    }
-                    if !quickReviewIDs.isEmpty {
-                        Button {
-                            onTimeline(quickReviewIDs)
-                        } label: {
-                            Label("在时间线查看刚上传的 \(quickReviewIDs.count) 项", systemImage: "photo.on.rectangle")
-                        }
                     }
                     Text("按点选顺序导入；Live Photo 自动包含图片与 MOV。仅访问你选择并授权的项目。")
                         .font(.caption).foregroundStyle(.secondary)
@@ -218,22 +247,31 @@ struct NativeUploadView: View {
                     }.disabled(!hasLoaded || account == nil)
 
                 } header: { Text("上传确认 · 人物、孩子与宠物可多选") }
-                Section {
-                    Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .skipped }.count) 重复已跳过 · \(failedCount) 失败 · \(items.count) 项")
-                    Text("照片 \(items.filter { $0.mediaType == "photo" }.count) · Live Photo \(items.filter { $0.mediaType == "live_photo" }.count) · 视频 \(items.filter { $0.mediaType == "video" }.count)")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Button("全部暂停") { queue.pauseAll() }
-                        Spacer()
-                        Button("继续暂停任务") { queue.resumeAll() }.disabled(account == nil)
-                    }.buttonStyle(.borderless)
-                    if pending.count > 3 {
-                        Button(showAllPending ? "收起任务列表" : "展开全部 \(pending.count) 项任务") { showAllPending.toggle() }
+                if items.isEmpty {
+                    Section("上传任务") {
+                        Text("还没有任务。选择照片或视频后，会在这里显示处理进度。")
+                            .foregroundStyle(.secondary)
                     }
-                    Toggle("显示已结束记录（\(items.filter { $0.isTerminal }.count) 项）", isOn: $showFinished)
-                    Text("原件先提取到本机，显示准确大小后再确认上传。缓存上限 8 GiB，预留 512 MiB；达到上限时先上传已准备的项目，再重试其余项目。进入后台会暂停，回到前台续传；强制退出后请点继续。")
-                        .font(.caption).foregroundStyle(.secondary)
-                } header: { Text("上传任务") }
+                } else {
+                    Section {
+                        Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .skipped }.count) 重复已跳过 · \(failedCount) 失败 · \(items.count) 项")
+                        Text("照片 \(items.filter { $0.mediaType == "photo" }.count) · Live Photo \(items.filter { $0.mediaType == "live_photo" }.count) · 视频 \(items.filter { $0.mediaType == "video" }.count)")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if canPause || hasPaused {
+                            HStack {
+                                if canPause { Button("全部暂停") { queue.pauseAll() } }
+                                Spacer()
+                                if hasPaused { Button("继续暂停任务") { queue.resumeAll() }.disabled(account == nil) }
+                            }.buttonStyle(.borderless)
+                        }
+                        if pending.count > 3 {
+                            Button(showAllPending ? "收起任务列表" : "展开全部 \(pending.count) 项任务") { showAllPending.toggle() }
+                        }
+                        if !finished.isEmpty { Toggle("显示已结束记录（\(finished.count) 项）", isOn: $showFinished) }
+                        Text("原件先提取到本机，显示准确大小后再确认上传。缓存上限 8 GiB，预留 512 MiB；达到上限时先上传已准备的项目，再重试其余项目。进入后台会暂停，回到前台续传；强制退出后请点继续。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } header: { Text("上传任务") }
+                }
                 ForEach(visibleItems) { item in
                     Section {
                         HStack(alignment: .top, spacing: 12) {
@@ -281,7 +319,7 @@ struct NativeUploadView: View {
                     }
                 }
                 Section {
-                    Button("查看家庭时间线") { onTimeline([]) }
+                    Button("查看家庭时间线") { onTimeline(.timeline) }
                 }
             }
             .navigationTitle("珍藏原片")
@@ -290,11 +328,24 @@ struct NativeUploadView: View {
                 HStack(spacing: 12) {
                     Button { Task { await choosePhotos() } } label: { Label("选照片", systemImage: "plus") }
                         .buttonStyle(.bordered).disabled(account == nil || openingPicker)
-                    Button {
-                        confirmingIDs = Set(ready.map(\.id)); confirming = true
-                    } label: {
-                        Text(ready.isEmpty ? (preparing.isEmpty ? "选择照片后上传" : "准备中 · \(readyCount) 项就绪") : "上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
-                    }.buttonStyle(.borderedProminent).disabled(ready.isEmpty || account == nil)
+                    if !ready.isEmpty {
+                        Button {
+                            confirmingIDs = Set(ready.map(\.id)); confirming = true
+                        } label: {
+                            Text("上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
+                        }.buttonStyle(.borderedProminent).disabled(account == nil)
+                    } else if !preparing.isEmpty {
+                        ProgressView("正在准备原件…").frame(maxWidth: .infinity)
+                    } else if let result = batchResult, !result.ids.isEmpty {
+                        Button {
+                            onTimeline(result.ids.count <= 5 ? .batch(result.ids) : .recentUploads)
+                        } label: {
+                            Label(result.success ? "上传完成 · 查看" : "查看已上传", systemImage: "checkmark.circle")
+                                .frame(maxWidth: .infinity)
+                        }.buttonStyle(.borderedProminent)
+                    } else {
+                        Spacer()
+                    }
                 }.padding().background(.regularMaterial)
             }
             .refreshable { await loadAccount() }
@@ -332,7 +383,13 @@ struct NativeUploadView: View {
             .onChange(of: queue.duplicateNotice.isEmpty) { empty in
                 if !empty { showingDuplicate = true }
             }
-            .task { queue.configure(session: session); if !hasLoaded { await loadAccount() } }
+            .onChange(of: batchResult?.title) { title in
+                if let title { UIAccessibility.post(notification: .announcement, argument: title) }
+            }
+            .task(id: profileRevision) {
+                queue.configure(session: session)
+                if loadedProfileRevision != profileRevision { await loadAccount() }
+            }
             .sheet(isPresented: $showPicker) {
                 NativePhotoPicker { identifiers, unavailable in
                     showPicker = false
@@ -377,7 +434,7 @@ struct NativeUploadView: View {
             let remembered = UploadProfilePreferences(site: site, ownerID: current.id)
                 .restore(validIDs: Set(loaded.map(\.id)), fallback: previousBatch)
             account = current; profiles = loaded; children = remembered
-            hasLoaded = true; message = ""
+            hasLoaded = true; loadedProfileRevision = profileRevision; message = ""
         } catch {
             if Task.isCancelled { return }
             if !hasLoaded { account = nil }
