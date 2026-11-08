@@ -162,7 +162,11 @@ enum OriginalMetadata {
         }
         var result = fields(originals)
         result["metadata"] = metadata
-        if result["original_taken_at_local"] == nil { warnings.append("未读到可靠原始拍摄时间，按未知保存；PhotoKit 日期仅供参考。") }
+        if result["original_taken_at_local"] == nil {
+            warnings.append(asset.creationDate == nil
+                ? "原件和相册都没有可用日期。"
+                : "原件拍摄时间未知，可用相册日期归档。")
+        }
         result["client_warning"] = warnings.joined(separator: "\n")
         return result
     }

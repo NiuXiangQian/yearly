@@ -149,6 +149,12 @@ import UniformTypeIdentifiers
 
         let store = try UploadStore(directory: root.appendingPathComponent("store"))
         var live = UploadItem(assetIdentifier: "synthetic", site: "https://yearly.invalid/", ownerID: 1, name: "Live", mediaType: "live_photo")
+        let shanghai = TimeZone(identifier: "Asia/Shanghai")!
+        expect(live.albumArchiveDay(timeZone: shanghai) == nil, "missing album date remains unknown")
+        live.photoKitDate = ISO8601DateFormatter().date(from: "2026-10-29T22:30:00Z")
+        expect(live.albumArchiveDay(timeZone: shanghai) == "2026-10-30", "album archive day uses the local timezone")
+        live.captureDate = "2026-10-28T10:00:00"
+        expect(live.albumArchiveDay(timeZone: shanghai) == nil, "original capture date takes precedence")
         var still = heicResource
         still.complete = true
         live.resources = [still, try resource(multi, role: "live_video")]

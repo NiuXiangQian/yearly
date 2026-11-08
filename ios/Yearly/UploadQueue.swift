@@ -106,7 +106,7 @@ import Photos
             }
             items[index].childIDs = childIDs.sorted()
             items[index].batchName = String(batchName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(255))
-            items[index].archiveDate = archiveDate
+            items[index].archiveDate = archiveDate ?? items[index].albumArchiveDay()
             items[index].confirmed = true
             items[index].phase = .queued
             items[index].message = ""
@@ -264,6 +264,11 @@ import Photos
                     }
                     try Task.checkCancellation()
                     if items[index].mediaID == nil {
+                        // Pending items from earlier releases can use this default before their first request.
+                        // An idempotent retry must send exactly the payload already persisted.
+                        if !items[index].requestStarted && items[index].archiveDate == nil {
+                            items[index].archiveDate = items[index].albumArchiveDay()
+                        }
                         items[index].requestStarted = true
                         let body = try items[index].body()
                         try persist() // The UUID and exact payload must survive a lost create response.

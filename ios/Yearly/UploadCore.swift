@@ -103,6 +103,15 @@ struct UploadItem: Codable, Identifiable {
         if phase == .complete { return size }
         return resources.reduce(0) { $0 + ($1.complete ? $1.size : $1.uploadedBytes) }
     }
+    func albumArchiveDay(timeZone: TimeZone = .current) -> String? {
+        guard captureDate == nil, let photoKitDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: photoKitDate)
+    }
     func sameOriginals(as other: UploadItem) -> Bool {
         guard site == other.site, ownerID == other.ownerID, mediaType == other.mediaType,
               !resources.isEmpty, resources.count == other.resources.count else { return false }

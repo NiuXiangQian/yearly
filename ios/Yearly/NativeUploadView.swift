@@ -232,7 +232,7 @@ struct NativeUploadView: View {
                     TextField("这批回忆的名字（可留空）", text: $batchName)
                     Toggle("设置本批归档日期", isOn: $useArchiveDate)
                     if useArchiveDate { DatePicker("归档日期", selection: $archiveDate, displayedComponents: .date) }
-                    Text("归档日期独立于原始拍摄时间；留空按每份原件的拍摄日期归档。未选择人物时保留为家庭时光。")
+                    Text("优先按原件拍摄日期归档，读不到时用 iPhone 相册日期。可为本批指定其他归档日期。未选择人物时保留为家庭时光。")
                         .font(.caption).foregroundStyle(.secondary)
                     Button { showingPeople = true } label: {
                         HStack {
@@ -282,8 +282,8 @@ struct NativeUploadView: View {
                                 let size = item.resources.isEmpty ? item.sourceByteCount : item.size
                                 Text(size.map(bytesLabel) ?? "大小：待读取").font(.caption)
                                 Text("拍摄：\(item.captureDate ?? "未知")").font(.caption)
-                                if item.captureDate == nil, let date = item.photoKitDate {
-                                    Text("PhotoKit 参考：\(date.formatted(date: .numeric, time: .shortened))（不代替原始时间）")
+                                if let day = item.albumArchiveDay() {
+                                    Text("相册日期：\(day)")
                                         .font(.caption2).foregroundStyle(.secondary)
                                 }
                             }
@@ -407,7 +407,7 @@ struct NativeUploadView: View {
                 }
                 Button("返回检查", role: .cancel) { }
             } message: {
-                Text("\(confirmationItems.count) 项，\(ByteCountFormatter.string(fromByteCount: confirmationItems.reduce(0) { $0 + $1.size }, countStyle: .file))。关联：\(chosenNames)。\(useArchiveDate ? "全部归档到所选日期，保留原始拍摄时间。" : "按原始拍摄日期归档；没有可靠日期的保持未知。")\(confirmationItems.contains { !$0.warning.isEmpty } ? "部分项目含原件或元数据提示，请确认已阅读每项说明。" : "")")
+                Text("\(confirmationItems.count) 项，\(ByteCountFormatter.string(fromByteCount: confirmationItems.reduce(0) { $0 + $1.size }, countStyle: .file))。关联：\(chosenNames)。\(useArchiveDate ? "全部归档到所选日期，保留原始拍摄时间。" : "优先按原件拍摄日期归档，其次用相册日期。")\(confirmationItems.contains { !$0.warning.isEmpty } ? "部分项目含原件或元数据提示，请确认已阅读每项说明。" : "")")
             }
         }
     }
