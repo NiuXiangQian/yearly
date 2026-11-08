@@ -771,5 +771,17 @@
   "没有收到可粘贴的照片。请在“照片”App 的分享菜单中选择“拷贝照片”，再回到这里粘贴。": "No photos were received from the clipboard. Choose Copy Photos in the Photos app’s share menu, then paste here.",
   "没有收到文件。相册未能完成时，可以在下方粘贴照片，或从文件导入原片。": "No files were received. If the photo picker could not finish, paste photos below or import originals from Files.",
   "以下文件未能读取，其余文件已继续处理：": "These files could not be read; processing continued for the others:",
-  "请先将这些原片下载到“我的 iPhone”，再从文件导入。": "Download these originals to On My iPhone, then import them from Files."
+  "请先将这些原片下载到“我的 iPhone”，再从文件导入。": "Download these originals to On My iPhone, then import them from Files.",
+  "重试实况": "Retry Live Photo",
+  "动态预览正在准备": "Motion preview is being prepared",
+  "正在加载实况…": "Loading motion…",
+  "停止实况": "Stop motion",
+  "播放实况": "Play motion",
+  "动态暂时无法播放，照片仍可查看": "Motion is unavailable. You can still view the photo.",
+  "实况照片": "Live Photo",
+  "动态预览正在准备，完成后可播放": "Motion preview is being prepared. Try playing again when ready.",
+  "长按照片播放 · 也可轻点 LIVE": "Hold the photo or tap LIVE to play",
+  "实况照片 · 高清预览": "Live Photo · HD preview",
+  "查看动态原件 · {p0}": "Original motion · {p0}",
+  "全屏预览": "Fullscreen preview"
 }

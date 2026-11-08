@@ -14,10 +14,11 @@ export async function mediaResource(
   mid: number,
   fid: number,
   purpose: "thumbnail" | "preview" | "original",
+  refresh = false,
 ) {
   const key = `${mid}/${fid}/${purpose}`;
   const cached = cache.get(key);
-  if (cached && cached.expires > Date.now()) return cached.value;
+  if (!refresh && cached && cached.expires > Date.now()) return cached.value;
   const value = await api<MediaResource>(
     `/media/${mid}/files/${fid}/url?purpose=${purpose}`,
   );

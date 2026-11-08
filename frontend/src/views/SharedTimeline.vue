@@ -16,6 +16,8 @@ import TimelineMonths from "../components/TimelineMonths.vue";
 import TimelineOrder from "../components/TimelineOrder.vue";
 import TimelineRail from "../components/TimelineRail.vue";
 import SharedThumbnail from "../components/SharedThumbnail.vue";
+import LivePhotoViewer from "../components/LivePhotoViewer.vue";
+import type { MediaResource } from "../lib/media-resource";
 import ImageViewer from "../components/ImageViewer.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 const route = useRoute();
@@ -47,7 +49,7 @@ const preview = ref(""),
   live = ref(false),
   previewLoading = ref(false);
 const video = computed(
-  () => selected.value?.media_type === "video" || live.value,
+  () => selected.value?.media_type === "video",
 );
 let expiryTimer: ReturnType<typeof setTimeout>;
 let previewGeneration = 0;
@@ -135,7 +137,7 @@ async function openFolder(item: any, more = false) {
     folderBusy.value = false;
   }
 }
-async function openMedia(item: any, playLive = false) {
+async function openMedia(item: any, playLive = item.media_type === "live_photo") {
   selected.value = item;
   live.value = playLive;
   preview.value = "";
@@ -145,7 +147,7 @@ async function openMedia(item: any, playLive = false) {
   previewLoading.value = true;
   try {
     const data = await api(
-      `${base}/media/${item.id}/url?purpose=preview&live=${playLive}`,
+      `${base}/media/${item.id}/url?purpose=preview&live=false`,
     );
     if (generation !== previewGeneration) return;
     if (data.url) preview.value = data.url;
@@ -156,6 +158,9 @@ async function openMedia(item: any, playLive = false) {
   } finally {
     if (generation === previewGeneration) previewLoading.value = false;
   }
+}
+function motionSource() {
+  return api<MediaResource>(`${base}/media/${selected.value.id}/url?purpose=preview&live=true`);
 }
 async function videoSource() {
   const data = await api(
@@ -399,11 +404,14 @@ onBeforeUnmount(() => {
       </article>
       <template v-else-if="selected"
         ><div class="shared-viewer">
+          <LivePhotoViewer v-if="live && preview" :key="selected.id"
+            :src="preview" :alt="selected.title" :load-motion="motionSource"
+            @error="preview = ''; previewError = t('预览加载失败')" />
           <VideoPlayer
-            v-if="video && preview"
+            v-else-if="video && preview"
             :key="selected.id + '-' + live"
             :load-source="videoSource"
-            :autoplay="live"
+
           /><ImageViewer
             v-else-if="preview"
             :src="preview"
@@ -427,9 +435,9 @@ onBeforeUnmount(() => {
         <button
           v-if="selected.media_type === 'live_photo'"
           class="button"
-          @click="openMedia(selected, !live)"
+          @click="live = !live"
         >
-          {{ live ? t("静态照片") : t("播放 LIVE") }}
+          {{ live ? t("静态照片") : t("实况照片") }}
         </button></template
       >
     </ElDialog>

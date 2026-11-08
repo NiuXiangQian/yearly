@@ -215,3 +215,25 @@ it("reveals a folded date and fetches an unloaded date only on navigation", asyn
     HTMLElement.prototype.scrollIntoView = original;
   }
 });
+
+it("plays layered Live Photos using only share-authorized preview URLs", async () => {
+  const data = response();
+  data.days = [{ day: "2024-01-02", total: 1, items: [{ ...items[0], media_type: "live_photo" }] }];
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path.includes("/url?")) return { url: path.endsWith("live=true") ? "/motion.mp4" : "/still.jpg", status: "ready" };
+    return data;
+  });
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  try {
+    await mount();
+    await vi.waitFor(() => expect(host.querySelector(".shared-card")).not.toBeNull());
+    (host.querySelector(".shared-card") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector(".live-photo-img")?.getAttribute("src")).toBe("/still.jpg"));
+    expect(play).not.toHaveBeenCalled();
+    (document.querySelector(".live-photo-badge") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+    expect(document.querySelector(".live-photo-video")?.getAttribute("src")).toBe("/motion.mp4");
+    expect(api).toHaveBeenCalledWith("/public/shares/virtual/media/1/url?purpose=preview&live=true");
+    expect(vi.mocked(api).mock.calls.every(([path]) => path.startsWith("/public/shares/virtual"))).toBe(true);
+  } finally { play.mockRestore(); }
+});

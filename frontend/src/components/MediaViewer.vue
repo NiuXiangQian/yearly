@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { t } from "../lib/i18n";
-import { computed, ref, watch } from "vue";
-import { ImageOff, Layers, Image, FileImage } from "lucide-vue-next";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { ImageOff, Layers, Image, FileImage, Maximize, Minimize } from "lucide-vue-next";
 import { bytes } from "../lib/api";
 import { mediaResource, type MediaResource } from "../lib/media-resource";
+import LivePhotoViewer from "./LivePhotoViewer.vue";
 import ImageViewer from "./ImageViewer.vue";
 import VideoPlayer from "./VideoPlayer.vue";
 const props = defineProps<{ media: any }>();
@@ -21,13 +22,13 @@ const liveFile = computed(() =>
   props.media.files.find((f: any) => f.file_role === "live_video"),
 );
 const isVideo = computed(
-  () => props.media.media_type === "video" || live.value,
+  () => props.media.media_type === "video" || (live.value && original.value),
 );
 const originalFile = computed(() =>
   live.value ? liveFile.value : primary.value,
 );
 const file = computed(() => {
-  if (original.value || live.value) return originalFile.value;
+  if (original.value) return originalFile.value;
   return (
     props.media.files.find(
       (f: any) =>
@@ -40,7 +41,7 @@ watch(
   () => props.media.id,
   () => {
     original.value = false;
-    live.value = false;
+    live.value = !!liveFile.value;
   },
   { immediate: true },
 );
@@ -57,6 +58,7 @@ watch(
     poster.value = "";
     failed.value = false;
     error.value = "";
+    loading.value = false;
     if (!file.value) return;
     const mid = props.media.id,
       fid = file.value.id,
@@ -97,10 +99,33 @@ async function playbackSource() {
   if (!value.url) throw new Error(t("压缩预览仍在准备，请稍后再试"));
   return value.url;
 }
+const expanded = ref(false);
+let previousOverflow = "";
+watch(expanded, (value) => {
+  if (value) {
+    previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  } else document.body.style.overflow = previousOverflow;
+});
+function escape(event: KeyboardEvent) {
+  if (event.key === "Escape" && expanded.value) {
+    event.stopImmediatePropagation();
+    expanded.value = false;
+  }
+}
+onMounted(() => window.addEventListener("keydown", escape, true));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", escape, true);
+  if (expanded.value) document.body.style.overflow = previousOverflow;
+});
+function motionSource(refresh = false) {
+  return mediaResource(props.media.id, liveFile.value.id, "preview", refresh);
+}
 </script>
 
 <template>
-  <div class="media-viewer-shell">
+  <Teleport to="body" :disabled="!expanded">
+  <div class="media-viewer-shell" :class="{ expanded }">
     <header class="viewer-toolbar">
       <span class="viewer-quality"
         >{{
@@ -108,11 +133,14 @@ async function playbackSource() {
             ? t("原文件")
             : isVideo
               ? t("流畅预览 · 720p")
-              : t("高清压缩预览")
+              : live && liveFile
+                ? t("实况照片 · 高清预览")
+                : t("高清压缩预览")
         }}<small v-if="resource?.file_size">{{
           bytes(resource.file_size)
         }}</small></span
       >
+      <div class="viewer-actions">
       <button
         v-if="originalFile"
         :disabled="loading"
@@ -121,13 +149,22 @@ async function playbackSource() {
         <FileImage :size="14" />{{
           original
             ? t("返回压缩预览")
-            : t("查看原文件 · {p0}", { p0: bytes(originalFile.file_size) })
+            : t(live && liveFile ? "查看动态原件 · {p0}" : "查看原文件 · {p0}", { p0: bytes(originalFile.file_size) })
         }}
       </button>
+      <button :aria-label="expanded ? t('退出全屏') : t('全屏预览')" :title="expanded ? t('退出全屏') : t('全屏预览')" @click="expanded = !expanded">
+        <Minimize v-if="expanded" :size="17" /><Maximize v-else :size="17" />
+      </button>
+      </div>
     </header>
     <div class="viewer-stage">
+      <LivePhotoViewer
+        v-if="live && liveFile && !original && resource?.url && !failed"
+        :key="media.id" :src="resource.url" :alt="media.title"
+        :load-motion="motionSource" @error="failed = true"
+      />
       <VideoPlayer
-        v-if="isVideo && resource?.url && !failed"
+        v-else-if="isVideo && resource?.url && !failed"
         :key="`${file.id}-${original}`"
         :poster="poster"
         :autoplay="live"
@@ -169,6 +206,7 @@ async function playbackSource() {
     <footer v-if="liveFile" class="viewer-live-tabs">
       <button
         :class="{ active: !live }"
+        :aria-pressed="!live"
         @click="
           live = false;
           original = false;
@@ -177,15 +215,17 @@ async function playbackSource() {
         <Image :size="15" /> {{ t("静态照片") }}</button
       ><button
         :class="{ active: live }"
+        :aria-pressed="live"
         @click="
           live = true;
           original = false;
         "
       >
-        <Layers :size="15" /> {{ t("播放 LIVE") }}
+        <Layers :size="15" /> {{ t("实况照片") }}
       </button>
     </footer>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -197,6 +237,15 @@ async function playbackSource() {
   color: #f0f4f0;
   background: radial-gradient(ellipse at 50% 35%, #2d3b32, #111c17);
 }
+.media-viewer-shell.expanded {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  z-index: 5000;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.viewer-actions { display: flex; gap: 8px; align-items: center; }
 .viewer-toolbar {
   display: flex;
   align-items: center;
@@ -225,6 +274,7 @@ async function playbackSource() {
   border: 1px solid #ffffff30;
   border-radius: 20px;
   padding: 8px 10px;
+  min-height: 40px;
   background: #ffffff08;
   color: #e7eee8;
   font-size: 11px;
@@ -290,5 +340,13 @@ async function playbackSource() {
 .viewer-live-tabs button.active {
   background: #ffffff18;
   color: white;
+}
+@media (max-width: 600px) {
+  .viewer-toolbar { padding: 10px 12px; gap: 8px; }
+  .viewer-quality { min-width: 0; }
+  .viewer-actions { gap: 6px; }
+  .viewer-toolbar button { font-size: 10px; }
+  .viewer-live-tabs { padding: 6px; }
+  .viewer-live-tabs button { min-height: 44px; }
 }
 </style>

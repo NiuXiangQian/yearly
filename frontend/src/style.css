@@ -1634,7 +1634,7 @@ main {
 }
 .detail-layout {
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr);
   min-height: 600px;
   max-height: 86vh;
   overflow: auto;
@@ -2550,8 +2550,8 @@ main {
   }
   .detail-viewer {
     position: relative;
-    height: 38vh;
-    min-height: 240px;
+    height: 58dvh;
+    min-height: 340px;
     flex-shrink: 0;
   }
   .detail-info {
@@ -2574,7 +2574,16 @@ main {
   }
   .el-dialog.detail-dialog {
     padding: 0 !important;
+    margin: 3dvh auto !important;
   }
+  .detail-dialog .el-dialog__header {
+    position: relative;
+    height: 44px;
+    padding: 0;
+    background: #15221c;
+  }
+  .detail-dialog .el-dialog__headerbtn { top: 6px; }
+  .detail-dialog .detail-layout { max-height: calc(94dvh - 44px); }
   .dialog-actions {
     gap: 10px;
   }

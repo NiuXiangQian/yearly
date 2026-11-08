@@ -48,11 +48,13 @@ it("plays the paired motion preview from LIVE and returns to the still photo", a
     files: [...photo.files, { id: 3, file_role: "live_video", mime_type: "video/quicktime", file_size: 5000 }],
   } });
   await vi.waitFor(() => expect(host.querySelector("img")?.getAttribute("src")).toBe("/still.jpg"));
-  (host.querySelectorAll(".viewer-live-tabs button")[1] as HTMLButtonElement).click();
+  expect(play).not.toHaveBeenCalled();
+  (host.querySelector(".live-photo-badge") as HTMLButtonElement).click();
   await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
   expect(host.querySelector("video")?.muted).toBe(true);
   expect(host.querySelector("video")?.getAttribute("src")).toBe("/motion.mp4");
   expect(mediaResource).not.toHaveBeenCalledWith(1, 3, "original");
+  expect(host.querySelector(".live-photo-img")).not.toBeNull();
   (host.querySelector(".viewer-live-tabs button") as HTMLButtonElement).click();
   await vi.waitFor(() => expect(host.querySelector("img")?.getAttribute("src")).toBe("/still.jpg"));
   expect(host.querySelector("video")).toBeNull();
@@ -136,4 +138,19 @@ it("expands within the window when native fullscreen is unavailable and exits wi
   (host.querySelector('[aria-label="退出全屏"]') as HTMLButtonElement).click();
   await nextTick();
   expect(host.querySelector(".yearly-player.expanded")).toBeNull();
+});
+
+it("offers fullscreen for photos and restores the page on Escape", async () => {
+  vi.mocked(mediaResource).mockResolvedValue({ url: "/preview.jpg", status: "ready" });
+  const host = render(MediaViewer, { media: photo });
+  await nextTick();
+  (host.querySelector('[aria-label="全屏预览"]') as HTMLButtonElement).click();
+  await nextTick();
+  expect(document.body.querySelector(".media-viewer-shell.expanded")).not.toBeNull();
+  expect(document.body.style.overflow).toBe("hidden");
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  await nextTick();
+  expect(document.body.querySelector(".media-viewer-shell.expanded")).toBeNull();
+  expect(host.querySelector(".media-viewer-shell")).not.toBeNull();
+  expect(document.body.style.overflow).toBe("");
 });
