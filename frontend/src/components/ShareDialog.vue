@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Link, X } from "lucide-vue-next";
-import { api, post, del, notify } from "../lib/api";
+import { api, post, del, notify, sitePath } from "../lib/api";
 import { t, locale } from "../lib/i18n";
 import DateField from "./DateField.vue";
 const props = defineProps<{ open: boolean; initialDate?: string }>();
@@ -78,7 +78,7 @@ async function create() {
       end_date: end.value,
       hours: hours.value,
     });
-    link.value = `${location.origin}/share/${data.token}`;
+    link.value = location.origin + sitePath(`/share/${data.token}`);
     history.value.unshift(data);
     ElMessage.success(t("分享链接已创建"));
   } catch (e) {

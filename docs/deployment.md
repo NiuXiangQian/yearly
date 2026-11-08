@@ -104,6 +104,14 @@ curl --fail https://yearly.example.com/api/health
 
 证书可通过现有 ACME 流程签发和续期。启用 HTTPS 后再开放家庭账户。CSP 允许 hash-wasm 的 WebAssembly 和 Element Plus 的 inline style，不允许第三方分析脚本。分片 PUT 请求直接发送到 OSS，Nginx 的 2 MiB 请求上限仅覆盖元数据 API。
 
+### 在已有 HTTPS 域名的子路径部署
+
+例如部署到 `https://example.com/yearly/` 时，后端设置 `APP_BASE_PATH=/yearly`、`ALLOWED_ORIGIN=https://example.com`、`COOKIE_SECURE=true`。Origin 只包含协议、域名和可选端口。Cookie 作用路径会设置为 `/yearly/`。
+
+在 `frontend/` 执行 `npm run build -- --base /yearly/`，将 dist 放在 `/opt/yearly/www/yearly/`。在主域名的 HTTPS server 块 include [子路径配置](../deploy/nginx-yearly-subpath.conf)，设置实际静态目录、上游端口和 OSS 域名，并按主配置定义 `yearly_auth` 限速区。代理把 `/yearly/api/` 转为后端 `/api/`。验证 `https://example.com/yearly/api/health`，并将 `https://example.com` 加入私有 OSS 的 CORS 精确来源以支持网页直传。
+
+iPhone 的站点地址填完整 `https://example.com/yearly/`。同域的不同路径共享浏览器的同源权限，应只与受信任的站点内容共用域名。
+
 ## 7. 发布检查
 
 1. 浏览器登录，确认 Cookie 有 HttpOnly、Secure、SameSite=Strict。

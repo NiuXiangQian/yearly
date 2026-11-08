@@ -12,7 +12,7 @@ import {
   Check,
 } from "lucide-vue-next";
 import { useYearly } from "../stores/yearly";
-import { bytes } from "../lib/api";
+import { bytes, sitePath } from "../lib/api";
 const yearly = useYearly();
 </script>
 <template>
@@ -45,14 +45,14 @@ const yearly = useYearly();
       </div>
     </div>
     <div class="export-grid">
-      <a href="/api/export/manifest" class="panel export-card"
+      <a :href="sitePath('/api/export/manifest')" class="panel export-card"
         ><FileJson :size="29" />
         <h2>{{ t("完整档案清单") }}</h2>
         <p>
           {{ t("人物与宠物资料、逻辑媒体、原始元数据、成长日记及全部关联关系。") }}
         </p>
         <span> {{ t("下载 JSON") }} <Download :size="16" /></span></a
-      ><a href="/api/export/files.csv" class="panel export-card"
+      ><a :href="sitePath('/api/export/files.csv')" class="panel export-card"
         ><FileSpreadsheet :size="29" />
         <h2>{{ t("原文件索引") }}</h2>
         <p>

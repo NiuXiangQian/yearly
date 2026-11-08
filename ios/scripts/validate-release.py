@@ -28,8 +28,10 @@ def validate(values):
             address = None
         if address is not None and not address.is_global:
             raise ValueError(f'{key} uses a private or local IP address')
-        if key == 'YEARLY_SITE_URL' and (url.path not in ['', '/'] or url.query or url.fragment):
-            raise ValueError('YEARLY_SITE_URL must be a root URL without path/query/fragment')
+        if key == 'YEARLY_SITE_URL':
+            valid_path = url.path in ['', '/'] or re.fullmatch(r'(/[A-Za-z0-9_-]+)+/?', url.path)
+            if not valid_path or url.query or url.fragment:
+                raise ValueError('YEARLY_SITE_URL must be a site URL with an optional installation path')
     for key, default in [('YEARLY_VERSION', '1.0'), ('YEARLY_BUILD_NUMBER', '1')]:
         if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){0,2}', values.get(key, default)):
             raise ValueError(f'{key} must contain one to three numeric components')

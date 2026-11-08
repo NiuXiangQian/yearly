@@ -9,7 +9,7 @@ func check(_ condition: @autoclosure () -> Bool, _ message: String) {
 let site = SiteOrigin("  HTTPS://Family.Example.com:443/\n")!
 check(site.url.absoluteString == "https://family.example.com/", "Normalize scheme, host, default port and whitespace")
 for address in ["", "http://family.example.com", "javascript:alert(1)", "file:///etc/passwd", "https://",
-                "https://user:password@family.example.com", "https://family.example.com/login",
+                "https://user:password@family.example.com", "https://family.example.com/../login",
                 "https://family.example.com?x=1", "https://family.example.com/#/login", "https://family.example.com:0",
                 "https://family.example.com:65536"] {
     check(SiteOrigin(address) == nil, "Reject invalid site: \(address)")
@@ -26,6 +26,13 @@ check(!site.contains(nil), "Reject missing URL")
 let custom = SiteOrigin("https://family.example.com:8443")!
 check(custom.contains(URL(string: "https://family.example.com:8443/upload")), "Allow configured custom port")
 check(!custom.contains(URL(string: "https://family.example.com/upload")), "Do not conflate ports")
+let prefixed = SiteOrigin("https://family.example.com/yearly")!
+check(prefixed.url.absoluteString == "https://family.example.com/yearly/", "Normalize installation URL")
+check(prefixed.origin == "https://family.example.com", "Origin header excludes installation path")
+check(prefixed.contains(URL(string: "https://family.example.com/yearly/api/uploads")), "Allow prefixed API")
+for path in ["/", "/login", "/yearly-other", "/yearly/%2e%2e/login", "/yearly%2fapi/uploads"] {
+    check(!prefixed.contains(URL(string: prefixed.origin + path)), "Block URLs outside the installation path")
+}
 check(AppConfiguration.httpsURL("https://example.com/legal/privacy") != nil, "Policy pages allow paths")
 for value in ["", "$(YEARLY_PRIVACY_URL)", "http://example.com", "https://user@host.test", "javascript:alert(1)"] {
     check(AppConfiguration.httpsURL(value) == nil, "Reject invalid release link")

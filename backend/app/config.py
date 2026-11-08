@@ -1,4 +1,5 @@
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     session_secret: str = ""
     cookie_secure: bool = True
     allowed_origin: str = "https://yearly.example.com"
+    app_base_path: str = ""
     oss_endpoint: str = "https://oss-cn-hangzhou.aliyuncs.com"
     oss_region: str = "cn-hangzhou"
     oss_bucket: str = ""
@@ -25,6 +27,14 @@ class Settings(BaseSettings):
     upload_part_size: int = 16 * 1024 * 1024
     max_file_size: int = 50 * 1024**3
     session_hours: int = 168
+
+    @field_validator("app_base_path")
+    @classmethod
+    def valid_base_path(cls, value):
+        value = value.removesuffix("/")
+        if value and not re.fullmatch(r"(/[A-Za-z0-9_-]+)+", value):
+            raise ValueError("APP_BASE_PATH 必须为 /yearly 形式的路径")
+        return value
 
     @field_validator("database_url")
     @classmethod

@@ -94,6 +94,7 @@ async def lifespan(app):
 app = FastAPI(
     title="yearly",
     version="1.0.0",
+    root_path=settings().app_base_path,
     lifespan=lifespan,
     docs_url="/api/docs" if settings().app_env == "test" else None,
     openapi_url="/api/openapi.json" if settings().app_env == "test" else None,
@@ -211,7 +212,7 @@ def login(payload: LoginIn, request: Request, response: Response, db=Depends(get
         secure=settings().cookie_secure,
         samesite="strict",
         max_age=settings().session_hours * 3600,
-        path="/",
+        path=settings().app_base_path + "/",
     )
     return {
         "id": user.id,
@@ -239,7 +240,7 @@ def logout(
 ):
     db.delete(request.state.session)
     db.commit()
-    response.delete_cookie("yearly_session", path="/")
+    response.delete_cookie("yearly_session", path=settings().app_base_path + "/")
     return {"ok": True}
 
 

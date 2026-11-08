@@ -46,7 +46,7 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         let cookies = await cookieProvider()
         guard let cookie = cookies.first(where: {
             $0.name == "yearly_session" && $0.domain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased() == site.url.host?.lowercased()
-            && $0.path == "/" && $0.isSecure && ($0.expiresDate == nil || $0.expiresDate! > Date())
+            && $0.path == site.basePath && $0.isSecure && ($0.expiresDate == nil || $0.expiresDate! > Date())
         }) else { throw UploadHTTPError(status: 401, isOSS: false) }
         return HTTPCookie.requestHeaderFields(with: [cookie])["Cookie"] ?? ""
     }
@@ -62,7 +62,7 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if method != "GET" {
-            request.setValue(String(site.url.absoluteString.dropLast()), forHTTPHeaderField: "Origin")
+            request.setValue(site.origin, forHTTPHeaderField: "Origin")
             request.setValue(csrf, forHTTPHeaderField: "X-CSRF-Token")
         }
         if let key { request.setValue(key.uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key") }

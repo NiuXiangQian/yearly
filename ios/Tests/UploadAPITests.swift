@@ -16,10 +16,10 @@ private final class MockHTTP: URLProtocol {
         Self.lock.unlock()
         var status = 200, headers = ["Content-Type": "application/json"], body = "{}"
         switch request.url!.path {
-        case "/api/auth/me":
+        case "/yearly/api/auth/me":
             status = authenticated ? 200 : 401
             body = "{\"id\":1,\"role\":\"\(role)\",\"csrf_token\":\"synthetic-csrf\"}"
-        case "/api/uploads":
+        case "/yearly/api/uploads":
             if request.httpMethod == "GET" {
                 body = "[]"
                 if capable { headers["X-Yearly-Upload-Protocol"] = "idempotent-v1" }
@@ -47,15 +47,16 @@ private final class MockHTTP: URLProtocol {
         config.urlCredentialStorage = nil
         let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
-        let site = SiteOrigin("https://yearly.invalid")!
-        let cookie = HTTPCookie(properties: [.name: "yearly_session", .value: "synthetic-session", .domain: "yearly.invalid", .path: "/", .secure: "TRUE"])!
-        let wrong = HTTPCookie(properties: [.name: "yearly_session", .value: "wrong-site-session", .domain: "elsewhere.invalid", .path: "/", .secure: "TRUE"])!
-        let api = UploadAPI(site: site, ownerID: 1, cookieProvider: { [wrong, cookie] }, session: session)
+        let site = SiteOrigin("https://yearly.invalid/yearly")!
+        let cookie = HTTPCookie(properties: [.name: "yearly_session", .value: "synthetic-session", .domain: "yearly.invalid", .path: "/yearly/", .secure: "TRUE"])!
+        let wrong = HTTPCookie(properties: [.name: "yearly_session", .value: "wrong-site-session", .domain: "elsewhere.invalid", .path: "/yearly/", .secure: "TRUE"])!
+        let rootCookie = HTTPCookie(properties: [.name: "yearly_session", .value: "root-session", .domain: "yearly.invalid", .path: "/", .secure: "TRUE"])!
+        let api = UploadAPI(site: site, ownerID: 1, cookieProvider: { [wrong, rootCookie, cookie] }, session: session)
         let key = UUID()
         let result = try await api.create(body: Data("{}".utf8), key: key)
         precondition(result.duplicate == true && result.media_id == 42)
         let requests = MockHTTP.captured()
-        precondition(requests.map { $0.url!.path } == ["/api/auth/me", "/api/uploads", "/api/uploads"])
+        precondition(requests.map { $0.url!.path } == ["/yearly/api/auth/me", "/yearly/api/uploads", "/yearly/api/uploads"])
         let create = requests.last!
         precondition(create.value(forHTTPHeaderField: "Cookie") == "yearly_session=synthetic-session")
         precondition(create.value(forHTTPHeaderField: "Origin") == "https://yearly.invalid")

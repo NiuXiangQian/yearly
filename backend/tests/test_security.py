@@ -151,3 +151,28 @@ def test_graphical_captcha_and_secure_cookie(context, monkeypatch):
     response = context.client.post("/api/auth/login", json=payload)
     assert response.status_code == 200
     assert "Secure" in response.headers["set-cookie"]
+
+
+def test_prefixed_session_is_secure_and_removed_on_logout(context, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.config import settings
+    from app.main import app
+
+    monkeypatch.setattr(settings(), "app_base_path", "/yearly")
+    monkeypatch.setattr(settings(), "allowed_origin", "https://testserver")
+    monkeypatch.setattr(settings(), "cookie_secure", True)
+    monkeypatch.setattr(app, "root_path", "/yearly")
+    client = TestClient(app, base_url="https://testserver", headers={"Origin": "https://testserver"})
+    response = client.post("/yearly/api/auth/login", json=challenge(context))
+    assert response.status_code == 200
+    assert "Path=/yearly/" in response.headers["set-cookie"]
+    assert "Secure" in response.headers["set-cookie"]
+    uploads = client.get("/yearly/api/uploads")
+    assert uploads.status_code == 200
+    assert uploads.headers["X-Yearly-Upload-Protocol"] == "idempotent-v1"
+    assert client.get("/api/uploads").status_code == 401
+    client.headers["X-CSRF-Token"] = response.json()["csrf_token"]
+    logout = client.post("/yearly/api/auth/logout", json={})
+    assert logout.status_code == 200
+    assert "Path=/yearly/" in logout.headers["set-cookie"]
+    assert client.get("/yearly/api/uploads").status_code == 401

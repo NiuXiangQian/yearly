@@ -1,6 +1,9 @@
 import { t } from "./i18n";
 import { ElMessage } from "element-plus";
 let csrf = "";
+export function sitePath(path: string) {
+  return import.meta.env.BASE_URL + path.replace(/^\//, "");
+}
 export function setCSRF(value: string) {
   csrf = value;
 }
@@ -8,7 +11,7 @@ export async function api<T = any>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch("/api" + path, {
+  const response = await fetch(sitePath("/api" + path), {
     credentials: "same-origin",
     ...options,
     headers: {
@@ -30,7 +33,7 @@ export async function api<T = any>(
       !path.startsWith("/auth/") &&
       !path.startsWith("/public/")
     )
-      location.assign("/login");
+      location.assign(sitePath("/login"));
     throw new Error(t(message));
   }
   return response.json();

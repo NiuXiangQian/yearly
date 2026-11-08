@@ -2,7 +2,7 @@
 
 基于已有 `codex/ios-app-install` 分支增量实现，最低 iOS 16。保留 SwiftUI 外壳、WKWebView 家庭站点、登录、下载分享和现有 Vue 时间线；新增原生批量原件上传入口。Bundle Identifier 仍为 `family.yearly.app`，无需付费 Apple Developer Program、TestFlight、App Store Connect 或新 Capability。
 
-**当前状态：代码、Mac Swift 核心测试和前后端测试已完成；开发机只有 Command Line Tools，尚未完成 iOS SDK 编译、签名安装及真机相册/iCloud 验收。不要把本说明视为已完成真机验收。**
+**当前状态：已通过 Xcode 真机构建、Personal Team 签名安装和 iPhone 15 启动检查。真机相册、iCloud 和批量上传的端到端验收待完成。**
 
 ## 免费 Apple 账号安装与续签
 
@@ -11,7 +11,7 @@
 3. 打开 `ios/Yearly.xcodeproj`，选择 **Yearly** scheme 和 target；在 **Signing & Capabilities** 勾选 **Automatically manage signing**，Team 选择自己的 **Personal Team**。
 4. 先保留 `family.yearly.app`。如果该标识不能由你的 Team 注册，将 target 的 Debug/Release Bundle Identifier 改为自己的唯一反向域名，例如 `me.yourname.yearly`。之后保持 Team 和 Bundle Identifier 稳定，以便覆盖安装、保留缓存。不要提交个人签名文件。更换 Bundle Identifier 会成为另一个 App，旧任务不会自动迁移。
 5. 用数据线连接 iPhone，在设备上选择“信任此电脑”。按系统提示启用“设置 → 隐私与安全性 → 开发者模式”，必要时重启。在 Xcode 选择这台 iPhone，点击 **Run（⌘R）**。
-6. 如系统要求信任开发者，在“设置 → 通用 → VPN 与设备管理”中信任相应 Apple 账号。首次运行输入可访问且证书有效的家庭站点 **HTTPS 根地址**，在原网页登录。
+6. 如系统要求信任开发者，在“设置 → 通用 → VPN 与设备管理”中信任相应 Apple 账号。首次运行输入可访问且证书有效的家庭站点 **HTTPS 地址**，例如 `https://example.com/yearly/`，在原网页登录。
 7. 免费 Personal Team 的 provisioning profile **从签发起 7 天有效**。临近到期或 App 无法打开时，再连接 iPhone，用同一 Team、同一 Bundle Identifier 在 Xcode **Run**，重新签名并覆盖安装。不要先删除 App，否则本机未完成上传缓存会丢失。不存在永久免续签保证。
 
 Apple 官方依据：[Personal Team 与 7 天有效期](https://developer.apple.com/help/account/basics/about-your-developer-account)、[连接设备并运行](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html)。免费账号还受 Apple 当时的 App/设备额度限制，Xcode 会显示具体错误。
@@ -111,8 +111,7 @@ Live Photo 读取图片 Apple MakerNote / XMP ContentIdentifier 与 MOV `com.app
 
 ### 尚需真机/部署验收
 
-- 当前机器没有完整 Xcode/iOS SDK；`./scripts/ios.sh build` 会明确失败。未声称 UIKit/PhotosUI SwiftUI 界面已通过 iOS SDK 类型检查、模拟器编译、签名或安装。
-- 需在 iPhone 验证 Personal Team 安装/7 天续签、真实系统选择器顺序和取消、有限图库授权更新、iCloud 下载进度及失败、编辑过的 Live Photo 原件选择和 ContentIdentifier。
+- 需在 iPhone 验证 Personal Team 到期续签、真实系统选择器顺序和取消、有限图库授权更新、iCloud 下载进度及失败、编辑过的 Live Photo 原件选择和 ContentIdentifier。
 - 使用专用测试家庭服务和合成媒体，验证真实 HTTPS Cookie/CSRF、OSS 临时签名、合并/HEAD、后台/锁屏/强杀、网络切换、低空间、中途重新登录和实际 100 张/1GB 视频内存。自动测试不向真实生产 OSS 上传。
 - MySQL 测试实例是本地已有二进制 8.4.13，新建隔离库；本机没有 MySQL 5.7 实例。JSON 回执查询使用 5.7 已有操作，但尚需在 5.7 测试环境复验锁竞争和查询行为。
 - 不保证系统不可解析格式能提取所有元数据，不保证后台无限上传，不保证已在服务端完成的请求可被本机取消。网页 Live Photo 播放取决于既有预览进程，未改变它。

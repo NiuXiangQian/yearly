@@ -128,7 +128,7 @@ private struct SiteSettings: View {
                     }.padding(.vertical, 12)
                 }
                 Section {
-                    TextField("https://yearly.example.com", text: $draft)
+                    TextField("https://example.com/yearly/", text: $draft)
                         .textContentType(.URL).keyboardType(.URL)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityLabel("家庭站点 HTTPS 地址")
@@ -138,7 +138,7 @@ private struct SiteSettings: View {
                     }
                     .disabled(SiteOrigin(draft) == nil)
                 } header: { Text("家庭站点") } footer: {
-                    Text("需要已部署的 yearly 服务和家庭账号。请输入 HTTPS 根地址，不包含页面路径。更换站点会中断当前上传；此操作不会退出原站点账号。")
+                    Text("请输入已部署的 Yearly HTTPS 地址，可包含安装路径，例如 /yearly/。请去掉查询参数和页面锚点。更换站点会中断当前上传。")
                 }
                 Section("数据与隐私") {
                     Label("照片仅在你选择并上传后发送至家庭站点配置的存储。", systemImage: "photo.on.rectangle")

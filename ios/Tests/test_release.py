@@ -40,8 +40,9 @@ class ReleaseConfigurationTests(unittest.TestCase):
             with self.subTest(host=host), self.assertRaises(ValueError):
                 release.validate({**self.values, 'YEARLY_PRIVACY_URL': 'https://' + host})
 
-    def test_site_is_root_but_policy_allows_path(self):
-        for suffix in ['/upload', '?secret=1', '#page']:
+    def test_site_allows_installation_path(self):
+        release.validate({**self.values, 'YEARLY_SITE_URL': self.values['YEARLY_SITE_URL'] + '/yearly/'})
+        for suffix in ['/yearly/../', '/yearly%2Fother', '?secret=1', '#page']:
             with self.subTest(suffix=suffix), self.assertRaises(ValueError):
                 release.validate({**self.values, 'YEARLY_SITE_URL': self.values['YEARLY_SITE_URL'] + suffix})
         release.validate(self.values)
