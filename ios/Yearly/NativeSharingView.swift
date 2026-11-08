@@ -1,6 +1,14 @@
 import SwiftUI
 
+struct NativeShareRequest: Identifiable {
+    let id = UUID()
+    var day: String? = nil
+    var items: [NativeTimelineItem]? = nil
+}
+
 struct NativeSharingView: View {
+    let selectedItems: [NativeTimelineItem]?
+    private var selectionMode: Bool { selectedItems != nil }
     @StateObject private var store: NativeSharingStore
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
@@ -10,7 +18,8 @@ struct NativeSharingView: View {
     @State private var confirming = false
     @State private var revoking: NativeShare?
     @State private var copied = false
-    init(session: NativeSession, day: String? = nil) {
+    init(session: NativeSession, day: String? = nil, selectedItems: [NativeTimelineItem]? = nil) {
+        self.selectedItems = selectedItems
         _store = StateObject(wrappedValue: NativeSharingStore(session: session))
         let date = day.flatMap(NativeDay.date) ?? Date()
         _start = State(initialValue: date); _end = State(initialValue: date)
@@ -20,19 +29,36 @@ struct NativeSharingView: View {
             Form {
                 Section("分享家庭时光") {
                     TextField("分享标题（可留空）", text: $title)
-                    DatePicker("开始日期", selection: $start, displayedComponents: .date)
-                    DatePicker("结束日期", selection: $end, displayedComponents: .date)
+                    if !selectionMode {
+                        DatePicker("开始日期", selection: $start, displayedComponents: .date)
+                        DatePicker("结束日期", selection: $end, displayedComponents: .date)
+                    } else { Label("仅分享所选 \(selectedItems?.count ?? 0) 项影像", systemImage: "checkmark.circle") }
                     Picker("链接有效期", selection: $hours) {
                         Text("1 小时").tag(1); Text("24 小时").tag(24)
                         Text("3 天").tag(72); Text("7 天").tag(168)
                     }
-                    Text("链接包含所选日期内允许分享的全部家庭回忆，不受时间线人物、搜索和类型筛选影响；该日期内以后新增的可分享内容也会出现。")
+                    Text(selectionMode ? "链接仅包含下方确认的影像。同一天、同一文件夹的其他内容及以后新增的照片不会加入。Live Photo 作为一项完整分享。" : "链接包含所选日期内允许分享的全部家庭回忆，不受时间线人物、搜索和类型筛选影响；该日期内以后新增的可分享内容也会出现。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("收到链接的人无需登录，只能查看预览。原件下载和编辑不开放，实况图沿用现有完整播放方式。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Button { confirming = true } label: {
                         Label("创建限时分享链接", systemImage: "link")
-                    }.disabled(store.busy || NativeDay.string(start) > NativeDay.string(end) || !store.session.canEdit)
+                    }.disabled(store.busy || (!selectionMode && NativeDay.string(start) > NativeDay.string(end)) || (selectionMode && (selectedItems!.isEmpty || selectedItems!.count > 200)) || !store.session.canEdit)
+                }
+                if let selectedItems {
+                    Section("确认所选内容") {
+                        ForEach(selectedItems) { item in
+                            HStack {
+                                if let file = item.primary {
+                                    NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id).frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                                VStack(alignment: .leading) {
+                                    Text(item.primary?.original_filename ?? item.label).lineLimit(2)
+                                    Text(item.media_type == "live_photo" ? "LIVE · 图片与动态资源" : item.media_type == "video" ? "视频" : "照片").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
                 }
                 if let created = store.created {
                     Section("刚创建的分享") {
@@ -58,7 +84,7 @@ struct NativeSharingView: View {
                     ForEach(store.shares) { share in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(share.title.isEmpty ? "家庭时光" : share.title).font(.headline)
-                            Text("\(share.start_date) — \(share.end_date)").font(.caption)
+                            Text(share.scope == "selection" ? "指定影像 · \(share.selected_count ?? 0) 项" : "\(share.start_date) — \(share.end_date)").font(.caption)
                             TimelineView(.periodic(from: .now, by: 15)) { _ in
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(share.revoked ? "已撤销" : share.usable ? "生效中" : "已到期").font(.caption).foregroundStyle(.secondary)
@@ -75,10 +101,10 @@ struct NativeSharingView: View {
             .task { await store.load() }
             .refreshable { await store.load() }
             .onChange(of: store.created?.id) { _ in copied = false }
-            .alert("确认分享日期范围", isPresented: $confirming) {
-                Button("创建链接") { Task { await store.create(title: title, start: start, end: end, hours: hours) } }
+            .alert(selectionMode ? "确认分享所选影像" : "确认分享日期范围", isPresented: $confirming) {
+                Button("创建链接") { Task { await store.create(title: title, start: start, end: end, hours: hours, mediaIDs: selectedItems?.map(\.id)) } }
                 Button("返回检查", role: .cancel) { }
-            } message: { Text("\(NativeDay.string(start)) 至 \(NativeDay.string(end)) 的全部可分享回忆。有效期 \(hours) 小时，持链接者可查看。") }
+            } message: { Text((selectionMode ? "仅分享所选 \(selectedItems?.count ?? 0) 项影像。" : "\(NativeDay.string(start)) 至 \(NativeDay.string(end)) 的全部可分享回忆。") + "有效期 \(hours) 小时，持链接者可查看。") }
             .confirmationDialog("撤销后，收到链接的人将无法再打开", isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } }), titleVisibility: .visible) {
                 if let share = revoking { Button("撤销分享", role: .destructive) { Task { await store.revoke(share) }; revoking = nil } }
             }

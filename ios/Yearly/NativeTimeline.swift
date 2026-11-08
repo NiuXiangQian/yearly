@@ -59,7 +59,10 @@ struct NativeMediaImage: View {
 struct NativeTimelineView: View {
     @ObservedObject var store: NativeTimelineStore
     @State private var showingFilter = false
-    @State private var sharingDay: String?
+    @State private var shareRequest: NativeShareRequest?
+    @State private var selecting = false
+    @State private var chosen: [NativeTimelineItem] = []
+    @State private var selectionLimit = false
     @State private var selectedItem: NativeTimelineItem?
     private var days: [String] { Array(Set(store.items.map(\.day))).sorted { a, b in a == "日期未知" ? false : b == "日期未知" ? true : store.ascending ? a < b : a > b } }
     var body: some View {
@@ -84,7 +87,13 @@ struct NativeTimelineView: View {
                         Section {
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
                                 ForEach(store.items.filter { $0.day == day }, id: \.stableID) { item in
-                                    Button { selectedItem = item } label: {
+                                    Button {
+                                        if selecting {
+                                            if let index = chosen.firstIndex(where: { $0.id == item.id }) { chosen.remove(at: index) }
+                                            else if chosen.count < 200 { chosen.append(item) }
+                                            else { selectionLimit = true }
+                                        } else { selectedItem = item }
+                                    } label: {
                                         VStack(alignment: .leading, spacing: 7) {
                                             if let file = item.primary {
                                                 NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
@@ -99,6 +108,18 @@ struct NativeTimelineView: View {
                                             Text(item.label).font(.caption).lineLimit(2)
                                         }
                                     }.buttonStyle(.plain)
+                                    .disabled(selecting && item.kind != "media")
+                                    .overlay(alignment: .topTrailing) {
+                                        if selecting && item.kind == "media" {
+                                            Image(systemName: chosen.contains(where: { $0.id == item.id }) ? "checkmark.circle.fill" : "circle")
+                                                .font(.title2).foregroundStyle(.tint).padding(7).background(.regularMaterial, in: Circle()).allowsHitTesting(false)
+                                        }
+                                    }
+                                    .contextMenu {
+                                        if store.session.canEdit && item.kind == "media" {
+                                            Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
+                                        }
+                                    }
                                 }
                             }
                         } header: {
@@ -106,7 +127,7 @@ struct NativeTimelineView: View {
                                 Text(day).font(.title3.bold())
                                 Spacer()
                                 if store.session.canEdit && NativeDay.date(day) != nil {
-                                    Button { sharingDay = day } label: { Label("分享当天", systemImage: "square.and.arrow.up") }.font(.caption)
+                                    Button { shareRequest = NativeShareRequest(day: day) } label: { Label("分享当天", systemImage: "square.and.arrow.up") }.font(.caption)
                                 }
                             }
                         }
@@ -120,7 +141,9 @@ struct NativeTimelineView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
-                        if store.session.canEdit { Button { sharingDay = "" } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享与管理") }
+                        if store.session.canEdit {
+                            Button(selecting ? "取消" : "选择") { selecting.toggle(); chosen = [] }
+                            Button { shareRequest = NativeShareRequest() } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享与管理") }
                         Button { showingFilter = true } label: { Image(systemName: "line.3.horizontal.decrease.circle") }.accessibilityLabel("人物、日期与排序")
                     }
                 }
@@ -130,8 +153,18 @@ struct NativeTimelineView: View {
             .task(id: store.queryKey) {
                 do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.load() } catch { }
             }
-            .sheet(isPresented: Binding(get: { sharingDay != nil }, set: { if !$0 { sharingDay = nil } })) {
-                NativeSharingView(session: store.session, day: sharingDay)
+            .safeAreaInset(edge: .bottom) {
+                if selecting {
+                    HStack {
+                        Text("已选 \(chosen.count) / 200 项")
+                        Spacer()
+                        Button("分享所选") { shareRequest = NativeShareRequest(items: chosen) }.buttonStyle(.borderedProminent).disabled(chosen.isEmpty)
+                    }.padding().background(.regularMaterial)
+                }
+            }
+            .alert("一次最多分享 200 项", isPresented: $selectionLimit) { Button("知道了", role: .cancel) { } }
+            .sheet(item: $shareRequest) { request in
+                NativeSharingView(session: store.session, day: request.day, selectedItems: request.items)
             }
             .sheet(isPresented: $showingFilter) {
                 NavigationStack {
@@ -226,8 +259,8 @@ struct NativeMediaDetail: View {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { stop(); dismiss() } }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
-                        if session.canEdit && NativeDay.date(item.day) != nil {
-                            Button { stop(); showingShare = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享当天回忆")
+                        if session.canEdit && (item.kind != "event" || NativeDay.date(item.day) != nil) {
+                            Button { stop(); showingShare = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel(item.kind == "event" ? "分享当天回忆" : "分享这项影像")
                         }
                         Button { showingInfo = true } label: { Image(systemName: "info.circle") }
                     }
@@ -239,7 +272,7 @@ struct NativeMediaDetail: View {
                 do { detail = try await session.get("/media/\(initial.id)") }
                 catch { message = friendly(error) }
             }
-            .sheet(isPresented: $showingShare) { NativeSharingView(session: session, day: item.day) }
+            .sheet(isPresented: $showingShare) { NativeSharingView(session: session, day: item.day, selectedItems: item.kind == "event" ? nil : [item]) }
             .sheet(isPresented: $showingInfo) { NativeMediaInfo(session: session, item: item, profiles: profiles) {
                 onSaved()
                 Task { do { detail = try await session.get("/media/\(initial.id)") } catch { message = friendly(error) } }

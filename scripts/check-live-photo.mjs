@@ -19,7 +19,7 @@ const server=createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost');
   const path=url.pathname.replace(/^\/yearly/,'');
   if(path.startsWith('/api/')) {
-    let value=data;
+    let value=path.includes("/public/shares/selected") ? { ...data, share: { ...data.share, scope: "selection", selected_count: 3 } } : data;
     if(path.endsWith('/auth/me')) value={id:1,role:'member',username:'mock',csrf_token:'mock'};
     else if(path.endsWith('/children')) value=[];
     else if(path.endsWith('/stats')) value={media:1,children:0,people:0,pets:0,events:0,bytes:9000000};
@@ -60,10 +60,16 @@ try {
  for(const mobile of [true,false]) {
   const page=await browser.newPage(mobile?devices['iPhone 13']:{viewport:{width:1440,height:1000}});
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  for(const shared of [true,false]) {
+  for(const mode of ["shared", "selected", "private"]) {
+   const shared = mode !== "private";
    const before=calls.video;
-   await page.goto(`http://127.0.0.1:${server.address().port}/yearly/${shared?'share/mock':''}`);
+   await page.goto(`http://127.0.0.1:${server.address().port}/yearly/${shared?'share/' + (mode === 'selected' ? 'selected' : 'mock'):''}`);
    await page.waitForLoadState('networkidle');
+   if (mode === 'selected') {
+    await page.getByText('指定影像分享', {exact:true}).waitFor();
+    assert.equal(await page.locator('.month-controls').count(), 0);
+    assert.equal(await page.locator('.shared-day h2').innerText(), '所选影像');
+   }
    const card=page.locator(shared?'.shared-card':'.media-card').first();
    await card.scrollIntoViewIfNeeded();
    const thumbnails=page.locator(shared?'.shared-thumb img':'.media-visual > img');
@@ -137,5 +143,5 @@ try {
   }
   assert.deepEqual(errors,[]);await page.close();
  }
- console.log('WebKit iPhone + desktop: private/shared previews, real MP4 playback with sound enabled, fitted thumbnails, no mobile preload, mute toggle, return to still, fullscreen exit, still zoom mode, shared photo/video/Live Photo immediate fullscreen and close, subpath API and no overflow passed.');
+ console.log('WebKit iPhone + desktop: private/date-share/selected-share previews, real MP4 playback with sound enabled, fitted thumbnails, no mobile preload, mute toggle, return to still, fullscreen exit, still zoom mode, shared photo/video/Live Photo immediate fullscreen and close, subpath API and no overflow passed.');
 } finally {await browser.close();await new Promise(r=>server.close(r));}

@@ -3,7 +3,7 @@ import { computed, ref, useId } from "vue";
 import { ChevronDown } from "lucide-vue-next";
 import { t, locale } from "../lib/i18n";
 
-const props = defineProps<{ days: T[]; disabled?: boolean }>();
+const props = defineProps<{ days: T[]; disabled?: boolean; ungrouped?: boolean }>();
 defineSlots<{ default(props: { day: T }): any }>();
 const id = useId();
 const defaultCollapsed = ref(false);
@@ -44,7 +44,10 @@ defineExpose({
 </script>
 
 <template>
-  <div v-if="months.length" class="timeline-months">
+  <div v-if="ungrouped">
+    <template v-for="day in days" :key="day.date || day.day"><slot :day="day" /></template>
+  </div>
+  <div v-else-if="months.length" class="timeline-months">
     <div class="month-controls">
       <span>{{ t("按月浏览") }}</span>
       <div>

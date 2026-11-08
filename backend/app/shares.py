@@ -2,11 +2,12 @@
 import hashlib
 import secrets
 from datetime import date, timedelta
-from typing import Literal
+from typing import Literal, Annotated
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select, func, literal, union_all, or_
+from sqlalchemy import select, func, literal, union_all, or_, case
 
 from .db import get_db, now
 from .models import (
@@ -28,20 +29,27 @@ router = APIRouter(prefix="/api", tags=["sharing"])
 class ShareCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(default="", max_length=120)
-    start_date: date
-    end_date: date
+    start_date: date | None = None
+    end_date: date | None = None
+    media_ids: list[Annotated[int, Field(gt=0, strict=True)]] | None = Field(default=None, min_length=1, max_length=200)
     hours: int = Field(default=24, ge=1, le=168)
 
     @model_validator(mode="after")
     def date_order(self):
-        if self.end_date < self.start_date:
-            raise ValueError("结束日期不能早于开始日期")
+        if self.media_ids is not None:
+            if self.start_date is not None or self.end_date is not None:
+                raise ValueError("指定影像分享不能同时设置日期范围")
+            self.media_ids = list(dict.fromkeys(self.media_ids))
+        elif self.start_date is None or self.end_date is None or self.end_date < self.start_date:
+            raise ValueError("请提供有效的起止日期，结束日期不能早于开始日期")
         return self
 
 
 def share_info(share):
     return {
         "id": share.id,
+        "scope": "selection" if share.media_ids is not None else "date_range",
+        "selected_count": len(share.media_ids) if share.media_ids is not None else None,
         "title": share.title,
         "start_date": share.start_date,
         "end_date": share.end_date,
@@ -53,13 +61,22 @@ def share_info(share):
 
 @router.post("/shares")
 def create_share(data: ShareCreate, db=Depends(get_db), user=Depends(editor)):
+    if data.media_ids is not None:
+        # Validate the same permissions used by all public endpoints. Never silently
+        # replace missing/hidden items with a broader date or folder scope.
+        selected, _, _ = shared_queries(SimpleNamespace(media_ids=data.media_ids))
+        visible = set(db.scalars(selected.with_only_columns(Media.id)))
+        if visible != set(data.media_ids):
+            raise HTTPException(422, "部分影像不存在、已删除或不允许分享，请重新选择")
     token = secrets.token_urlsafe(32)
     share = TimelineShare(
         token_hash=hashlib.sha256(token.encode()).hexdigest(),
         created_by=user.id,
         title=data.title.strip(),
-        start_date=data.start_date,
-        end_date=data.end_date,
+        media_ids=data.media_ids,
+        # Selection shares use a single virtual page, not a capture/archive date.
+        start_date=data.start_date if data.media_ids is None else now().date(),
+        end_date=data.end_date if data.media_ids is None else now().date(),
         expires_at=now() + timedelta(hours=data.hours),
     )
     db.add(share)
@@ -128,9 +145,12 @@ def shared_queries(share):
     )
     day = func.date(timeline_time())
 
+    selection = share is not None and share.media_ids is not None
+
     def in_range(column):
-        limits = (column >= share.start_date, column <= share.end_date) if share else ()
-        return (*limits, column.not_in(blocked_days))
+        limits = (column >= share.start_date, column <= share.end_date) if share and not selection else ()
+        visibility = or_(column.is_(None), column.not_in(blocked_days)) if selection else column.not_in(blocked_days)
+        return (*limits, visibility)
 
     folders = select(TimelineFolder).where(
         TimelineFolder.status == "active",
@@ -152,11 +172,23 @@ def shared_queries(share):
         *in_range(func.date(Event.start_at)),
         Event.share_allowed.is_(True),
     )
+    if selection:
+        media = media.where(Media.id.in_(share.media_ids))
+        # Selected folder members are flattened; never expose their unselected siblings.
+        folders = folders.where(literal(False))
+        events = events.where(literal(False))
     return media, folders, events
 
 
 def root_query(share):
     media, folders, events = shared_queries(share)
+    if share is not None and share.media_ids is not None:
+        return media.with_only_columns(
+            literal("media").label("kind"), Media.id.label("id"),
+            literal(share.start_date).label("day"),
+            (-case({mid: index for index, mid in enumerate(share.media_ids)}, value=Media.id, else_=0)).label("position"),
+            literal(0).label("group_order"), Media.taken_at_local.label("taken"),
+        ).subquery()
     return union_all(
         media.where(Media.folder_id.is_(None)).with_only_columns(
             literal("media").label("kind"),

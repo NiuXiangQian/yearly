@@ -260,6 +260,7 @@ class TimelineShare(Base):
     __tablename__ = "timeline_share"
     id: Mapped[int] = mapped_column(ID, primary_key=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    media_ids: Mapped[list[int] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("sys_user.id"), index=True)
     title: Mapped[str] = mapped_column(String(120))
     start_date: Mapped[date] = mapped_column(Date)

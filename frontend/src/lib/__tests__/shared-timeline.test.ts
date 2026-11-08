@@ -254,3 +254,19 @@ it.each(["photo", "video", "live_photo"])("opens a shared %s fullscreen immediat
   await vi.waitFor(() => expect(document.querySelector(".shared-viewer")).toBeNull());
   expect(host.querySelectorAll(".shared-card")).toHaveLength(1);
 });
+
+it("shows exact selection without implying a date range or month grouping, and keeps pagination", async () => {
+  const data = { ...response(), share: { ...response().share, scope: "selection", selected_count: 12 } };
+  data.days = [data.days[0]];
+  vi.mocked(api).mockResolvedValue(data);
+  await mount();
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(8));
+  expect(host.textContent).toContain("指定影像分享");
+  expect(host.querySelector(".shared-day h2")?.textContent).toBe("所选影像");
+  expect(host.querySelector(".month-controls")).toBeNull();
+  expect(host.querySelector(".shared-sort")).toBeNull();
+  expect(host.querySelector(".rail-hint")).toBeNull();
+  vi.mocked(api).mockResolvedValue({ items: items.slice(8), total: 12 });
+  button("展开更多").click();
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(12));
+});

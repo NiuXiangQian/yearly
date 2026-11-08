@@ -235,7 +235,8 @@ onBeforeUnmount(() => {
       <section class="shared-intro">
         <span class="eyebrow">{{ t("与你分享的时光") }}</span>
         <h1>{{ share.title || t("一起长大的日子") }}</h1>
-        <p>{{ share.start_date }} — {{ share.end_date }}</p>
+        <p v-if="share.scope === 'selection'">{{ t("指定影像分享") }}</p>
+        <p v-else>{{ share.start_date }} — {{ share.end_date }}</p>
         <small
           ><ShieldCheck :size="13" />{{ t("只读分享") }} ·
           {{
@@ -245,31 +246,31 @@ onBeforeUnmount(() => {
           }}</small
         >
       </section>
-      <div class="shared-sort">
+      <div v-if="share.scope !== 'selection'" class="shared-sort">
         <TimelineOrder
           v-model="timelineOrder"
           :disabled="!!busyDay || folderBusy"
         />
       </div>
-      <div class="shared-reader" :class="{ 'has-rail': dateIndex.length }">
-        <TimelineRail
+      <div class="shared-reader" :class="{ 'has-rail': share.scope !== 'selection' && dateIndex.length }">
+        <TimelineRail v-if="share.scope !== 'selection'"
           :dates="railDates"
           :current="currentDate"
           :disabled="loading || !!busyDay || folderBusy"
           @select="seekDate"
         />
         <div ref="reading" class="shared-reading">
-          <p v-if="dateIndex.length" class="rail-hint">
+          <p v-if="share.scope !== 'selection' && dateIndex.length" class="rail-hint">
             {{ t("拖动左侧时间轴，松开跳转到对应日期") }}
           </p>
-          <TimelineMonths ref="monthList" :days="days" v-slot="{ day }">
+          <TimelineMonths ref="monthList" :days="days" :ungrouped="share.scope === 'selection'" v-slot="{ day }">
             <section
               class="shared-day"
               :id="`shared-day-${day.day}`"
               :data-day="day.day"
             >
               <header>
-                <h2>{{ day.day.replaceAll("-", ".") }}</h2>
+                <h2>{{ share.scope === "selection" ? t("所选影像") : day.day.replaceAll("-", ".") }}</h2>
                 <span>{{ t("{p0} 项回忆", { p0: day.total }) }}</span>
               </header>
               <div class="shared-grid">

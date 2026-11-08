@@ -29,6 +29,8 @@ struct NativeShare: Decodable, Identifiable {
     var revoked: Bool
     let expired: Bool
     let token: String?
+    let scope: String?
+    let selected_count: Int?
     var expiration: Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -56,18 +58,26 @@ struct NativeShare: Decodable, Identifiable {
         do { shares = try await session.get("/shares"); error = "" }
         catch { self.error = friendly(error) }
     }
-    func create(title: String, start: Date, end: Date, hours: Int) async {
+    func create(title: String, start: Date, end: Date, hours: Int, mediaIDs: [Int]? = nil) async {
         guard !busy else { return }
-        guard NativeDay.string(start) <= NativeDay.string(end), (1...168).contains(hours) else {
+        if let mediaIDs, mediaIDs.isEmpty || mediaIDs.count > 200 || mediaIDs.contains(where: { $0 <= 0 }) {
+            error = "请选择 1 至 200 项影像。"; return
+        }
+        guard (mediaIDs != nil || NativeDay.string(start) <= NativeDay.string(end)), (1...168).contains(hours) else {
             error = "请检查起止日期和有效期（1 至 168 小时）。"; return
         }
         busy = true; error = ""
         defer { busy = false }
         do {
-            let result: NativeShare = try await session.post("/shares", json: [
-                "title": String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120)),
-                "start_date": NativeDay.string(start), "end_date": NativeDay.string(end), "hours": hours
-            ])
+            var payload: [String: Any] = ["title": String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120)), "hours": hours]
+            if let mediaIDs { payload["media_ids"] = mediaIDs }
+            else { payload["start_date"] = NativeDay.string(start); payload["end_date"] = NativeDay.string(end) }
+            let result: NativeShare = try await session.post("/shares", json: payload)
+            if let mediaIDs, result.scope != "selection" || result.selected_count != Set(mediaIDs).count {
+                // Never expose a date-wide URL when the user selected specific media.
+                try? await session.write("/shares/\(result.id)", method: "DELETE", json: [:])
+                throw UploadFailure(message: "服务端未确认指定影像范围，未提供链接。请更新分享接口，并刷新记录检查撤销状态。")
+            }
             created = result
             shares.insert(result, at: 0)
         } catch { self.error = friendly(error) }

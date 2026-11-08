@@ -206,7 +206,7 @@ async function revoke(item: any) {
       <div v-for="item in history" :key="item.id" class="history-row">
         <div>
           <b>{{ item.title || t("成长时间线") }}</b
-          ><small>{{ item.start_date }} — {{ item.end_date }}</small
+          ><small>{{ item.scope === "selection" ? t("指定影像分享") + " · " + item.selected_count : item.start_date + " — " + item.end_date }}</small
           ><small
             >{{ t("到期时间") }}:
             {{ new Date(item.expires_at).toLocaleString(locale) }}</small
