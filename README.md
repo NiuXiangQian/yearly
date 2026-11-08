@@ -26,7 +26,7 @@
 
 上传前命名批次、选择人物与宠物、调整归档日期，紧凑文件列表支持多选、拖动排序和查看详情。
 
-[iPhone 原生上传](docs/storage-and-metadata.md#iphone-原生上传)可从系统相册选一张实况照片，自动上传静态图和配对视频。
+[iPhone 原生上传](docs/storage-and-metadata.md#iphone-原生上传)支持系统相册批量选择原图、视频和实况照片，自动将静态图与配对 MOV 作为同一媒体上传。
 
 ![虚拟示例：批次命名与上传文件列表](docs/images/demo-upload.png)
 
@@ -160,7 +160,7 @@ chmod 600 .env.test
 
 ## iOS App
 
-提供 iPhone（iOS 16+）原生客户端工程，连接现有 HTTPS 家庭站点，支持原生实况照片选择、下载后系统分享、返回导航和错误重试。安装、签名、TestFlight / App Store 归档与提审待办见 [iOS App 指南](ios/README.md)。当前尚未完成签名和真机验收；永久账户注销流程也是提审前待补齐项。
+提供 iPhone（iOS 16+）SwiftUI + WKWebView 客户端，保留现有家庭站点，新增原生批量无损上传、Live Photo 双资源、任务持久化和暂停续传。使用免费 Apple Personal Team 在 Xcode 安装并按 7 天有效期续签，无需付费账号、TestFlight 或 App Store。开发、安装和使用步骤见 [中文 iOS 指南](ios/README.md)。当前尚未完成完整 iOS SDK 构建、签名和真机验收。
 
 ```bash
 open ios/Yearly.xcodeproj

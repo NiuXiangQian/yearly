@@ -158,7 +158,7 @@ To start them separately, run each command in its own terminal:
 
 ## iOS app
 
-An iPhone client project (iOS 16+) connects to your existing HTTPS family site, with native Live Photo selection, download/share sheets, navigation and recovery. See the [iOS guide](ios/README.md) for device installation, signing, TestFlight/App Store archives and release blockers. Signing and device validation are pending; permanent account deletion must also be implemented before submission.
+The existing SwiftUI + WKWebView iPhone client (iOS 16+) now includes native batch original uploads, paired Live Photo resources, and a persistent resumable queue. It supports Xcode installation with a free Personal Team and renewal after the 7-day provisioning period; paid membership, TestFlight, and App Store distribution are not prerequisites. See the [Chinese iOS development and usage guide](ios/README.md). Full iOS SDK builds, signing, and device acceptance are still pending.
 
 ```bash
 open ios/Yearly.xcodeproj

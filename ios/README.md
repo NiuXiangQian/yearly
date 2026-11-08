@@ -1,91 +1,132 @@
-# yearly iOS App
+# Yearly iOS 原生上传助手：开发与使用
 
-面向 iPhone（iOS 16+）的 SwiftUI + WKWebView 客户端。沿用现有 Vue 页面、HTTPS 家庭站点、登录 Cookie 和 OSS 上传流程；原生部分提供连接设置、系统实况照片选择、下载与分享、返回手势和错误恢复。不需要修改数据库，也不需要引入 Capacitor 或另建一套 API。
+基于已有 `codex/ios-app-install` 分支增量实现，最低 iOS 16。保留 SwiftUI 外壳、WKWebView 家庭站点、登录、下载分享和现有 Vue 时间线；新增原生批量原件上传入口。Bundle Identifier 仍为 `family.yearly.app`，无需付费 Apple Developer Program、TestFlight、App Store Connect 或新 Capability。
 
-当前交付为 **App 工程及发布工具**，不是已经签名、真机验收或通过 App Store 审核的安装包。提审阻塞项见下文。
+**当前状态：代码、Mac Swift 核心测试和前后端测试已完成；开发机只有 Command Line Tools，尚未完成 iOS SDK 编译、签名安装及真机相册/iCloud 验收。不要把本说明视为已完成真机验收。**
 
-## 本地安装与验证
+## 免费 Apple 账号安装与续签
 
-1. 在 Mac 安装完整 Xcode 和 iOS 平台组件。仅 Command Line Tools 无法编译 UIKit / WebKit iOS App。
-2. 部署本仓库的前端与 API，使用可被 iPhone 访问且证书有效的 HTTPS 根地址。App 不放开 HTTP 或忽略证书错误。
-3. 打开 `ios/Yearly.xcodeproj`，选择共享 Scheme **Yearly**。
-4. 在 **Signing & Capabilities** 选择自己的 Team，把 `family.yearly.app` 改为自己的唯一 Bundle Identifier。
-5. 连接 iPhone，在 Xcode 选择该设备并运行；按系统提示完成设备信任和开发者模式设置。
-6. 首次打开输入家庭站点并登录。上传页的「选择实况照片并上传」沿用已有原生桥接，一次选择一张 Live Photo；照片和视频合计上限 128 MiB。
+1. 在 Mac 安装完整 Xcode 和 iOS 平台组件，首次打开完成组件安装及许可确认。仅 Command Line Tools 不含 UIKit/iOS SDK。
+2. Xcode → Settings → Accounts，添加自己的免费 Apple Account。
+3. 打开 `ios/Yearly.xcodeproj`，选择 **Yearly** scheme 和 target；在 **Signing & Capabilities** 勾选 **Automatically manage signing**，Team 选择自己的 **Personal Team**。
+4. 先保留 `family.yearly.app`。如果该标识不能由你的 Team 注册，将 target 的 Debug/Release Bundle Identifier 改为自己的唯一反向域名，例如 `me.yourname.yearly`。之后保持 Team 和 Bundle Identifier 稳定，以便覆盖安装、保留缓存。不要提交个人签名文件。更换 Bundle Identifier 会成为另一个 App，旧任务不会自动迁移。
+5. 用数据线连接 iPhone，在设备上选择“信任此电脑”。按系统提示启用“设置 → 隐私与安全性 → 开发者模式”，必要时重启。在 Xcode 选择这台 iPhone，点击 **Run（⌘R）**。
+6. 如系统要求信任开发者，在“设置 → 通用 → VPN 与设备管理”中信任相应 Apple 账号。首次运行输入可访问且证书有效的家庭站点 **HTTPS 根地址**，在原网页登录。
+7. 免费 Personal Team 的 provisioning profile **从签发起 7 天有效**。临近到期或 App 无法打开时，再连接 iPhone，用同一 Team、同一 Bundle Identifier 在 Xcode **Run**，重新签名并覆盖安装。不要先删除 App，否则本机未完成上传缓存会丢失。不存在永久免续签保证。
 
-无签名的模拟器构建不能安装到 iPhone。设备运行与发行签名方式参见 [Apple 设备运行说明](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html)。
+Apple 官方依据：[Personal Team 与 7 天有效期](https://developer.apple.com/help/account/basics/about-your-developer-account)、[连接设备并运行](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html)。免费账号还受 Apple 当时的 App/设备额度限制，Xcode 会显示具体错误。
+
+不启用 Push Notifications、App Groups、iCloud Container、Background Processing 等能力。访问用户 iCloud 照片由 Photos 框架与系统照片账户完成，不需要 App 的 iCloud entitlement。没有 AltStore 前置条件。
 
 ```bash
-# 在仓库根目录执行；基础校验只需要 macOS CLI 开发工具
+# 项目根目录：CLI 可执行检查，完全不访问 OSS
 ./scripts/ios.sh verify
+./scripts/ios.sh test-large
 
-# 完整 Xcode：编译 Debug、Release 模拟器版本，不需要签名
+# 完整 Xcode：Debug / Release 模拟器编译，不签名
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build
-```
 
-`verify` 检查 Swift 语法、站点同源限制、下载 URL、Xcode 源文件与资源引用、图标尺寸/透明度和 plist。它不等同于 iOS SDK 类型检查或真机测试。新增的 GitHub Actions 在后续 push / PR 时执行模拟器构建；本次未触发远端工作流。
-
-## App 内行为
-
-- 站点地址只接受 HTTPS 根地址，不接受账号密码、页面路径或查询参数。站点和登录状态可跨启动保存。
-- 顶部菜单提供重新加载、站点设置、隐私政策与支持页面；默认地址可在发行时设置。
-- WebView 保持在配置的同源站点，相册接口只接受该站点主框架的请求。外部 HTTPS 普通链接交给系统浏览器，新窗口同源链接在当前 App 打开。
-- JSON / CSV 导出保留 App 登录 Cookie；OSS 带 attachment 参数的原件链接使用原生下载，完成后显示系统分享菜单，可选择「存储到文件」。同时仅处理一项下载，失败后手动重试。
-- 使用系统相册选择器读取用户选中的实况资源，不请求整个图库的授权。相机、麦克风、保存相册用途说明供网页拍摄/系统保存操作触发时使用，不在启动时主动请求。
-- 上传/下载请保持 App 在前台。当前没有离线图库、后台持续上传、推送、通用链接或 StoreKit 购买。
-- 更换站点会结束当前操作，但不注销旧站点账号；退出登录使用网站自己的退出按钮。
-
-## App Store 归档
-
-使用已加入 Apple Developer Program 的发布账号，在 Xcode 登录。先注册 Bundle ID 并在 App Store Connect 创建对应记录。不要把证书私钥、账号密码、审核账号或签名配置提交到仓库。
-
-归档脚本要求明确填写实际站点和公开政策链接，拒绝空值、示例域名和本地地址。支持页面和隐私页面必须无需登录即可访问。下方值需要替换为真实信息：
-
-```bash
+# 可选：命令行自动开发签名构建（Xcode 已登录免费账号并连接设备）
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-export YEARLY_TEAM_ID='你的10位TeamID'
-export YEARLY_BUNDLE_ID='你的已注册BundleID'
-export YEARLY_SITE_URL='https://你的正式站点'
-export YEARLY_PRIVACY_URL='https://你的政策页面'
-export YEARLY_SUPPORT_URL='https://你的支持页面'
-export YEARLY_VERSION='1.0'
-export YEARLY_BUILD_NUMBER='1'
+export YEARLY_TEAM_ID='Xcode显示的PersonalTeamID'
+export YEARLY_DEVICE_ID='Xcode设备窗口显示的设备标识'
+./scripts/ios.sh device
 
-./scripts/ios.sh archive
-./scripts/ios.sh export
+# Xcode 15+ 可用 devicectl 安装上一步构建产物，或直接在 Xcode 点击 Run
+xcrun devicectl device install app --device "$YEARLY_DEVICE_ID" \
+  .local/ios/Device/Build/Products/Debug-iphoneos/Yearly.app
 ```
 
-归档位于 `.local/ios/Yearly-版本-构建号.xcarchive`，导出 IPA 位于 `.local/ios/Export-版本-构建号/`。已有同名输出不会被覆盖；每次发布递增构建号。脚本不上传、不创建商店记录、不提交审核。用 Xcode Organizer 打开归档，先 **Validate App**，再选择 **Distribute App → App Store Connect**。导出的 App Store IPA 不能作为任意 iPhone 的直接安装包；测试安装走 TestFlight，正式安装走 App Store。
+`YEARLY_BUNDLE_ID` 可选，默认为 `family.yearly.app`。站点可在 App 内配置，个人安装无需填写发行隐私/支持 URL。原有 `archive` / `export` 是可选的付费商店发行工具，保留供历史流程使用；它们不是编译、安装、运行、续签的前提，也不代表应用已具备上架条件。
 
-在 Xcode 手动 Archive 时，同样要在目标的 User-Defined Build Settings 设置 `YEARLY_SITE_URL`、`YEARLY_PRIVACY_URL`、`YEARLY_SUPPORT_URL`，否则 Info.plist 中相应链接为空。
+## 手机上如何使用
 
-发行方式以 [Apple 发布文档](https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases) 和 [TestFlight 文档](https://help.apple.com/xcode/mac/current/en.lproj/dev2539d985f.html) 为准。使用符合提交时要求的 Xcode / iOS SDK；最低运行版本 16.0 不代表使用 iOS 16 SDK 提交。
+1. 在现有网页登录家庭编辑账号。只读账户、未登录或过期会话不能上传。
+2. 点击 App 顶部 **上传图标**，或菜单 **原生相册上传与任务**，进入“珍藏原片”。网页旧的单张 Live Photo 桥接仍兼容保留；批量上传使用这个原生入口。
+3. 点击“从系统相册选择照片与视频”。首次说明照片权限；可选有限访问。系统选择器支持多选、取消选择，按点选顺序回传。有限访问中不在授权范围内的资源会提示失败，可点“管理允许访问的照片”加入后重试；不会改成有损副本来绕过权限。
+4. 逐项提取原始资源到应用私有目录。iCloud 资源允许联网下载，显示 Photos 提供的下载进度；尚未有进度时显示准备状态，不虚构百分比。可取消或暂停。缩略图只是预览，不作为上传源。
+5. 资源提取后显示原始文件名、准确大小、可解析的拍摄时间、Live Photo 图片/MOV 两份状态。拍摄时间未知时，PhotoKit 日期仅标为参考。只有编辑后版本可用时，明确标记“不是相机未修改原片”，确认后才上传。
+6. 可多选已有孩子、人物、宠物；不选保持“家庭时光”。设置批次名称及可选归档日期。归档日期仅影响时间线位置，不改原件、原始拍摄时间或已有重复媒体的信息。确认对话框再次说明跨日期归档行为。
+7. 点击“确认上传所选 N 项”。每项独立上传、重试、暂停、继续、取消。Live Photo 两份资源全部通过服务端校验才完成；MOV 失败时不会宣告整个 Live Photo 成功。
+8. 完成后点“返回网页时间线”。播放仍使用原有网页 Live Photo 预览机制；动态预览可能需要等待现有后端预览工作进程生成。
 
-## 提审前必须补齐
+资源缓存最多 8 GiB，至少预留 512 MiB；临近上限先上传已准备的项目，再重试剩余项目。单份原件也必须装得下剩余预算。不会同时把几百张原件载入内存。所有未完成状态和已确认参数保存在 `Application Support/NativeUploads/queue.json`；文件位于每个 UUID 子目录，排除 iCloud 备份并设置 iOS Data Protection。
 
-1. **永久注销账户流程。** 现有网页允许管理员创建账户，但 `DELETE /api/users/{uid}` 只停用账户和撤销登录，不是永久注销。需要在 App 内提供可发起永久删除的流程，并确定家庭共同照片、日记、分享、原件和备份的保留/删除方式、最后一位管理员的处理方式。不能把停用改名为注销。此项尚未实现，不应直接提交审核。参见 [Apple 账户删除要求](https://developer.apple.com/help/app-review/guideline-reference/5-1-1-account-deletion/)。
-2. **发布者信息与实际链接。** 提供 Team ID、Bundle ID、正式 HTTPS 服务、隐私政策、用户支持页面。服务器、MySQL 和 OSS 需要持续可用，支持页面应提供真实运营者联系方式。
-3. **隐私披露核对。** `PrivacyInfo.xcprivacy` 已声明本机 UserDefaults 的 CA92.1 用途，并按现有功能列出姓名、账号 ID、照片/视频、音频、日记等用户内容、EXIF 位置和生日等其他数据，仅用于 App 功能，不用于追踪。这是代码层面的初始清单；发布者仍需核对实际托管、访问日志、OSS、保留期限和备份行为，完成政策正文与 App Store Connect 隐私问卷，不能因为没有定位权限就遗漏照片里的 GPS。参见 [Apple 隐私清单说明](https://developer.apple.com/documentation/technotes/tn3184-adding-data-collection-details-to-your-privacy-manifest)。
-4. **真实构建与真机验收。** 当前开发机没有完整 Xcode / iOS SDK，未完成 iOS SDK 编译、签名、模拟器或真机验收。`swiftc -parse` 通过不能证明 App 可以安装。
-5. **审核资料。** 准备使用虚拟家庭资料的可用审核账号及完整测试说明，说明服务的部署/登录前提。截图必须来自实际 App。不能用个人真实家庭照片、凭据或未验证的界面效果充数。
-6. **产品与审核范围。** App 保留 Web 页面，并提供原生照片选择、下载/分享等能力；仍需按实际体验核对 [App Review Guidelines 4.2](https://developer.apple.com/app-store/review/guidelines/#minimum-functionality)，不能保证通过审核。商店文案应明确是需连接 yearly 家庭服务的客户端，不宣传离线、后台备份或自动同步。
+进入后台立即取消当前可取消操作并保存暂停状态，回到前台恢复原先运行的项目。系统强制结束后不承诺继续上传；下次打开显示已恢复任务，点“继续暂停任务”。原生队列独立于网页，网页重载不会丢失它。断网时保留原件和服务端分片，失败项目可单独重试。更换站点先暂停旧任务；每个任务绑定原站点和原账号，不能拿另一账号继续上传。
 
-## 真机验收清单
+取消仅停止本机任务、删除本机缓存；现有 API 没有取消服务端任务接口，因此未完成分片按服务端原有 7 天清理策略处理，不额外增加删除权限。若最后一次完成请求已到服务端，取消不能撤回已经发布的媒体，可去网页检查。完整性冲突（409）保留证据、不自动重建；超过任务有效期（410）需取消后重新选择。
 
-- 首次连接、无效地址、证书失败、断网重试；退出重启保留站点和登录。
-- 登录、退出、角色权限、中文/英文网页、浅色/深色网页；系统深色、横屏、字体放大和键盘弹出。
-- 时间线、日记、人物与宠物、设置；底部导航不被 Home Indicator 遮挡，返回手势正常。
-- 普通照片/视频、HEIC、单张 Live Photo；本地/iCloud 资源、取消选择、拒绝拍摄权限和上传失败重试。
-- 实况照片只生成一条记录，静态/动态原件可分别下载，动态预览可播放。
-- CSV、JSON、OSS 原件下载后分享/存储，失败与重复点击有反馈；同源新窗口分享页可打开。
-- 切换站点、上传中重载、App 进入后台、Web 内容进程终止；外部页面不能调用原生相册桥接。
-- 完成注销流程后，验证删除确认、身份校验、关联数据处理、旧会话失效和最后管理员场景。
-- TestFlight 安装发行版本，再确认隐私/支持链接、图标、版本号和所有原生功能。
+## 架构与真实 API 数据流
 
-## 图标
+| 环节 | 实现与复用 |
+|---|---|
+| 外壳 | 复用 `YearlyApp`、`SiteView`、`BrowserState`、`SiteOrigin`、`DownloadManager`，增加原生上传 sheet |
+| 选择 | `PHPickerConfiguration(photoLibrary: .shared())`，`selectionLimit=0`、`selection=.ordered`；按返回 identifier 顺序取 `PHAsset` |
+| 原件 | `PHAssetResource.assetResources(for:)`；普通图片 `.photo`、视频 `.video`；Live Photo 通过 `.photoLive` 识别，优先 `.photo + .pairedVideo` |
+| 编辑版本 | 仅在整组原始资源不存在时使用 `.fullSizePhoto + .fullSizePairedVideo`，或普通完整尺寸资源；不混用原始静态图与编辑后 MOV，并显式提示 |
+| 提取 | `PHAssetResourceManager.requestData` 原始字节直接写文件，支持 iCloud、取消和写盘预算；无 `UIImage.jpegData`、截图、缩放或转码 |
+| 指纹 | CryptoKit SHA-256 + CRC64/XZ（反射 ECMA 多项式，初始/最终异或全 1），每次读取 4 MiB，逐块 autoreleasepool；恢复前重算本机指纹 |
+| 创建 | `POST /api/uploads` 一次提交一个逻辑媒体，携带所有 `files`、`child_ids`、批次、归档及原始元数据；每个队列 UUID 作为 `Idempotency-Key` |
+| 续传 | `GET /api/uploads/{id}` 取 OSS 权威分片清单，验证序号与大小后跳过已完成分片 |
+| 直传 | `POST /api/uploads/{id}/sign?number=N` → HTTPS 临时 URL → 独立无 Cookie 的 URLSession PUT |
+| 校验 | `POST /api/uploads/{id}/complete`，原服务合并、HEAD 比较大小/CRC64；每份资源成功后持久化，再完成整个逻辑媒体 |
+| 去重与关联 | 沿用服务端原件角色、SHA-256、大小和媒体类型匹配；重复返回空任务，不传 OSS，合并人物关联，保留旧日期和位置 |
+| 清理 | 成功状态先原子写盘，再删除缓存；任一资源失败保留已完成状态，重试跳过成功资源 |
 
-`Assets.xcassets/AppIcon.appiconset` 包含 iPhone 所需尺寸和无透明通道的 1024px 商店图标。使用项目现有鼠尾草绿和叶片元素，生成脚本可以复现：
+**分片配置以真实响应为准：**旧文档写 4 MiB，但当前 `backend/app/config.py` 和 `.env.*.example` 默认 `UPLOAD_PART_SIZE=16777216`（16 MiB）。客户端按任务返回的 `part_size` 处理，支持 4 MiB 等配置，不改变现有服务端设置。哈希读取固定 4 MiB；测试同时验证 4 MiB 和 16 MiB 上传。顺序资源提取、顺序逻辑媒体上传、每次一个分片，最大原件缓冲由分片大小约束。
 
-```bash
-swift ios/scripts/generate-icon.swift ios/Yearly/Assets.xcassets/AppIcon.appiconset
-```
+PhotoKit 的 `writeData` 能直接导出文件，但不返回可取消的 request ID；为满足中途取消和低磁盘空间硬限，本队列使用同一资源管理器的可取消 `requestData` 字节流，保持同一资源原始字节。已有旧单张桥接 `LivePhotoTransfer` 仍使用 `writeData`，没有重写为转码输出。[Apple 原始/完整尺寸资源类型说明](https://developer.apple.com/documentation/photos/phassetresourcetype)、[编辑后 paired video](https://developer.apple.com/documentation/photos/phassetresourcetype/fullsizepairedvideo)。
+
+## 后端最小补充与兼容
+
+仅修改 `backend/app/uploads.py`，无表结构、OSS 对象命名、权限或 Vue API 行为变化：
+
+- 可选 `Idempotency-Key: UUID`。没有该头的原网页流程不变。
+- 带头请求先锁定当前用户行，查询现有媒体元数据中的内部 `_upload_receipt`。同一用户、同一 UUID 和同一规范化请求内容，返回原媒体和两份原任务；参数不同返回 409，过期未完成任务返回 410。记录与媒体在同一事务提交，防止创建响应丢失或手机重启后重复创建。
+- 回执占用现有 JSON 元数据，不依赖 MySQL 8 新特性，不新增公共幂等框架。原始元数据来源可标记为 `ImageIO + AVFoundation`。客户端伪造内部回执字段会被清除。
+- 已完成原件继续走既有内容去重与关联合并语义。不会把 Live Photo 分裂成两个媒体。
+
+**使用新原生队列前，家庭服务需要包含本分支这处后端更新。**客户端创建前检查 `GET /api/uploads` 的 `X-Yearly-Upload-Protocol: idempotent-v1` 响应头；旧服务器缺少此能力时直接提示更新，不创建任务，避免忽略未知请求头导致重复创建。本次没有部署生产服务、修改生产配置或数据库。
+
+认证复用 WebKit 管理的 HTTPS Secure/HttpOnly 会话 Cookie。原生端从所配置站点的 `WKHTTPCookieStore` 取当前 Cookie，仅在内存中传到同源 API；每次校验 `/api/auth/me` 的账号/角色并取得 CSRF，写请求继续携带正确 Origin 和 `X-CSRF-Token`。不另存密码、Cookie 或 CSRF 到 UserDefaults/JSON，不维护第二套登录凭据，也不复制会话到普通磁盘文件。持久登录仍由系统 WebKit 私有存储管理。原生网络用 ephemeral URLSession、禁用共享 Cookie/凭据缓存、拒绝重定向；OSS 请求不携带 API Cookie、CSRF 或 Authorization。日志和队列不存带签名 URL，更不含 OSS AccessKey。
+
+## 元数据和时间
+
+ImageIO 只读属性/标签，保存可解析 EXIF、XMP、IPTC、Apple MakerNote、GPS、镜头、曝光、ISO、方向等；AVFoundation 只读 QuickTime metadata/视频尺寸与时长。所有嵌入字段无论是否能解析，始终保留在未修改的原始字节中。数据库 JSON 有大小预算，超预算时明确标为 partial，完整字段仍在原件。
+
+可靠当地时间沿用项目顺序：EXIF DateTimeOriginal → EXIF DateTimeDigitized/CreateDate → 可解释的 QuickTime CreationDate → 未知。只有明确的匹配偏移进入 `original_offset_minutes`。不根据导入时间、临时文件 mtime、无明确时区的 numeric QuickTime 秒数制造拍摄时间。PhotoKit 的 UTC creationDate、位置与尺寸放在 `photokit_auxiliary`，与原始嵌入数据、归档日期分开。
+
+Live Photo 读取图片 Apple MakerNote / XMP ContentIdentifier 与 MOV `com.apple.quicktime.content.identifier`。两者都存在时必须一致；系统没有解析出双方标识时，保留 PhotoKit 同一 PHAsset 的同版本配对依据并显示说明，不按文件名推测配对。未解析出的私有元数据仍随原件保存。
+
+## 本次实际执行的验证
+
+开发环境：macOS，Swift 6.2.1 / macOS SDK，Python 3.12.11，Node 22，隔离本地 MySQL 8.4.13（仅 UNIX socket），FakeStorage。未访问生产 OSS。
+
+- `./scripts/ios.sh verify`：plist、Xcode 源文件/资源清单、Swift 语法、38 项 origin 配置检查、6 项发行工具测试；原生核心/网络/Photos/队列在 macOS SDK 下类型检查；139 项合成 HEIC 与 Mock 上传断言，以及独立 URLProtocol HTTP 模拟测试。
+- `./scripts/ios.sh test-large`：真实生成的合成 HEIC 验证 EXIF/GPS 读取不改字节、同版本 Live Photo 资源选择、100 项普通/Live 混合模拟队列、1 GiB 合成零字节文件的流式 SHA/CRC 和 256 个 4 MiB 分片，共 143 项断言。它不是可播放的 1 GiB 相机视频。
+- 模拟服务验证分片跳过、签名 403/OSS 409 重签、服务端完整性 409 不成功、断网 3 次有限退避、认证错误不重试、取消、重启后部分 Live Photo 完成状态和顺序、路径越界拒绝。
+- 前端：17 个测试文件、78 项测试通过；`vue-tsc` + Vite 构建通过，既有大 chunk 提示仍存在。首次 Node 18 检查不兼容，换用 Node 22 后通过；未修改 Vue 业务代码。
+- 后端：全套测试使用隔离 `_test` 数据库和 FakeStorage，覆盖原件字节、双资源未齐不发布、去重、多人物宠物、CSRF/权限、幂等重试与过期会话。全套 127 项测试、27 个子测试通过。
+- 1 GiB 核心测试经逐块自动释放修复后，测试进程最大 RSS 约 54 MiB；这是本机 Mock 核心进程实测，**不是 iPhone App 内存保证**。
+
+### 尚需真机/部署验收
+
+- 当前机器没有完整 Xcode/iOS SDK；`./scripts/ios.sh build` 会明确失败。未声称 UIKit/PhotosUI SwiftUI 界面已通过 iOS SDK 类型检查、模拟器编译、签名或安装。
+- 需在 iPhone 验证 Personal Team 安装/7 天续签、真实系统选择器顺序和取消、有限图库授权更新、iCloud 下载进度及失败、编辑过的 Live Photo 原件选择和 ContentIdentifier。
+- 使用专用测试家庭服务和合成媒体，验证真实 HTTPS Cookie/CSRF、OSS 临时签名、合并/HEAD、后台/锁屏/强杀、网络切换、低空间、中途重新登录和实际 100 张/1GB 视频内存。自动测试不向真实生产 OSS 上传。
+- MySQL 测试实例是本地已有二进制 8.4.13，新建隔离库；本机没有 MySQL 5.7 实例。JSON 回执查询使用 5.7 已有操作，但尚需在 5.7 测试环境复验锁竞争和查询行为。
+- 不保证系统不可解析格式能提取所有元数据，不保证后台无限上传，不保证已在服务端完成的请求可被本机取消。网页 Live Photo 播放取决于既有预览进程，未改变它。
+
+## 文件职责
+
+- `Yearly/NativeUploadView.swift`：原生选择器、确认页、缩略图、人物/宠物和任务操作。
+- `Yearly/PhotoOriginals.swift`：PhotoKit 原始资源提取、iCloud 进度、取消和磁盘预算。
+- `Yearly/OriginalMetadata.swift`：ImageIO / AVFoundation 元数据与日期可信度。
+- `Yearly/UploadCore.swift`：持久化模型、原子队列文件、SHA/CRC、原件选择策略、分片续传与退避。
+- `Yearly/UploadAPI.swift`：现有 HTTPS Cookie/CSRF API 与隔离的 OSS PUT。
+- `Yearly/UploadQueue.swift`：顺序工作队列、逐资源检查点、前后台暂停恢复与清理。
+- `Yearly/YearlyApp.swift`、`Yearly.xcodeproj/project.pbxproj`、`PrivacyInfo.xcprivacy`：入口、工程引用和仅本机磁盘空间用途声明。
+- `Tests/UploadTests.swift`、`Tests/UploadAPITests.swift`、`backend/tests/test_native_uploads.py`：合成素材和服务模拟回归。
+- `scripts/ios.sh`：CLI 验证、合成大文件测试、无签名模拟器构建与免费开发签名构建。
+
+修改文件还包括 `backend/app/uploads.py`（可选幂等回执与能力响应头），以及 `README.md`、`README.en.md`、`docs/storage-and-metadata.md`、`docs/en/storage-and-metadata.md`、本 `ios/README.md`（同步入口、真实分片配置、安装和验收说明）。总计新增 9 个文件、修改 10 个文件。没有修改前端业务代码、数据库模型或迁移。

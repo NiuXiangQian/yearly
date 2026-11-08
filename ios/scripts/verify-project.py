@@ -14,12 +14,16 @@ project = json.loads(subprocess.check_output([
 objects = project['objects']
 target = objects['F00000000000000000000040']
 phases = [objects[key] for key in target['buildPhases']]
+source_group = objects['F00000000000000000000021']
+group_children = set(source_group['children'])
 packaged = {}
 for phase in phases:
-    paths = [objects[objects[key]['fileRef']]['path'] for key in phase['files']]
+    refs = [objects[key]['fileRef'] for key in phase['files']]
+    paths = [objects[ref]['path'] for ref in refs]
     packaged[phase['isa']] = paths
-    for path in paths:
-        assert (root / 'Yearly' / path).exists(), f'Missing build input: {path}'
+    for ref, path in zip(refs, paths):
+        assert ref in group_children, f'Build input is outside the Yearly project group: {path}'
+        assert (root / source_group['path'] / path).exists(), f'Missing build input: {path}'
 assert set(packaged['PBXSourcesBuildPhase']) == {p.name for p in (root / 'Yearly').glob('*.swift')}
 assert {'PrivacyInfo.xcprivacy', 'Assets.xcassets'} <= set(packaged['PBXResourcesBuildPhase'])
 configurations = objects[target['buildConfigurationList']]['buildConfigurations']

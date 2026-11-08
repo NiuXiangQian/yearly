@@ -82,11 +82,13 @@ iPhone Safari 从照片图库选择的文件可能经过格式转换、编辑导
 
 ### iPhone 原生上传
 
-1. 将包含此功能的前端构建部署到家庭 HTTPS 站点。已有 API 和 OSS 配置可直接使用，无需数据库迁移。
-2. 在 Mac 上用 Xcode 打开 [`ios/Yearly.xcodeproj`](../ios/Yearly.xcodeproj)。在 Yearly target 的 **Signing & Capabilities** 选择自己的 Team，必要时设置唯一的 Bundle Identifier。选择已配对的 iPhone（iOS 16 或更高版本）运行。
-3. 在 Yearly App 输入家庭站点的 HTTPS 根地址并登录。在上传页设置日期和关联人物后，点「选择实况照片并上传」。系统相册每次选择一张，确认后自动读取静态图和配对视频。如果触发跨日期追加检查，确认归档方式后继续上传。
+已有 SwiftUI + WKWebView App 新增原生批量上传助手：顶部上传图标 → 系统相册多选 → 原始资源提取 → 检查双资源、拍摄信息及人物/宠物 → 确认上传。保留原有网页浏览和 Live Photo 播放方式，无需先导出到“文件”App。旧单张桥接仍兼容保留。
 
-系统相册选择器只交付选中的照片。PhotoKit 可从 iCloud 取回所需资源。两个文件合计最多 128 MiB，由 App 分段交给上传页，沿用现有登录、分片校验和失败重试。读取任一资源失败时不会创建上传记录。上传完成且视频预览生成后，可从详情点「播放 LIVE」。真机验收时，用一张同时含静态图和声音的实况照片检查时间线仅出现一条记录，确认原件下载中包含两份文件，并播放动态效果。
+PhotoKit 读取 PHAsset 的未修改 `.photo` / `.video`，Live Photo 同组 `.photo + .pairedVideo`；只有完整尺寸编辑后资源可用时会明确提示，不混用不同版本。原始字节直接写入私有缓存，不转 HEIC/JPEG、不转码 MOV。使用可取消的 PHAssetResourceManager 字节流，以支持 iCloud 下载进度、取消和磁盘预算。
+
+原生端按 4 MiB 流式计算 SHA-256 与 CRC64/XZ，上传按 API 任务实际返回的 `part_size`（当前代码默认 **16 MiB**，与上文历史 4 MiB 文案不同）。复用 `/uploads`、`/{id}`、`/{id}/sign`、`/{id}/complete` 及现有去重、关联和 HEAD 校验。一次创建 Live Photo 两份资源，全部完成才发布。原生请求可选携带 `Idempotency-Key`，服务端用原有元数据 JSON 保存回执，避免创建响应丢失后重复创建；无需数据库迁移。
+
+任务和缓存跨启动保存；进入后台暂停，前台续传；强制结束后需继续任务，不承诺无限后台运行。缓存上限 8 GiB，预留 512 MiB。原生元数据中 PhotoKit 辅助日期/GPS 与原始嵌入值分开，不把导入时间当拍摄时间。详见[中文 iOS 开发、使用、免费安装与续签说明](../ios/README.md)，包含实际测试范围和未完成的真机验收项。免费 Personal Team 的签名需按 Apple 的 7 天有效期重新安装续签。
 
 ### 照片确认后仍停在系统相册
 

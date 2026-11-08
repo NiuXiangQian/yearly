@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 @main
 struct YearlyApp: App {
@@ -8,9 +9,12 @@ struct YearlyApp: App {
 }
 
 struct YearlyRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("yearlySite") private var address = AppConfiguration.defaultSite
     @StateObject private var browser = BrowserState()
+    @StateObject private var uploads = UploadQueue()
     @State private var editingSite = false
+    @State private var showingUploads = false
 
     var body: some View {
         Group {
@@ -26,7 +30,12 @@ struct YearlyRootView: View {
                         Label(site.url.host ?? "yearly", systemImage: "lock.fill")
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         Spacer(minLength: 0)
+                        Button { showingUploads = true } label: {
+                            Image(systemName: "square.and.arrow.up").frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("原生相册上传与任务")
                         Menu {
+                            Button("原生相册上传与任务") { showingUploads = true }
                             Button { browser.retry(site: site) } label: {
                                 Label("重新加载", systemImage: "arrow.clockwise")
                             }
@@ -65,8 +74,15 @@ struct YearlyRootView: View {
                 }
                 .sheet(isPresented: $editingSite) {
                     SiteSettings(address: address, canCancel: true) { newAddress in
+                        uploads.pauseAll()
                         address = newAddress
                         editingSite = false
+                    }
+                }
+                .sheet(isPresented: $showingUploads) {
+                    NativeUploadView(queue: uploads, site: site,
+                                     cookieStore: browser.webView?.configuration.websiteDataStore.httpCookieStore ?? WKWebsiteDataStore.default().httpCookieStore) {
+                        browser.webView?.load(URLRequest(url: site.url))
                     }
                 }
                 .alert("下载未完成", isPresented: $browser.downloadFailed) {
@@ -77,6 +93,14 @@ struct YearlyRootView: View {
             }
         }
         .tint(Color(red: 0.40, green: 0.48, blue: 0.36))
+        .onChange(of: scenePhase) { phase in
+            if phase == .background { uploads.enteredBackground() }
+            if phase == .active { uploads.enteredForeground() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            uploads.pauseAll()
+            uploads.error = "系统内存紧张，已保存并暂停任务，请稍后继续。"
+        }
     }
 }
 
@@ -128,7 +152,7 @@ private struct SiteSettings: View {
                 }.font(.subheadline)
                 Section("关于") {
                     LabeledContent("yearly", value: version)
-                    Text("上传时请保持 App 在前台。需要网络连接；暂不支持离线浏览或后台持续上传。")
+                    Text("原生上传任务自动保存，进入后台暂停，回到前台续传。强制退出后请打开上传任务并继续；不保证后台持续上传。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }

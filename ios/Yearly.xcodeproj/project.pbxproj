@@ -4,6 +4,18 @@
 	classes = {};
 	objectVersion = 56;
 	objects = {
+		A00000000000000000000000 /* UploadCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadCore.swift; sourceTree = "<group>"; };
+		B00000000000000000000000 /* UploadCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000000 /* UploadCore.swift */; };
+		A00000000000000000000001 /* UploadAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadAPI.swift; sourceTree = "<group>"; };
+		B00000000000000000000001 /* UploadAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000001 /* UploadAPI.swift */; };
+		A00000000000000000000002 /* PhotoOriginals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoOriginals.swift; sourceTree = "<group>"; };
+		B00000000000000000000002 /* PhotoOriginals.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000002 /* PhotoOriginals.swift */; };
+		A00000000000000000000003 /* OriginalMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OriginalMetadata.swift; sourceTree = "<group>"; };
+		B00000000000000000000003 /* OriginalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000003 /* OriginalMetadata.swift */; };
+		A00000000000000000000004 /* UploadQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadQueue.swift; sourceTree = "<group>"; };
+		B00000000000000000000004 /* UploadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* UploadQueue.swift */; };
+		A00000000000000000000005 /* NativeUploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUploadView.swift; sourceTree = "<group>"; };
+		B00000000000000000000005 /* NativeUploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* NativeUploadView.swift */; };
 		F00000000000000000000004 /* SiteOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000015; };
 		F00000000000000000000015 /* SiteOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteOrigin.swift; sourceTree = "<group>"; };
 		F00000000000000000000005 /* BrowserState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000016; };
@@ -30,7 +42,22 @@
 		};
 		F00000000000000000000021 /* Yearly */ = {
 			isa = PBXGroup;
-			children = (F00000000000000000000011 /* YearlyApp.swift */, F00000000000000000000012 /* SiteView.swift */, F00000000000000000000013 /* LivePhotoTransfer.swift */, F00000000000000000000015 /* SiteOrigin.swift */, F00000000000000000000016 /* BrowserState.swift */, F00000000000000000000017 /* DownloadManager.swift */, F00000000000000000000018 /* Assets.xcassets */, F00000000000000000000019 /* PrivacyInfo.xcprivacy */);
+			children = (
+				F00000000000000000000011 /* YearlyApp.swift */,
+				F00000000000000000000012 /* SiteView.swift */,
+				F00000000000000000000013 /* LivePhotoTransfer.swift */,
+				F00000000000000000000015 /* SiteOrigin.swift */,
+				F00000000000000000000016 /* BrowserState.swift */,
+				F00000000000000000000017 /* DownloadManager.swift */,
+				A00000000000000000000000 /* UploadCore.swift */,
+				A00000000000000000000001 /* UploadAPI.swift */,
+				A00000000000000000000002 /* PhotoOriginals.swift */,
+				A00000000000000000000003 /* OriginalMetadata.swift */,
+				A00000000000000000000004 /* UploadQueue.swift */,
+				A00000000000000000000005 /* NativeUploadView.swift */,
+				F00000000000000000000018 /* Assets.xcassets */,
+				F00000000000000000000019 /* PrivacyInfo.xcprivacy */,
+			);
 			path = Yearly;
 			sourceTree = "<group>";
 		};
@@ -44,7 +71,7 @@
 		F00000000000000000000030 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (F00000000000000000000001 /* YearlyApp.swift in Sources */, F00000000000000000000002 /* SiteView.swift in Sources */, F00000000000000000000003 /* LivePhotoTransfer.swift in Sources */, F00000000000000000000004 /* SiteOrigin.swift in Sources */, F00000000000000000000005 /* BrowserState.swift in Sources */, F00000000000000000000006 /* DownloadManager.swift in Sources */);
+			files = (B00000000000000000000000, B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000005, F00000000000000000000001 /* YearlyApp.swift in Sources */, F00000000000000000000002 /* SiteView.swift in Sources */, F00000000000000000000003 /* LivePhotoTransfer.swift in Sources */, F00000000000000000000004 /* SiteOrigin.swift in Sources */, F00000000000000000000005 /* BrowserState.swift in Sources */, F00000000000000000000006 /* DownloadManager.swift in Sources */);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F00000000000000000000031 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
