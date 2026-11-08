@@ -48,6 +48,7 @@ const preview = ref(""),
   previewError = ref(""),
   live = ref(false),
   previewLoading = ref(false);
+const previewFullscreen = ref(true);
 const video = computed(
   () => selected.value?.media_type === "video",
 );
@@ -138,6 +139,7 @@ async function openFolder(item: any, more = false) {
   }
 }
 async function openMedia(item: any, playLive = item.media_type === "live_photo") {
+  previewFullscreen.value = item.kind !== "event";
   selected.value = item;
   live.value = playLive;
   preview.value = "";
@@ -393,7 +395,10 @@ onBeforeUnmount(() => {
       :title="selected?.title || t('影像预览')"
       width="1000px"
       class="shared-viewer-dialog"
+      :fullscreen="previewFullscreen"
+      :class="{ 'shared-media-fullscreen': previewFullscreen }"
       append-to-body
+      destroy-on-close
       @close="
         selected = null;
         previewGeneration++;
@@ -411,7 +416,6 @@ onBeforeUnmount(() => {
             v-else-if="video && preview"
             :key="selected.id + '-' + live"
             :load-source="videoSource"
-
           /><ImageViewer
             v-else-if="preview"
             :src="preview"
@@ -434,7 +438,7 @@ onBeforeUnmount(() => {
         </div>
         <button
           v-if="selected.media_type === 'live_photo'"
-          class="button"
+          class="button shared-live-toggle"
           @click="live = !live"
         >
           {{ live ? t("静态照片") : t("实况照片") }}
@@ -700,5 +704,70 @@ onBeforeUnmount(() => {
     flex-wrap: wrap;
     gap: 6px;
   }
+}
+</style>
+
+<style>
+/* The dialog is teleported to body; override the site's mobile dialog margins. */
+.el-dialog.shared-media-fullscreen {
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  margin: 0 !important;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left) !important;
+  border-radius: 0 !important;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #14221b;
+  color: #eff5f0;
+}
+.shared-media-fullscreen .el-dialog__header {
+  flex-shrink: 0;
+  min-height: 56px;
+  margin: 0;
+  padding: 16px 64px 16px 20px;
+  border-bottom: 1px solid #ffffff18;
+}
+.shared-media-fullscreen .el-dialog__title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 24px;
+  color: inherit;
+}
+.shared-media-fullscreen .el-dialog__headerbtn {
+  top: max(6px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  width: 44px;
+  height: 44px;
+}
+.shared-media-fullscreen .el-dialog__close { color: #eff5f0; }
+.shared-media-fullscreen .el-dialog__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  color: inherit;
+}
+.shared-media-fullscreen .shared-viewer {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  border-radius: 0;
+}
+.shared-media-fullscreen .yearly-player { min-height: 0; }
+.shared-media-fullscreen .shared-live-toggle {
+  flex-shrink: 0;
+  align-self: center;
+  margin: 8px;
+  min-height: 44px;
+  color: #eff5f0;
+  background: #ffffff12;
+  border-color: #ffffff25;
 }
 </style>

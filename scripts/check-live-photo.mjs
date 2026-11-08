@@ -12,7 +12,8 @@ const motion = await readFile(resolve(fixtures, 'motion.mp4'));
 const still = await readFile(resolve(fixtures, 'still.webp'));
 const calls = { video: 0, original: 0 };
 const media = { id: 1, kind: 'media', media_type: 'live_photo', title: '合成实况预览', taken_at_local: '2026-11-08T10:00:00', time_source:'exif', timeline_date:'2026-11-08', child_ids:[], children:[], tags:[], files: [{id:2,file_role:'original',mime_type:'image/heic',file_size:3000000},{id:3,file_role:'live_video',mime_type:'video/quicktime',file_size:6000000}] };
-const data = { share: {title:'合成素材验收', start_date:'2026-11-08', end_date:'2026-11-08', expires_at:new Date(Date.now()+3600000).toISOString()}, dates:['2026-11-08'], days:[{day:'2026-11-08',total:1,items:[media]}], next_before:null };
+const sharedMedia = [media, { ...media, id: 4, media_type: 'photo', title: '合成照片预览' }, { ...media, id: 5, media_type: 'video', title: '合成视频预览' }];
+const data = { share: {title:'合成素材验收', start_date:'2026-11-08', end_date:'2026-11-08', expires_at:new Date(Date.now()+3600000).toISOString()}, dates:['2026-11-08'], days:[{day:'2026-11-08',total:3,items:sharedMedia}], next_before:null };
 const server=createServer(async(req,res)=>{
  try {
   const url=new URL(req.url,'http://localhost');
@@ -26,7 +27,7 @@ const server=createServer(async(req,res)=>{
     else if(path==='/api/timeline') value={items:[media],total:1,next_cursor:null};
     else if(path.endsWith('/url')) {
       if(url.searchParams.get('purpose')==='original') calls.original++;
-      value={url:url.searchParams.get('live')==='true'||path.includes('/files/3/')?'/motion.mp4':'/still.webp',status:'ready'};
+      value={url:url.searchParams.get('live')==='true'||path.includes('/files/3/')||(path.includes('/media/5/') && url.searchParams.get('purpose')==='preview')?'/motion.mp4':'/still.webp',status:'ready'};
     }
     res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify(value));
   } else if(path==='/motion.mp4') {
@@ -40,6 +41,20 @@ const server=createServer(async(req,res)=>{
  } catch(e){res.writeHead(500).end(String(e));}
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
+async function assertFullscreen(page) {
+ await page.locator('.shared-viewer-dialog.is-fullscreen').waitFor();
+ // Element Plus animates the dialog on entry; measure after it reaches the viewport.
+ await page.waitForFunction(() => {
+  const rect=document.querySelector('.shared-viewer-dialog.is-fullscreen')?.getBoundingClientRect();
+  return rect && Math.abs(rect.x)<1 && Math.abs(rect.y)<1;
+ }, null, {timeout:5000});
+ const box=await page.locator('.shared-viewer-dialog').boundingBox();
+ const viewport=await page.evaluate(()=>({width:innerWidth,height:innerHeight}));
+ assert(Math.abs(box.x)<1 && Math.abs(box.y)<1,'fullscreen starts at viewport origin');
+ assert(Math.abs(box.width-viewport.width)<1 && Math.abs(box.height-viewport.height)<1,'fullscreen fills viewport');
+ const stage=await page.locator('.shared-viewer').boundingBox();
+ assert(stage.height>viewport.height*.6,'media uses available fullscreen height');
+}
 const browser=await webkit.launch();
 try {
  for(const mobile of [true,false]) {
@@ -48,10 +63,12 @@ try {
   for(const shared of [true,false]) {
    const before=calls.video;
    await page.goto(`http://127.0.0.1:${server.address().port}/yearly/${shared?'share/mock':''}`);
-   await page.locator(shared?'.shared-card':'.media-card').first().click();
+   const card=page.locator(shared?'.shared-card':'.media-card').first();
+   if(mobile) await card.tap(); else await card.click();
    await page.locator('.live-photo-img').waitFor();
+   if(shared) await assertFullscreen(page);
    // Desktop hover may start once a modal appears under its cursor; move to the toolbar.
-   await page.mouse.move(0,0);
+   if(!mobile) await page.mouse.move(0,0);
    if(mobile) assert.equal(calls.video,before,'no video preload');
    await page.getByRole('button',{name:'播放实况',exact:true}).click();
    await page.locator('.live-photo.is-playing').waitFor();
@@ -73,9 +90,32 @@ try {
     await page.getByRole('button',{name:'静态照片',exact:true}).click();
     await page.locator('.image-pan img').waitFor();
    }
+   if(shared) {
+    await page.locator('.shared-viewer-dialog .el-dialog__headerbtn').click();
+    await page.locator('.shared-viewer-dialog').waitFor({state:'hidden'});
+    assert.equal(await page.locator('.live-photo-video').count(),0,'closing stops and removes motion');
+    for(const [index, type] of [[1,'photo'],[2,'video']]) {
+     const card=page.locator('.shared-card').nth(index);
+     if(mobile) await card.tap(); else await card.click();
+     await assertFullscreen(page);
+     if(type==='photo') {
+      await page.locator('.shared-viewer .image-pan img').waitFor();
+      await page.getByRole('button',{name:'放大',exact:true}).click();
+      assert.equal(await page.locator('.image-tools span').innerText(),'125%');
+     } else {
+      await page.getByRole('button',{name:'播放视频',exact:true}).click();
+      await page.waitForFunction(()=>document.querySelector('.shared-viewer video').currentTime>0.05);
+     }
+     await page.screenshot({path:resolve(fixtures, `yearly-shared-${type}-${mobile?'iphone':'desktop'}.png`)});
+     await page.locator('.shared-viewer-dialog .el-dialog__headerbtn').click();
+     await page.locator('.shared-viewer-dialog').waitFor({state:'hidden'});
+     assert.equal(await page.locator('.shared-viewer video').count(),0);
+    }
+    assert.equal(await page.locator('.shared-card').count(),3);
+   }
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
   }
   assert.deepEqual(errors,[]);await page.close();
  }
- console.log('WebKit iPhone + desktop: private/shared previews, real MP4 playback, no mobile preload, mute toggle, return to still, fullscreen exit, still zoom mode, subpath API and no overflow passed.');
+ console.log('WebKit iPhone + desktop: private/shared previews, real MP4 playback, no mobile preload, mute toggle, return to still, fullscreen exit, still zoom mode, shared photo/video/Live Photo immediate fullscreen and close, subpath API and no overflow passed.');
 } finally {await browser.close();await new Promise(r=>server.close(r));}

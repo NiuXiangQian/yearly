@@ -40,8 +40,7 @@ async function prepare(refresh = false) {
       if (!value.url || value.status === "failed") throw new Error("preview unavailable");
       clearTimeout(pollTimer);
       motion.value = value.url;
-      // Set synchronously so play() can run inside the next user gesture on iOS.
-      if (video.value && video.value.getAttribute("src") !== value.url) video.value.src = value.url;
+      // Keep the URL off the video until interaction: Safari may ignore preload=none.
     } catch {
       if (!disposed) fail();
     }
@@ -84,6 +83,8 @@ function playReady(ticket: number) {
   if (!motion.value || !video.value) { stop(); return; }
   buffer();
   try {
+    if (video.value.getAttribute("src") !== motion.value || video.value.error)
+      video.value.src = motion.value;
     video.value.muted = revealed ? muted.value : true;
     video.value.currentTime = 0;
     const result = video.value.play();

@@ -237,3 +237,20 @@ it("plays layered Live Photos using only share-authorized preview URLs", async (
     expect(vi.mocked(api).mock.calls.every(([path]) => path.startsWith("/public/shares/virtual"))).toBe(true);
   } finally { play.mockRestore(); }
 });
+
+it.each(["photo", "video", "live_photo"])("opens a shared %s fullscreen immediately, including while its preview loads", async (mediaType) => {
+  const data = response();
+  data.days = [{ day: "2024-01-02", total: 1, items: [{ ...items[0], media_type: mediaType }] }];
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path.includes("/url?")) return new Promise(() => {});
+    return data;
+  });
+  await mount();
+  await vi.waitFor(() => expect(host.querySelector(".shared-card")).not.toBeNull());
+  (host.querySelector(".shared-card") as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(document.querySelector(".shared-viewer-dialog.is-fullscreen")).not.toBeNull());
+  expect(document.querySelector(".shared-media-fullscreen")?.textContent).toContain("正在加载预览");
+  (document.querySelector(".shared-media-fullscreen .el-dialog__headerbtn") as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(document.querySelector(".shared-viewer")).toBeNull());
+  expect(host.querySelectorAll(".shared-card")).toHaveLength(1);
+});

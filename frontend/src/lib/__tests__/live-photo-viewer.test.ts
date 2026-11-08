@@ -27,6 +27,7 @@ function pointer(target: Element | Window, type: string, values: Record<string, 
 it("loads no video bytes before interaction and only fades the still once playback starts", async () => {
   const { host, stage, video, play } = await render();
   expect(video.preload).toBe("none");
+  expect(video.hasAttribute("src")).toBe(false);
   expect(video.muted).toBe(true);
   expect(video.hasAttribute("playsinline")).toBe(true);
   expect(play).not.toHaveBeenCalled();
@@ -89,10 +90,11 @@ it("keeps the photo for pending previews, polls and requires a new gesture to pl
   expect(host.textContent).toContain("动态预览正在准备");
   expect(video.hasAttribute("src")).toBe(false);
   await vi.advanceTimersByTimeAsync(15_000);
-  expect(video.getAttribute("src")).toBe("/ready.mp4");
+  expect(video.hasAttribute("src")).toBe(false);
   expect(play).not.toHaveBeenCalled();
   (host.querySelector(".live-photo-badge") as HTMLButtonElement).click();
   expect(play).toHaveBeenCalledOnce();
+  expect(video.getAttribute("src")).toBe("/ready.mp4");
 });
 it("refreshes the signed preview on error retry without replacing the still", async () => {
   const load = vi.fn().mockResolvedValueOnce({ url: "/expired.mp4", status: "ready" })
