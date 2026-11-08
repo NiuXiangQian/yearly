@@ -24,6 +24,7 @@ private final class MockHTTP: URLProtocol {
                 body = "[]"
                 if capable { headers["X-Yearly-Upload-Protocol"] = "idempotent-v1" }
             } else { body = "{\"media_id\":42,\"duplicate\":true,\"tasks\":[]}" }
+        case "/expired-part": status = 403
         default: break
         }
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
@@ -75,6 +76,13 @@ private final class MockHTTP: URLProtocol {
         precondition(put.httpMethod == "PUT")
         for header in ["Cookie", "Origin", "Authorization", "X-CSRF-Token", "Idempotency-Key"] {
             precondition(put.value(forHTTPHeaderField: header) == nil)
+        }
+        api.onPartProgress = { bytes, _ in sent = bytes }
+        do {
+            try await api.put(payload, to: URL(string: "https://oss.invalid/expired-part")!)
+            fatalError("Expired PUT must fail")
+        } catch let error as UploadHTTPError {
+            precondition(error.status == 403 && sent == 0, "failed PUT clears uncommitted progress")
         }
         for (role, authenticated, capable) in [("viewer", true, true), ("member", false, true), ("member", true, false)] {
             MockHTTP.reset(role: role, authenticated: authenticated, capable: capable)

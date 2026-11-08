@@ -43,9 +43,12 @@ struct NativeUploadView: View {
         return (showAllPending ? pending : active + Array(waiting.prefix(3))) + (showFinished ? finished : [])
     }
     private var preparing: [UploadItem] { items.filter { [.selected, .preparing].contains($0.phase) } }
-    private var readyCount: Int { items.filter { $0.phase == .ready }.count }
-    private var preparationRemaining: Double {
-        preparing.reduce(0) { $0 + 1 - ($1.phase == .preparing ? $1.preparationProgress : 0) }
+    private var readyItems: [UploadItem] { items.filter { $0.phase == .ready } }
+    private var readyCount: Int { readyItems.count }
+    private var preparation: UploadQueue.Preparation? {
+        guard let sample = queue.preparation,
+              preparing.contains(where: { $0.id == sample.itemID && $0.phase == .preparing }) else { return nil }
+        return sample
     }
     private var uploadItems: [UploadItem] {
         items.filter { $0.confirmed && !$0.duplicate && $0.phase != .cancelled &&
@@ -57,9 +60,6 @@ struct NativeUploadView: View {
               !uploadItems.contains(where: { [.queued, .uploading].contains($0.phase) }) else { return [] }
         return group.filter { $0.phase == .complete }.compactMap(\.mediaID)
     }
-    private var remainingUploadBytes: Int64 {
-        uploadItems.filter { [.queued, .uploading].contains($0.phase) }.reduce(0) { $0 + $1.size - bytesSent($1) }
-    }
     private var uploadSize: Int64 { uploadItems.reduce(0) { $0 + $1.size } }
     private var sentBytes: Int64 { uploadItems.reduce(0) { $0 + bytesSent($1) } }
     private var transfer: UploadQueue.Transfer? {
@@ -69,10 +69,17 @@ struct NativeUploadView: View {
     }
 
     private func bytesSent(_ item: UploadItem) -> Int64 {
-        if item.phase == .complete { return item.size }
-        let committed = item.resources.reduce(Int64(0)) { $0 + ($1.complete ? $1.size : $1.uploadedBytes) }
-        let inFlight = queue.transfer.flatMap { $0.itemID == item.id ? $0.inFlightBytes : nil } ?? 0
-        return min(item.size, committed + inFlight)
+        let inFlight = item.phase == .uploading && queue.transfer?.itemID == item.id ? queue.transfer?.inFlightBytes ?? 0 : 0
+        return min(item.size, item.uploadedBytes + inFlight)
+    }
+
+    private func bytesLabel(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private func progressLabel(_ progress: ByteProgress) -> String {
+        guard let total = progress.total else { return "\(bytesLabel(progress.processed)) · 总大小待确认" }
+        return "\(bytesLabel(progress.processed)) / \(bytesLabel(total))"
     }
 
     private func eta(_ seconds: Double) -> String {
@@ -84,15 +91,38 @@ struct NativeUploadView: View {
     }
 
     @ViewBuilder private var preparationSummary: some View {
-        let count = readyCount + preparing.count
+        let readyBytes = readyItems.reduce(Int64(0)) { $0 + $1.size }
+        let preparingItems = preparing
+        let count = readyCount + preparingItems.count
         if count > 0 {
-            let fraction = max(0, 1 - preparationRemaining / Double(count))
-            ProgressView(value: fraction) {
-                Text("准备原件 · \(readyCount) / \(count) 项就绪")
-            } currentValueLabel: {
-                if preparing.isEmpty { Text("原件已就绪") }
-                else if let seconds = queue.preparationSecondsPerItem { Text("预计剩余 \(eta(seconds * preparationRemaining))") }
-                else { Text("预计剩余时间估算中…") }
+            let knownSizes = preparingItems.compactMap(\.sourceByteCount)
+            let total = knownSizes.count == preparingItems.count ? readyBytes + knownSizes.reduce(0, +) : nil
+            let progress = ByteProgress(processed: readyBytes + (preparation?.bytesRead ?? 0), total: total)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text("准备原件 · \(readyCount) / \(count) 项就绪")
+                    Spacer()
+                    if let fraction = progress.fraction {
+                        Text(fraction.formatted(.percent.precision(.fractionLength(0...1))))
+                            .monospacedDigit()
+                    }
+                }
+                if let fraction = progress.fraction { ProgressView(value: fraction) }
+                else { ProgressView() }
+                Text("已读取 \(progressLabel(progress))").font(.caption).foregroundStyle(.secondary)
+                Group {
+                    if preparingItems.isEmpty { Text("原件已就绪") }
+                    else if progress.fraction == 1 { Text("原件已读取，正在校验") }
+                    else if progress.total == nil { Text("确认总大小后显示预计时间") }
+                    else if let sample = preparation {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            if context.date.timeIntervalSince(sample.sampledAt) < 5,
+                               let seconds = progress.remainingTime(bytesPerSecond: sample.bytesPerSecond) {
+                                Text("预计剩余 \(eta(seconds))")
+                            } else { Text("预计剩余时间估算中…") }
+                        }
+                    } else { Text("预计剩余时间估算中…") }
+                }.font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -100,23 +130,29 @@ struct NativeUploadView: View {
     @ViewBuilder private var uploadSummary: some View {
         if uploadSize > 0 {
             let done = uploadItems.allSatisfy { $0.phase == .complete }
-            let fraction = done ? 1 : min(0.99, Double(sentBytes) / Double(uploadSize))
+            let blocked = uploadItems.contains { [.paused, .failed].contains($0.phase) }
+            let progress = ByteProgress(processed: sentBytes, total: uploadSize)
+            let fraction = progress.fraction ?? 0
             ProgressView(value: fraction) {
-                Text("上传进度 · \(Int(fraction * 100))%")
+                Text("上传进度 · \(fraction.formatted(.percent.precision(.fractionLength(0...1))))")
             } currentValueLabel: {
-                if done { Text("本次上传完成") }
-                else if sentBytes >= uploadSize && uploadItems.contains(where: { $0.phase == .uploading }) {
-                    Text("已传完，正在校验")
-                } else if let transfer, transfer.bytesPerSecond > 0 {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        if context.date.timeIntervalSince(transfer.sampledAt) < 5 {
-                            let rate = ByteCountFormatter.string(fromByteCount: Int64(transfer.bytesPerSecond), countStyle: .file)
-                            Text("\(rate)/秒 · 预计剩余 \(eta(Double(remainingUploadBytes) / transfer.bytesPerSecond))")
-                        } else { Text("等待传输 · 预计剩余时间估算中…") }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("已上传 \(progressLabel(progress))")
+                    if done { Text("本次上传完成") }
+                    else if blocked { Text("有任务暂停或失败，继续后估算剩余时间") }
+                    else if fraction == 1 && uploadItems.contains(where: { $0.phase == .uploading }) {
+                        Text("已传完，正在校验")
+                    } else if let transfer, let seconds = progress.remainingTime(bytesPerSecond: transfer.bytesPerSecond) {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            if context.date.timeIntervalSince(transfer.sampledAt) < 5 {
+                                let rate = bytesLabel(Int64(transfer.bytesPerSecond))
+                                Text("\(rate)/秒 · 预计剩余 \(eta(seconds))")
+                            } else { Text("等待传输 · 预计剩余时间估算中…") }
+                        }
+                    } else {
+                        Text("等待传输 · 网速和剩余时间估算中…")
                     }
-                } else if uploadItems.contains(where: { [.queued, .uploading].contains($0.phase) }) {
-                    Text("等待传输 · 网速和剩余时间估算中…")
-                } else { Text("暂停或待重试") }
+                }
             }
         }
     }
@@ -197,7 +233,8 @@ struct NativeUploadView: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(item.name).font(.subheadline.bold()).lineLimit(2)
                                 if item.mediaType == "live_photo" { Label("实况照片", systemImage: "livephoto").font(.caption) }
-                                Text(item.resources.isEmpty ? "大小：提取后显示" : ByteCountFormatter.string(fromByteCount: item.size, countStyle: .file)).font(.caption)
+                                let size = item.resources.isEmpty ? item.sourceByteCount : item.size
+                                Text(size.map(bytesLabel) ?? "大小：待读取").font(.caption)
                                 Text("拍摄：\(item.captureDate ?? "未知")").font(.caption)
                                 if item.captureDate == nil, let date = item.photoKitDate {
                                     Text("PhotoKit 参考：\(date.formatted(date: .numeric, time: .shortened))（不代替原始时间）")
@@ -210,9 +247,16 @@ struct NativeUploadView: View {
                         }
                         if !item.warning.isEmpty { Text(item.warning).font(.caption).foregroundStyle(.orange) }
                         Text(item.phase.label).font(.caption.bold())
-                        if item.phase == .preparing { ProgressView(value: item.preparationProgress) }
-                        if item.confirmed && item.size > 0 {
-                            ProgressView(value: item.phase == .complete ? 1 : min(0.99, Double(bytesSent(item)) / Double(item.size)))
+                        if item.phase == .preparing {
+                            let progress = ByteProgress(processed: preparation?.bytesRead ?? 0, total: item.sourceByteCount)
+                            if let fraction = progress.fraction { ProgressView(value: fraction) }
+                            else { ProgressView() }
+                            Text("已读取 \(progressLabel(progress))").font(.caption)
+                        }
+                        if item.confirmed && !item.duplicate && item.phase != .cancelled && item.size > 0 {
+                            let progress = ByteProgress(processed: bytesSent(item), total: item.size)
+                            ProgressView(value: progress.fraction ?? 0)
+                            Text("已上传 \(progressLabel(progress))").font(.caption)
                         }
                         if !item.message.isEmpty { Text(item.message).font(.caption).foregroundStyle(item.phase == .failed ? .red : .secondary) }
                         if !item.isTerminal {

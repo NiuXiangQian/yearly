@@ -87,7 +87,7 @@ struct UploadItem: Codable, Identifiable {
     var photoKitDate: Date?
     var warning = ""
     var message = ""
-    var preparationProgress = 0.0
+    var sourceByteCount: Int64?
     var childIDs: [Int] = []
     var batchName = ""
     var archiveDate: String?
@@ -98,11 +98,9 @@ struct UploadItem: Codable, Identifiable {
 
     var isTerminal: Bool { phase == .complete || phase == .cancelled || phase == .skipped }
     var size: Int64 { resources.reduce(0) { $0 + $1.size } }
-    var progress: Double {
-        if phase == .complete { return 1 }
-        guard size > 0 else { return 0 }
-        let fraction = Double(resources.reduce(Int64(0)) { $0 + ($1.complete ? $1.size : $1.uploadedBytes) }) / Double(size)
-        return min(fraction, 0.99) // Reserve success/100% for verified completion of the logical media.
+    var uploadedBytes: Int64 {
+        if phase == .complete { return size }
+        return resources.reduce(0) { $0 + ($1.complete ? $1.size : $1.uploadedBytes) }
     }
     func sameOriginals(as other: UploadItem) -> Bool {
         guard site == other.site, ownerID == other.ownerID, mediaType == other.mediaType,
@@ -123,6 +121,21 @@ struct UploadItem: Codable, Identifiable {
         json["batch_name"] = batchName
         json["timeline_date"] = archiveDate as Any? ?? NSNull()
         return try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+    }
+}
+
+struct ByteProgress {
+    let processed: Int64
+    let total: Int64?
+
+    var fraction: Double? {
+        guard let total, total > 0 else { return nil }
+        return min(1, Double(processed) / Double(total))
+    }
+
+    func remainingTime(bytesPerSecond: Double) -> Double? {
+        guard let total, bytesPerSecond.isFinite, bytesPerSecond > 0, processed < total else { return nil }
+        return Double(total - processed) / bytesPerSecond
     }
 }
 

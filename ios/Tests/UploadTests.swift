@@ -117,7 +117,14 @@ import UniformTypeIdentifiers
         var unverified = UploadItem(assetIdentifier: "synthetic", site: "https://yearly.invalid/", ownerID: 1, name: "pending", mediaType: "photo")
         unverified.resources = [heicResource]
         unverified.resources[0].uploadedBytes = heicResource.size
-        expect(unverified.progress < 1, "100 percent reserved for verified logical media")
+        unverified.phase = .uploading
+        let sent = ByteProgress(processed: unverified.uploadedBytes, total: unverified.size)
+        expect(sent.fraction == 1 && unverified.phase != .complete, "all bytes sent does not imply verification")
+        let mixed = ByteProgress(processed: 4, total: 4 + 396)
+        expect(mixed.fraction == 0.01, "a small photo and a large video are weighted by bytes")
+        expect(mixed.remainingTime(bytesPerSecond: 8) == 49.5, "ETA uses remaining bytes")
+        let unknown = ByteProgress(processed: 4, total: nil)
+        expect(unknown.fraction == nil && unknown.remainingTime(bytesPerSecond: 8) == nil, "unknown original size never becomes a fabricated percent")
         let invalidParts = MockUploadService()
         invalidParts.knownParts = [RemotePart(number: 1, size: 1)]
         await rejects("malformed resume part") { try await MultipartUploader.upload(multipart, file: multi, service: invalidParts) { _, _ in } }

@@ -8,6 +8,12 @@ import Photos
         let bytesPerSecond: Double
         let sampledAt: Date
     }
+    struct Preparation {
+        let itemID: UUID
+        let bytesRead: Int64
+        let bytesPerSecond: Double
+        let sampledAt: Date
+    }
 
     @Published private(set) var items: [UploadItem] = []
     @Published var error = ""
@@ -15,7 +21,7 @@ import Photos
     private var duplicateNames: [String] = []
     @Published private(set) var running = false
     @Published private(set) var transfer: Transfer?
-    @Published private(set) var preparationSecondsPerItem: Double?
+    @Published private(set) var preparation: Preparation?
     private(set) var uploadGroup: Set<UUID> = []
     private var store: UploadStore?
     private var worker: Task<Void, Never>?
@@ -66,9 +72,6 @@ import Photos
     func add(identifiers: [String], account: UploadAccount) {
         guard let site, store != nil, session?.account?.id == account.id, session?.canEdit == true else { return }
         duplicateNotice = ""; duplicateNames = []
-        if !items.contains(where: { $0.site == site.url.absoluteString && $0.ownerID == account.id && [.selected, .preparing].contains($0.phase) }) {
-            preparationSecondsPerItem = nil
-        }
         // Fetch individually: PHFetchResult does not promise picker order.
         for identifier in identifiers {
             if let existing = items.first(where: { $0.assetIdentifier == identifier && $0.site == site.url.absoluteString && $0.ownerID == account.id && !$0.isTerminal }) {
@@ -76,11 +79,13 @@ import Photos
                 continue
             }
             let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject
-            let resource = asset.flatMap { PHAssetResource.assetResources(for: $0).first }
+            let selection = asset.flatMap { try? PhotoOriginals.selection(for: $0) }
+            let resource = selection?.resources.first
             var item = UploadItem(assetIdentifier: identifier, site: site.url.absoluteString, ownerID: account.id,
                                   name: resource?.originalFilename ?? "无法访问的照片",
                                   mediaType: asset?.mediaSubtypes.contains(.photoLive) == true ? "live_photo" : asset?.mediaType == .video ? "video" : "photo")
             item.photoKitDate = asset?.creationDate
+            item.sourceByteCount = selection.flatMap { PhotoOriginals.totalSize($0.sizes) }
             items.append(item)
         }
         do { try persist(); suspended = false; start() } catch { }
@@ -146,6 +151,7 @@ import Photos
         suspended = true
         worker?.cancel()
         transfer = nil
+        preparation = nil
         for i in items.indices where [.selected, .preparing, .queued, .uploading].contains(items[i].phase) { items[i].phase = .paused }
         if store != nil { do { try persist() } catch { } }
     }
@@ -176,6 +182,7 @@ import Photos
         worker = Task {
             await run(site: site, session: session)
             activeID = nil
+            preparation = nil
             worker = nil
             running = false
             // A per-item cancellation must not discard the other items in this batch.
@@ -192,34 +199,34 @@ import Photos
                 if items[index].phase == .selected {
                     let started = Date()
                     items[index].phase = .preparing
-                    items[index].preparationProgress = 0
                     try persist()
                     let source = items[index]
                     let extraction = Task.detached(priority: .utility) {
-                        try await PhotoOriginals.prepare(source, store: store) { [weak self] progress, message in
+                        try await PhotoOriginals.prepare(source, store: store) { [weak self] bytes, total, message in
+                            let sampledAt = Date()
                             Task { @MainActor in
-                                guard let self, let i = self.items.firstIndex(where: { $0.id == id }), self.items[i].phase == .preparing else { return }
-                                // PhotoKit may emit frequent callbacks. Publish only visible progress changes.
-                                guard abs(self.items[i].preparationProgress - progress) >= 0.01 || self.items[i].message != message else { return }
-                                self.items[i].preparationProgress = progress
-                                self.items[i].message = message
-                                if self.preparationSecondsPerItem == nil, progress >= 0.1, progress < 0.9 {
-                                    self.preparationSecondsPerItem = max(0.1, Date().timeIntervalSince(started) / progress)
-                                }
+                                guard let self, self.activeID == id, self.items[index].phase == .preparing else { return }
+                                if let previous = self.preparation, sampledAt < previous.sampledAt { return }
+                                if self.items[index].sourceByteCount != total { self.items[index].sourceByteCount = total }
+                                if self.items[index].message != message { self.items[index].message = message }
+                                let elapsed = max(0.25, sampledAt.timeIntervalSince(started))
+                                self.preparation = Preparation(itemID: id, bytesRead: bytes, bytesPerSecond: Double(bytes) / elapsed, sampledAt: sampledAt)
                             }
                         }
                     }
                     let prepared = try await withTaskCancellationHandler { try await extraction.value } onCancel: { extraction.cancel() }
                     try Task.checkCancellation()
                     items[index] = prepared
-                    let elapsed = max(0.1, Date().timeIntervalSince(started))
-                    preparationSecondsPerItem = preparationSecondsPerItem.map { $0 * 0.6 + elapsed * 0.4 } ?? elapsed
                     try persist()
                 } else {
                     uploadGroup.insert(id)
                     let service = session.uploadAPI(ownerID: items[index].ownerID)
                     service.onPartProgress = { [weak self] bytes, rate in
                         guard let self, self.activeID == id, self.items[index].phase == .uploading else { return }
+                        if rate == 0 {
+                            self.transfer = nil
+                            return
+                        }
                         let now = Date()
                         if let previous = self.transfer, now.timeIntervalSince(previous.sampledAt) < 0.25 { return }
                         self.transfer = Transfer(itemID: id, inFlightBytes: bytes, bytesPerSecond: rate, sampledAt: now)
@@ -305,6 +312,7 @@ import Photos
                 do { try persist() } catch { return }
             }
             activeID = nil
+            preparation = nil
             transfer = nil
         }
     }

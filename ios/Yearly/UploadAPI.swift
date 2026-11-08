@@ -131,7 +131,11 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         activePart = part
         let started = Date()
         let partSize = Int64(data.count)
-        defer { activePart = nil }
+        var succeeded = false
+        defer {
+            activePart = nil
+            if !succeeded { onPartProgress?(0, 0) }
+        }
         let delegate = onPartProgress == nil ? nil : UploadRedirectPolicy { [weak self] bytes in
             let elapsed = Date().timeIntervalSince(started)
             guard elapsed >= 0.25 else { return }
@@ -145,6 +149,7 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
             throw UploadHTTPError(status: (response as? HTTPURLResponse)?.statusCode ?? 0, isOSS: true)
         }
         let elapsed = max(Date().timeIntervalSince(started), 0.05)
+        succeeded = true
         onPartProgress?(partSize, Double(partSize) / elapsed)
     }
     func complete(_ task: RemoteUpload) async throws {
