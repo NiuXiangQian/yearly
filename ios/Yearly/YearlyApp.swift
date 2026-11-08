@@ -62,14 +62,18 @@ struct NativeAppShell: View {
                         .tabItem { Label("时间线", systemImage: "photo.on.rectangle") }.tag(0)
                     Group {
                         if session.canEdit {
-                            NativeUploadView(queue: queue, session: session) { tab = 0; Task { await timeline.load() } }
+                            NativeUploadView(queue: queue, session: session) { mediaIDs in
+                                timeline.focusOnUploads(mediaIDs)
+                                tab = 0
+                                if mediaIDs.isEmpty { Task { await timeline.load() } }
+                            }
                         } else {
                             NavigationStack { Text("此账号为只读账号，可以浏览家庭回忆。上传需要家庭编辑权限。").padding().navigationTitle("珍藏原片") }
                         }
                     }.tabItem { Label("上传", systemImage: "square.and.arrow.up") }.tag(1)
                     NavigationStack {
                         List(timeline.profiles) { profile in
-                            Button { timeline.selected = [profile.id]; tab = 0 } label: {
+                            Button { timeline.focusOnUploads([]); timeline.selected = [profile.id]; tab = 0 } label: {
                                 Label(profile.label, systemImage: profile.profile_type == "pet" ? "pawprint" : "person.crop.circle")
                             }
                         }.navigationTitle("家人与宠物")

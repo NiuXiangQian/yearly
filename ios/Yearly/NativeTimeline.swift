@@ -110,10 +110,16 @@ struct NativeTimelineView: View {
     @State private var dragToken = UUID().uuidString
     @State private var showingTrash = false
     private var days: [String] { Array(Set(store.items.map(\.day))).sorted { a, b in a == "日期未知" ? false : b == "日期未知" ? true : store.ascending ? a < b : a > b } }
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 22) {
+    private var timelineList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 22) {
+                if store.showingUploads {
+                    HStack {
+                        Text("按归档日期查看刚上传的影像").font(.subheadline).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("返回时间线") { store.focusOnUploads([]) }.font(.subheadline)
+                    }
+                } else {
                     Picker("影像类型", selection: $store.mediaType) {
                         Text("全部").tag(""); Text("照片").tag("photo")
                         Text("实况").tag("live_photo"); Text("视频").tag("video")
@@ -123,67 +129,84 @@ struct NativeTimelineView: View {
                         Spacer()
                         if store.hasFilters { Button("清除筛选") { store.resetFilters() }.font(.caption) }
                     }
-                    if !store.error.isEmpty {
-                        Text(store.error).foregroundStyle(.red)
-                        Button("重新加载") { Task { await store.load() } }
-                    }
-                    if store.items.isEmpty && !store.loading { Text(store.hasFilters ? "没有符合条件的回忆，试试其他关键词或日期。" : "还没有回忆，去上传页珍藏第一张照片吧。") }
-                    ForEach(days, id: \.self) { day in
-                        Section {
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                                ForEach(store.items.filter { $0.day == day }, id: \.stableID) { item in
-                                    Button {
-                                        if selecting {
-                                            if let index = chosen.firstIndex(where: { $0.id == item.id }) { chosen.remove(at: index) }
-                                            else if chosen.count < 200 { chosen.append(item) }
-                                            else { selectionLimit = true }
-                                        } else { selectedItem = item }
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 7) {
-                                            if let file = item.primary {
-                                                NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
-                                                    .frame(height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
-                                                    .overlay(alignment: .bottomLeading) {
-                                                        if item.media_type == "live_photo" { Label("LIVE", systemImage: "livephoto").font(.caption2.bold()).padding(5).background(.regularMaterial, in: Capsule()).padding(7) }
-                                                        if item.media_type == "video" { Image(systemName: "play.fill").padding(8).background(.regularMaterial, in: Circle()).padding(7) }
-                                                    }
-                                            } else {
-                                                Image(systemName: "book.closed").frame(maxWidth: .infinity).frame(height: 150).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-                                            }
-                                            Text(item.label).font(.caption).lineLimit(2)
+                }
+                if !store.error.isEmpty {
+                    Text(store.error).foregroundStyle(.red)
+                    Button("重新加载") { Task { await store.load() } }
+                }
+                if store.items.isEmpty && !store.loading && store.error.isEmpty {
+                    if store.showingUploads { Text("这批影像已移除或暂时无法查看。") }
+                    else { Text(store.hasFilters ? "没有符合条件的回忆，试试其他关键词或日期。" : "还没有回忆，去上传页珍藏第一张照片吧。") }
+                }
+                ForEach(days, id: \.self) { day in
+                    Section {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                            ForEach(store.items.filter { $0.day == day }, id: \.stableID) { item in
+                                Button {
+                                    if selecting {
+                                        if let index = chosen.firstIndex(where: { $0.id == item.id }) { chosen.remove(at: index) }
+                                        else if chosen.count < 200 { chosen.append(item) }
+                                        else { selectionLimit = true }
+                                    } else { selectedItem = item }
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 7) {
+                                        if let file = item.primary {
+                                            NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
+                                                .frame(height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
+                                                .overlay(alignment: .bottomLeading) {
+                                                    if item.media_type == "live_photo" { Label("LIVE", systemImage: "livephoto").font(.caption2.bold()).padding(5).background(.regularMaterial, in: Capsule()).padding(7) }
+                                                    if item.media_type == "video" { Image(systemName: "play.fill").padding(8).background(.regularMaterial, in: Circle()).padding(7) }
+                                                }
+                                        } else {
+                                            Image(systemName: "book.closed").frame(maxWidth: .infinity).frame(height: 150).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
                                         }
-                                    }.buttonStyle(.plain)
-                                    .disabled(selecting && item.kind != "media")
-                                    .overlay(alignment: .topTrailing) {
-                                        if selecting && item.kind == "media" {
-                                            Image(systemName: chosen.contains(where: { $0.id == item.id }) ? "checkmark.circle.fill" : "circle")
-                                                .font(.title2).foregroundStyle(.tint).padding(7).background(.regularMaterial, in: Circle()).allowsHitTesting(false)
-                                        }
+                                        Text(item.label).font(.caption).lineLimit(2)
                                     }
-                                    .modifier(MediaReorderGesture(enabled: store.session.canEdit && !selecting && item.kind == "media", token: dragToken, item: item, store: store))
-                                    .contextMenu {
-                                        if store.session.canEdit && item.kind == "media" {
-                                            Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
-                                        }
+                                }.buttonStyle(.plain)
+                                .disabled(selecting && item.kind != "media")
+                                .overlay(alignment: .topTrailing) {
+                                    if selecting && item.kind == "media" {
+                                        Image(systemName: chosen.contains(where: { $0.id == item.id }) ? "checkmark.circle.fill" : "circle")
+                                            .font(.title2).foregroundStyle(.tint).padding(7).background(.regularMaterial, in: Circle()).allowsHitTesting(false)
                                     }
                                 }
-                            }
-                        } header: {
-                            HStack {
-                                Text(day).font(.title3.bold())
-                                Spacer()
-                                if store.session.canEdit && NativeDay.date(day) != nil {
-                                    Button { shareRequest = NativeShareRequest(day: day) } label: { Label("分享当天", systemImage: "square.and.arrow.up") }.font(.caption)
+                                .modifier(MediaReorderGesture(enabled: store.session.canEdit && !selecting && !store.showingUploads && item.kind == "media", token: dragToken, item: item, store: store))
+                                .contextMenu {
+                                    if store.session.canEdit && item.kind == "media" {
+                                        Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
+                                    }
                                 }
                             }
                         }
+                    } header: {
+                        HStack {
+                            Text(day).font(.title3.bold())
+                            Spacer()
+                            if store.showingUploads && NativeDay.date(day) != nil {
+                                Button("查看当天全部") { store.showDay(day) }.font(.caption)
+                            } else if store.session.canEdit && NativeDay.date(day) != nil {
+                                Button { shareRequest = NativeShareRequest(day: day) } label: { Label("分享当天", systemImage: "square.and.arrow.up") }.font(.caption)
+                            }
+                        }
                     }
-                    if store.loading { ProgressView().frame(maxWidth: .infinity) }
-                    if store.cursor != nil { Button("加载更多回忆") { Task { await store.load(more: true) } }.frame(maxWidth: .infinity).disabled(store.loading) }
-                }.padding()
+                }
+                if store.loading { ProgressView().frame(maxWidth: .infinity) }
+                if store.cursor != nil { Button("加载更多回忆") { Task { await store.load(more: true) } }.frame(maxWidth: .infinity).disabled(store.loading) }
+            }.padding()
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if store.showingUploads { timelineList.id(store.uploadedMediaIDs) }
+                else { timelineList.searchable(text: $store.search, prompt: "搜索标题、批次、备注或地点") }
             }
-            .navigationTitle("家庭时光")
-            .searchable(text: $store.search, prompt: "搜索标题、批次、备注或地点")
+            .navigationTitle(store.showingUploads ? "刚上传的回忆" : "家庭时光")
+            .onChange(of: store.uploadedMediaIDs) { _ in
+                selecting = false
+                chosen = []
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
@@ -191,14 +214,19 @@ struct NativeTimelineView: View {
                             Button { showingTrash = true } label: { Image(systemName: "trash") }.accessibilityLabel("回收站")
                             Button(selecting ? "取消" : "选择") { selecting.toggle(); chosen = [] }
                             Button { shareRequest = NativeShareRequest() } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享与管理") }
-                        Button { showingFilter = true } label: { Image(systemName: "line.3.horizontal.decrease.circle") }.accessibilityLabel("人物、日期与排序")
+                        if !store.showingUploads {
+                            Button { showingFilter = true } label: { Image(systemName: "line.3.horizontal.decrease.circle") }.accessibilityLabel("人物、日期与排序")
+                        }
                     }
                 }
             }
             .refreshable { await store.loadProfiles(); await store.load() }
             .task { await store.loadProfiles() }
             .task(id: store.queryKey) {
-                do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.loadIfNeeded() } catch { }
+                if store.showingUploads { await store.loadIfNeeded() }
+                else {
+                    do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.loadIfNeeded() } catch { }
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 if selecting {

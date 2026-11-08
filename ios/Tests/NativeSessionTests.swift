@@ -43,6 +43,9 @@ private final class SessionHTTP: URLProtocol {
             status = Self.authorized ? 200 : 401
             body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"csrf_token\":\"test-csrf\"}"
         case "/yearly/api/children": body = "[]"
+        case "/yearly/api/media/42": body = #"{"id":42,"media_type":"live_photo","timeline_day":"2018-01-03"}"#
+        case "/yearly/api/media/43": body = #"{"id":43,"media_type":"video"}"#
+        case "/yearly/api/media/44": status = 404
         case "/yearly/api/shares", "/yearly/api/shares/42":
             if Self.sharesFail { status = 503; break }
             if request.httpMethod == "DELETE" { Self.shareRevoked = true; break }
@@ -155,6 +158,21 @@ private final class SessionHTTP: URLProtocol {
         let reorderBody = try JSONSerialization.jsonObject(with: SessionHTTP.bodyData(reorder)) as? [String: Any]
         precondition(reorder.url?.path.hasSuffix("/media/reorder") == true && reorder.httpMethod == "POST")
         precondition(reorderBody?["target_id"] as? Int == 11 && reorderBody?["placement"] as? String == "after")
+        timeline.search = "原来的筛选"
+        let beforeUploadReview = SessionHTTP.requests.count
+        timeline.focusOnUploads([43, 42, 42, 44])
+        await timeline.loadIfNeeded()
+        precondition(SessionHTTP.requests.dropFirst(beforeUploadReview).map { $0.url!.path } ==
+                     ["/yearly/api/media/42", "/yearly/api/media/43", "/yearly/api/media/44"])
+        precondition(timeline.items.map(\.stableID) == ["media-42", "media-43"] && timeline.cursor == nil)
+        precondition(timeline.items.map(\.day) == ["2018-01-03", "日期未知"])
+        timeline.focusOnUploads([])
+        precondition(!timeline.showingUploads && timeline.search == "原来的筛选")
+        timeline.showDay("2018-01-03")
+        await timeline.loadIfNeeded()
+        let dayParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        precondition(dayParams.first { $0.name == "start" }?.value == "2018-01-03T00:00:00")
+        precondition(dayParams.first { $0.name == "end" }?.value == "2018-01-04T00:00:00")
         let sharing = NativeSharingStore(session: session)
         await sharing.load()
         precondition(sharing.shares.count == 1 && sharing.shares[0].token == nil)

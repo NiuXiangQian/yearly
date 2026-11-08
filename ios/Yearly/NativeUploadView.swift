@@ -5,7 +5,7 @@ struct NativeUploadView: View {
     @ObservedObject var queue: UploadQueue
     @ObservedObject var session: NativeSession
     private var site: SiteOrigin { session.site }
-    let onTimeline: () -> Void
+    let onTimeline: ([Int]) -> Void
     @State private var account: UploadAccount?
     @State private var profiles: [UploadProfile] = []
     @State private var children: Set<Int> = []
@@ -50,6 +50,12 @@ struct NativeUploadView: View {
     private var uploadItems: [UploadItem] {
         items.filter { $0.confirmed && !$0.duplicate && $0.phase != .cancelled &&
             (!$0.isTerminal || queue.uploadGroup.contains($0.id)) }
+    }
+    private var quickReviewIDs: [Int] {
+        let group = items.filter { queue.uploadGroup.contains($0.id) }
+        guard (1...5).contains(group.count), group.allSatisfy(\.isTerminal),
+              !uploadItems.contains(where: { [.queued, .uploading].contains($0.phase) }) else { return [] }
+        return group.filter { $0.phase == .complete }.compactMap(\.mediaID)
     }
     private var remainingUploadBytes: Int64 {
         uploadItems.filter { [.queued, .uploading].contains($0.phase) }.reduce(0) { $0 + $1.size - bytesSent($1) }
@@ -131,6 +137,13 @@ struct NativeUploadView: View {
                     if loadingAccount || openingPicker { ProgressView(openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
                     preparationSummary
                     uploadSummary
+                    if !quickReviewIDs.isEmpty {
+                        Button {
+                            onTimeline(quickReviewIDs)
+                        } label: {
+                            Label("在时间线查看刚上传的 \(quickReviewIDs.count) 项", systemImage: "photo.on.rectangle")
+                        }
+                    }
                     Text("按点选顺序导入；Live Photo 自动包含图片与 MOV。仅访问你选择并授权的项目。")
                         .font(.caption).foregroundStyle(.secondary)
                     if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited {
@@ -216,7 +229,7 @@ struct NativeUploadView: View {
                     }
                 }
                 Section {
-                    Button("查看家庭时间线") { onTimeline() }
+                    Button("查看家庭时间线") { onTimeline([]) }
                 }
             }
             .navigationTitle("珍藏原片")

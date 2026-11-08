@@ -52,8 +52,11 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     @Published var useDateRange = false
     @Published var startDate = Date()
     @Published var endDate = Date()
+    @Published private(set) var uploadedMediaIDs: [Int] = []
+    var showingUploads: Bool { !uploadedMediaIDs.isEmpty }
     var queryKey: String {
-        "\(selected.sorted())|\(search)|\(mediaType)|\(ascending)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
+        if showingUploads { return "uploads|\(uploadedMediaIDs)" }
+        return "\(selected.sorted())|\(search)|\(mediaType)|\(ascending)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
     }
     var hasFilters: Bool { !selected.isEmpty || !search.isEmpty || !mediaType.isEmpty || useDateRange }
     func resetFilters() { selected = []; search = ""; mediaType = ""; useDateRange = false }
@@ -66,10 +69,24 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     private var loadedQuery = ""
     let session: NativeSession
     init(session: NativeSession) { self.session = session }
+    func focusOnUploads(_ ids: [Int]) {
+        let ids = Set(ids.filter { $0 > 0 }).sorted()
+        guard uploadedMediaIDs != ids else { return }
+        generation += 1
+        items = []; total = 0; cursor = nil; loadedQuery = ""; loading = !ids.isEmpty; error = ""
+        uploadedMediaIDs = ids
+    }
+    func showDay(_ day: String) {
+        guard let date = NativeDay.date(day) else { return }
+        resetFilters()
+        startDate = date; endDate = date; useDateRange = true
+        focusOnUploads([])
+    }
     func resetForAccountChange() {
         generation += 1
         loadedQuery = ""; cursor = nil; loading = false
         items = []; profiles = []; total = 0; error = ""
+        uploadedMediaIDs = []
         resetFilters()
     }
     func loadIfNeeded() async {
@@ -78,7 +95,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     }
     func load(more: Bool = false) async {
         if more && (loading || cursor == nil || loadedQuery != queryKey) { return }
-        if useDateRange && NativeDay.string(startDate) > NativeDay.string(endDate) {
+        if !showingUploads && useDateRange && NativeDay.string(startDate) > NativeDay.string(endDate) {
             error = "结束日期不能早于开始日期。"; return
         }
         generation += 1
@@ -86,6 +103,24 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         let requestedQuery = queryKey
         defer { if ticket == generation { loading = false } }
         loading = true; error = ""
+        if showingUploads {
+            do {
+                var uploads: [NativeTimelineItem] = []
+                for id in uploadedMediaIDs {
+                    try Task.checkCancellation()
+                    do {
+                        var item: NativeTimelineItem = try await session.get("/media/\(id)")
+                        item.kind = "media"
+                        uploads.append(item)
+                    } catch let error as NativeAPIError where error.status == 404 {
+                        continue
+                    }
+                }
+                guard ticket == generation, !Task.isCancelled else { return }
+                items = uploads; total = uploads.count; loadedQuery = requestedQuery
+            } catch { if ticket == generation && !Task.isCancelled { self.error = friendly(error) } }
+            return
+        }
         var query = URLComponents()
         var params = [URLQueryItem(name: "page_size", value: "40"), URLQueryItem(name: "group_folders", value: "false"), URLQueryItem(name: "order", value: ascending ? "asc" : "desc")]
         let queryText = String(search.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
