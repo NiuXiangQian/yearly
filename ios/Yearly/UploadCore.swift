@@ -270,6 +270,40 @@ enum PhotoResourcePolicy {
 }
 
 @MainActor enum MultipartUploader {
+    static func uploadAvatar(_ jpeg: Data, key: UUID, service: UploadService,
+                             progress: (Double) -> Void) async throws -> Int {
+        guard !jpeg.isEmpty, jpeg.count <= 1024 * 1024 else {
+            throw UploadFailure(message: "头像图片须小于或等于 1 MB。")
+        }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("yearly-avatar-\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: file) }
+        #if os(iOS)
+        try jpeg.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        #else
+        try jpeg.write(to: file, options: .atomic)
+        #endif
+        let digest = try await Task.detached(priority: .utility) { try FileIntegrity.fingerprint(file) }.value
+        var resource = UploadResource(role: "original", filename: "avatar.jpg", mimeType: "image/jpeg",
+                                      path: file.path, size: digest.size, sha256: digest.sha256, crc64: digest.crc64)
+        let body = try JSONSerialization.data(withJSONObject: [
+            "purpose": "avatar", "media_type": "photo", "files": [resource.specification],
+        ])
+        let result = try await retry { try await service.create(body: body, key: key) }
+        guard result.media_id > 0 else { throw UploadFailure(message: "未获得有效的头像记录。") }
+        if result.duplicate == true && result.tasks.isEmpty {
+            progress(1)
+            return result.media_id
+        }
+        guard result.tasks.count == 1, let task = result.tasks.first, task.media_id == result.media_id else {
+            throw UploadFailure(message: "头像上传任务不匹配，未更改资料。")
+        }
+        resource.task = task
+        try await upload(resource, file: file, service: service) { bytes, complete in
+            progress(complete ? 1 : min(0.95, Double(bytes) / Double(resource.size)))
+        }
+        return result.media_id
+    }
+
     static func retry<T>(sleep: (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) },
                          operation: () async throws -> T) async throws -> T {
         for attempt in 0..<3 {

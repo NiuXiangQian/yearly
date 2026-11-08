@@ -15,7 +15,11 @@ import UniformTypeIdentifiers
     var expectedSize: Int64 = 0
     var discardBytes = false
     var knownParts: [RemotePart]?
-    func create(body: Data, key: UUID) async throws -> UploadCreation { fatalError("not used") }
+    var createUpload: ((Data, UUID) throws -> UploadCreation)?
+    func create(body: Data, key: UUID) async throws -> UploadCreation {
+        guard let createUpload else { fatalError("unexpected upload creation") }
+        return try createUpload(body, key)
+    }
     func status(_ task: RemoteUpload) async throws -> RemoteStatus {
         RemoteStatus(status: completed ? "complete" : "uploading", parts: knownParts ?? remoteParts.sorted { $0.key < $1.key }.map { RemotePart(number: $0.key, size: Int64($0.value.count)) })
     }
@@ -91,6 +95,41 @@ import UniformTypeIdentifiers
         try await MultipartUploader.upload(heicResource, file: heic, service: mock) { _, complete in success = complete }
         expect(success && mock.completed, "HEIC completes after server confirmation")
         expect(mock.remoteParts[1] == (try Data(contentsOf: heic)), "HEIC uploaded without conversion")
+
+        let avatarFile = root.appendingPathComponent("avatar.jpg")
+        let avatarDestination = CGImageDestinationCreateWithURL(avatarFile as CFURL, UTType.jpeg.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(avatarDestination, context.makeImage()!, nil)
+        expect(CGImageDestinationFinalize(avatarDestination), "create synthetic avatar JPEG")
+        let avatar = try Data(contentsOf: avatarFile)
+        let avatarDigest = try FileIntegrity.fingerprint(avatarFile)
+        let avatarService = MockUploadService()
+        let avatarKey = UUID()
+        avatarService.createUpload = { body, key in
+            let fields = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+            let files = fields?["files"] as? [[String: Any]]
+            expect(fields?["purpose"] as? String == "avatar" && fields?["media_type"] as? String == "photo", "avatar uses the dedicated media purpose")
+            expect(key == avatarKey && files?.count == 1, "avatar retries keep the same idempotency key")
+            expect(files?.first?["sha256"] as? String == avatarDigest.sha256 &&
+                   files?.first?["crc64"] as? String == avatarDigest.crc64, "avatar integrity is checked")
+            return UploadCreation(media_id: 8, tasks: [
+                RemoteUpload(id: "avatar-mock", media_id: 8, sha256: avatarDigest.sha256, file_size: avatarDigest.size,
+                             file_role: "original", part_size: FileIntegrity.blockSize, status: "pending"),
+            ], duplicate: false)
+        }
+        avatarService.completionError = UploadHTTPError(status: 409, isOSS: false)
+        var avatarProgress = [Double]()
+        await rejects("avatar must not attach before verification") {
+            _ = try await MultipartUploader.uploadAvatar(avatar, key: avatarKey, service: avatarService) { avatarProgress.append($0) }
+        }
+        expect(!avatarProgress.contains(1), "avatar progress stays below complete after failed verification")
+        avatarService.completionError = nil
+        let avatarID = try await MultipartUploader.uploadAvatar(avatar, key: avatarKey, service: avatarService) { avatarProgress.append($0) }
+        expect(avatarID == 8 && avatarProgress.last == 1 && avatarService.putCount == 1 && avatarService.remoteParts[1] == avatar,
+               "avatar retry resumes and attaches only verified bytes")
+        let alreadyUploaded = MockUploadService()
+        alreadyUploaded.createUpload = { _, _ in UploadCreation(media_id: 8, tasks: [], duplicate: true) }
+        let duplicateID = try await MultipartUploader.uploadAvatar(avatar, key: UUID(), service: alreadyUploaded) { _ in }
+        expect(duplicateID == 8 && alreadyUploaded.putCount == 0, "duplicate avatar reuses existing data")
 
         let multi = root.appendingPathComponent("multipart.mov")
         let data = Data(repeating: 0xA5, count: FileIntegrity.blockSize * 2 + 17)
