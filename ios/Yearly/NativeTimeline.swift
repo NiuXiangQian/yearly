@@ -59,18 +59,27 @@ struct NativeMediaImage: View {
 struct NativeTimelineView: View {
     @ObservedObject var store: NativeTimelineStore
     @State private var showingFilter = false
+    @State private var sharingDay: String?
     @State private var selectedItem: NativeTimelineItem?
-    private var days: [String] { Array(Set(store.items.map(\.day))).sorted { a, b in a == "日期未知" ? false : b == "日期未知" ? true : a > b } }
+    private var days: [String] { Array(Set(store.items.map(\.day))).sorted { a, b in a == "日期未知" ? false : b == "日期未知" ? true : store.ascending ? a < b : a > b } }
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
-                    Text("\(store.total) 份家庭回忆").font(.subheadline).foregroundStyle(.secondary)
+                    Picker("影像类型", selection: $store.mediaType) {
+                        Text("全部").tag(""); Text("照片").tag("photo")
+                        Text("实况").tag("live_photo"); Text("视频").tag("video")
+                    }.pickerStyle(.segmented)
+                    HStack {
+                        Text("\(store.total) 份家庭回忆").font(.subheadline).foregroundStyle(.secondary)
+                        Spacer()
+                        if store.hasFilters { Button("清除筛选") { store.resetFilters() }.font(.caption) }
+                    }
                     if !store.error.isEmpty {
                         Text(store.error).foregroundStyle(.red)
                         Button("重新加载") { Task { await store.load() } }
                     }
-                    if store.items.isEmpty && !store.loading { Text("还没有回忆，去上传页珍藏第一张照片吧。") }
+                    if store.items.isEmpty && !store.loading { Text(store.hasFilters ? "没有符合条件的回忆，试试其他关键词或日期。" : "还没有回忆，去上传页珍藏第一张照片吧。") }
                     ForEach(days, id: \.self) { day in
                         Section {
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
@@ -92,28 +101,57 @@ struct NativeTimelineView: View {
                                     }.buttonStyle(.plain)
                                 }
                             }
-                        } header: { Text(day).font(.title3.bold()) }
+                        } header: {
+                            HStack {
+                                Text(day).font(.title3.bold())
+                                Spacer()
+                                if store.session.canEdit && NativeDay.date(day) != nil {
+                                    Button { sharingDay = day } label: { Label("分享当天", systemImage: "square.and.arrow.up") }.font(.caption)
+                                }
+                            }
+                        }
                     }
                     if store.loading { ProgressView().frame(maxWidth: .infinity) }
                     if store.cursor != nil { Button("加载更早的回忆") { Task { await store.load(more: true) } }.frame(maxWidth: .infinity).disabled(store.loading) }
                 }.padding()
             }
             .navigationTitle("家庭时光")
+            .searchable(text: $store.search, prompt: "搜索标题、批次、备注或地点")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showingFilter = true } label: { Label(store.selected.isEmpty ? "所有家人" : "已选 \(store.selected.count) 位", systemImage: "line.3.horizontal.decrease.circle") }
+                    HStack {
+                        if store.session.canEdit { Button { sharingDay = "" } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享与管理") }
+                        Button { showingFilter = true } label: { Image(systemName: "line.3.horizontal.decrease.circle") }.accessibilityLabel("人物、日期与排序")
+                    }
                 }
             }
             .refreshable { await store.loadProfiles(); await store.load() }
-            .task(id: store.selected.sorted()) { await store.loadProfiles(); await store.load() }
+            .task { await store.loadProfiles() }
+            .task(id: store.queryKey) {
+                do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.load() } catch { }
+            }
+            .sheet(isPresented: Binding(get: { sharingDay != nil }, set: { if !$0 { sharingDay = nil } })) {
+                NativeSharingView(session: store.session, day: sharingDay)
+            }
             .sheet(isPresented: $showingFilter) {
                 NavigationStack {
                     List {
-                        Button("全部家庭时光") { store.selected = [] }
+                        Section("时间与排序") {
+                            Toggle("从早到晚", isOn: $store.ascending)
+                            Toggle("按日期范围查找", isOn: $store.useDateRange)
+                            if store.useDateRange {
+                                DatePicker("开始日期", selection: $store.startDate, displayedComponents: .date)
+                                DatePicker("结束日期", selection: $store.endDate, displayedComponents: .date)
+                                Text("按归档日期查找，包含结束当天。未知日期不在日期范围中。")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Button("清除所有筛选") { store.resetFilters() }
+                        Button("所有家人") { store.selected = [] }
                         ForEach(store.profiles) { profile in
                             Toggle(profile.label, isOn: Binding(get: { store.selected.contains(profile.id) }, set: { if $0 { store.selected.insert(profile.id) } else { store.selected.remove(profile.id) } }))
                         }
-                    }.navigationTitle("按家人筛选")
+                    }.navigationTitle("筛选与排序")
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingFilter = false } } }
                 }
             }
@@ -138,6 +176,7 @@ struct NativeMediaDetail: View {
     @State private var observation: NSKeyValueObservation?
     @State private var playbackTask: Task<Void, Never>?
     @State private var showingInfo = false
+    @State private var showingShare = false
     @State private var zoom = 1.0
     @State private var imageScale = 1.0
     private var item: NativeTimelineItem { detail ?? initial }
@@ -185,7 +224,14 @@ struct NativeMediaDetail: View {
             .navigationTitle(item.label).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { stop(); dismiss() } }
-                ToolbarItem(placement: .navigationBarTrailing) { Button { showingInfo = true } label: { Image(systemName: "info.circle") } }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack {
+                        if session.canEdit && NativeDay.date(item.day) != nil {
+                            Button { stop(); showingShare = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享当天回忆")
+                        }
+                        Button { showingInfo = true } label: { Image(systemName: "info.circle") }
+                    }
+                }
             }
             .task {
                 guard initial.kind != "event" else { return }
@@ -193,6 +239,7 @@ struct NativeMediaDetail: View {
                 do { detail = try await session.get("/media/\(initial.id)") }
                 catch { message = friendly(error) }
             }
+            .sheet(isPresented: $showingShare) { NativeSharingView(session: session, day: item.day) }
             .sheet(isPresented: $showingInfo) { NativeMediaInfo(session: session, item: item, profiles: profiles) {
                 onSaved()
                 Task { do { detail = try await session.get("/media/\(initial.id)") } catch { message = friendly(error) } }

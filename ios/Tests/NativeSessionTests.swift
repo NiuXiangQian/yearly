@@ -11,6 +11,8 @@ private final class SessionHTTP: URLProtocol {
     static var authorized = true
     static var secureCookie = true
     static var timelineFails = false
+    static var shareRevoked = false
+    static var sharesFail = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -27,6 +29,11 @@ private final class SessionHTTP: URLProtocol {
             status = Self.authorized ? 200 : 401
             body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"csrf_token\":\"test-csrf\"}"
         case "/yearly/api/children": body = "[]"
+        case "/yearly/api/shares", "/yearly/api/shares/42":
+            if Self.sharesFail { status = 503; break }
+            if request.httpMethod == "DELETE" { Self.shareRevoked = true; break }
+            let record = "{\"id\":42,\"title\":\"synthetic share\",\"start_date\":\"2026-11-08\",\"end_date\":\"2026-11-09\",\"expires_at\":\"2099-01-01T12:00:00.123456Z\",\"revoked\":\(Self.shareRevoked),\"expired\":false"
+            body = request.httpMethod == "POST" ? record + ",\"token\":\"synthetic_share_token\"}" : "[" + record + "}]"
         case "/yearly/api/timeline":
             if Self.timelineFails { status = 503; body = "{}"; break }
             let more = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "cursor" } == true
@@ -81,6 +88,55 @@ private final class SessionHTTP: URLProtocol {
         await timeline.load()
         precondition(timeline.items.count == 3 && !timeline.error.isEmpty && !timeline.loading)
         SessionHTTP.timelineFails = false
+        await timeline.load()
+        precondition(timeline.cursor != nil)
+        let previousRequestCount = SessionHTTP.requests.count
+        timeline.search = "旅途 & 家人"
+        await timeline.load(more: true)
+        precondition(SessionHTTP.requests.count == previousRequestCount, "changed filters must not reuse a previous cursor")
+        timeline.mediaType = "live_photo"
+        timeline.ascending = true
+        timeline.useDateRange = true
+        timeline.startDate = NativeDay.date("2026-11-08")!
+        timeline.endDate = NativeDay.date("2026-11-09")!
+        await timeline.load()
+        let filters = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        precondition(filters.first { $0.name == "q" }?.value == "旅途 & 家人")
+        precondition(filters.first { $0.name == "media_type" }?.value == "live_photo")
+        precondition(filters.first { $0.name == "order" }?.value == "asc")
+        precondition(filters.first { $0.name == "start" }?.value == "2026-11-08T00:00:00")
+        precondition(filters.first { $0.name == "end" }?.value == "2026-11-10T00:00:00")
+        precondition(!filters.contains { $0.name == "cursor" })
+        precondition(NativeDay.date("2026-02-30") == nil)
+        precondition(NativeDay.following(NativeDay.date("2024-02-28")!) == "2024-02-29")
+        timeline.resetFilters()
+        precondition(!timeline.hasFilters)
+        let sharing = NativeSharingStore(session: session)
+        await sharing.load()
+        precondition(sharing.shares.count == 1 && sharing.shares[0].token == nil)
+        precondition(sharing.shares[0].link(site: site) == nil)
+        let startDate = NativeDay.date("2026-11-08")!, endDate = NativeDay.date("2026-11-09")!
+        let beforeInvalid = SessionHTTP.requests.count
+        await sharing.create(title: "Invalid", start: endDate, end: startDate, hours: 24)
+        precondition(SessionHTTP.requests.count == beforeInvalid && sharing.created == nil)
+        await sharing.create(title: "Invalid", start: startDate, end: endDate, hours: 169)
+        precondition(SessionHTTP.requests.count == beforeInvalid)
+        await sharing.create(title: "Family", start: startDate, end: endDate, hours: 24)
+        precondition(sharing.created?.link(site: site)?.absoluteString == "https://native.invalid/yearly/share/synthetic_share_token")
+        let createShare = SessionHTTP.requests.last!
+        precondition(createShare.httpMethod == "POST" && createShare.value(forHTTPHeaderField: "X-CSRF-Token") == "test-csrf")
+        precondition(createShare.value(forHTTPHeaderField: "Origin") == "https://native.invalid")
+        SessionHTTP.sharesFail = true
+        await sharing.load()
+        precondition(!sharing.error.isEmpty && !sharing.busy && !sharing.shares.isEmpty)
+        SessionHTTP.sharesFail = false
+        await sharing.revoke(sharing.created!)
+        precondition(sharing.created?.link(site: site) == nil && sharing.created?.revoked == true)
+        precondition(SessionHTTP.requests.last?.httpMethod == "DELETE")
+        let unsafe = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T00:00:00Z","expired":false,"revoked":false,"token":"../../outside?secret"}"#.utf8))
+        precondition(unsafe.link(site: site) == nil)
+        let expiredLink = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2020-01-01T00:00:00Z","expired":false,"revoked":false,"token":"synthetic_expired"}"#.utf8))
+        precondition(expiredLink.link(site: site) == nil && !expiredLink.usable)
         let restored = NativeSession(site: site, store: store, transport: transport)
         await restored.restore()
         precondition(restored.account?.id == 1)
@@ -98,6 +154,10 @@ private final class SessionHTTP: URLProtocol {
         let count = SessionHTTP.requests.count
         do { try await session.write("/media/42", json: [:]); fatalError("viewer cannot write") }
         catch { precondition(SessionHTTP.requests.count == count) }
+        let readOnlySharing = NativeSharingStore(session: session)
+        let beforeShare = SessionHTTP.requests.count
+        await readOnlySharing.create(title: "Denied", start: startDate, end: endDate, hours: 24)
+        precondition(SessionHTTP.requests.count == beforeShare && readOnlySharing.created == nil && !readOnlySharing.error.isEmpty)
         SessionHTTP.authorized = false
         let expired = NativeSession(site: site, store: store, transport: transport)
         await expired.restore()
@@ -105,6 +165,6 @@ private final class SessionHTTP: URLProtocol {
         SessionHTTP.secureCookie = false
         do { try await expired.login(username: "synthetic", password: "not-saved-password", captcha: captcha, answer: "ABCDE"); fatalError("insecure cookie accepted") }
         catch { precondition(expired.account == nil && store.values.isEmpty) }
-        print("Native session mocks passed: captcha, login, Keychain boundary, app-path isolation, CSRF, role, expiry, logout, native timeline Live Photo decoding/filter/pagination/retry, HTTPS Cookie requirements; no live network.")
+        print("Native session mocks passed: captcha, login, Keychain boundary, app-path isolation, CSRF, role, expiry, logout, native timeline search/date/type/order, share create/revoke/scope/role/expiry, HTTPS Cookie requirements; no live network.")
     }
 }

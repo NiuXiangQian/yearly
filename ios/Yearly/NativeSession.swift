@@ -177,6 +177,11 @@ struct LoginCaptcha: Decodable {
         guard canEdit else { throw NativeAPIError(status: 403, message: "此账号为只读账号。") }
         _ = try await send(path, method: method, body: JSONSerialization.data(withJSONObject: json))
     }
+    func post<T: Decodable>(_ path: String, json: [String: Any]) async throws -> T {
+        guard canEdit else { throw NativeAPIError(status: 403, message: "此账号为只读账号。") }
+        let (data, _) = try await send(path, method: "POST", body: JSONSerialization.data(withJSONObject: json))
+        return try JSONDecoder().decode(T.self, from: data)
+    }
     private func expire() {
         generation += 1
         account = nil; credential = nil

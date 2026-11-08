@@ -37,32 +37,56 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     @Published var items: [NativeTimelineItem] = []
     @Published var profiles: [UploadProfile] = []
     @Published var selected: Set<Int> = []
+    @Published var search = ""
+    @Published var mediaType = ""
+    @Published var ascending = false
+    @Published var useDateRange = false
+    @Published var startDate = Date()
+    @Published var endDate = Date()
+    var queryKey: String {
+        "\(selected.sorted())|\(search)|\(mediaType)|\(ascending)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
+    }
+    var hasFilters: Bool { !selected.isEmpty || !search.isEmpty || !mediaType.isEmpty || useDateRange }
+    func resetFilters() { selected = []; search = ""; mediaType = ""; useDateRange = false }
+
     @Published var loading = false
     @Published var error = ""
     @Published var total = 0
     @Published private(set) var cursor: String?
     private var generation = 0
+    private var loadedQuery = ""
     let session: NativeSession
     init(session: NativeSession) { self.session = session }
     func load(more: Bool = false) async {
-        if more && (loading || cursor == nil) { return }
+        if more && (loading || cursor == nil || loadedQuery != queryKey) { return }
+        if useDateRange && NativeDay.string(startDate) > NativeDay.string(endDate) {
+            error = "结束日期不能早于开始日期。"; return
+        }
         generation += 1
         let ticket = generation
+        let requestedQuery = queryKey
         defer { if ticket == generation { loading = false } }
         loading = true; error = ""
         var query = URLComponents()
-        var params = [URLQueryItem(name: "page_size", value: "40"), URLQueryItem(name: "group_folders", value: "false"), URLQueryItem(name: "order", value: "desc")]
+        var params = [URLQueryItem(name: "page_size", value: "40"), URLQueryItem(name: "group_folders", value: "false"), URLQueryItem(name: "order", value: ascending ? "asc" : "desc")]
+        let queryText = String(search.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+        if !queryText.isEmpty { params.append(URLQueryItem(name: "q", value: queryText)) }
+        if ["photo", "video", "live_photo"].contains(mediaType) { params.append(URLQueryItem(name: "media_type", value: mediaType)) }
+        if useDateRange {
+            params.append(URLQueryItem(name: "start", value: NativeDay.string(startDate) + "T00:00:00"))
+            params.append(URLQueryItem(name: "end", value: NativeDay.following(endDate) + "T00:00:00"))
+        }
         params += selected.sorted().map { URLQueryItem(name: "child_id", value: String($0)) }
         if more, let cursor { params.append(URLQueryItem(name: "cursor", value: cursor)) }
         query.queryItems = params
         do {
             let page: NativeTimelinePage = try await session.get("/timeline?" + (query.percentEncodedQuery ?? ""))
-            guard ticket == generation, !Task.isCancelled else { return }
+            guard ticket == generation, requestedQuery == queryKey, !Task.isCancelled else { return }
             if more {
                 let existing = Set(items.map(\.stableID))
                 items += page.items.filter { !existing.contains($0.stableID) }
             } else { items = page.items }
-            total = page.total; cursor = page.next_cursor
+            total = page.total; cursor = page.next_cursor; loadedQuery = requestedQuery
         } catch { if ticket == generation && !Task.isCancelled { self.error = friendly(error) } }
     }
     func loadProfiles() async {

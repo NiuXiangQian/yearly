@@ -41,6 +41,7 @@ struct NativeAppShell: View {
     let editSite: () -> Void
     @State private var tab = 0
     @State private var loggingOut = false
+    @State private var showingShares = false
     @State private var message = ""
     init(site: SiteOrigin, queue: UploadQueue, editSite: @escaping () -> Void) {
         let session = NativeSession(site: site)
@@ -85,6 +86,11 @@ struct NativeAppShell: View {
                                 Text(session.site.url.absoluteString).font(.caption).textSelection(.enabled)
                                 Button("站点与关于") { queue.pauseAll(); editSite() }
                             }
+                            if session.canEdit {
+                                Section("分享") {
+                                    Button { showingShares = true } label: { Label("创建分享与管理链接", systemImage: "square.and.arrow.up") }
+                                }
+                            }
                             Section("原生 App") {
                                 Label("原生相册、时间线和播放器", systemImage: "iphone")
                                 Text("登录会话保存在 Keychain，密码不保存。进入后台时上传暂停，返回前台可续传。")
@@ -102,10 +108,12 @@ struct NativeAppShell: View {
                 }
             }
         }
+        .sheet(isPresented: $showingShares) { NativeSharingView(session: session) }
         .task { await session.restore(); queue.configure(session: session) }
         .onChange(of: session.account?.id) { _ in
             queue.pauseAll(); queue.configure(session: session)
-            timeline.items = []; timeline.selected = []; tab = 0
+            showingShares = false
+            timeline.items = []; timeline.resetFilters(); tab = 0
         }
         .onDisappear { queue.pauseAll() }
     }

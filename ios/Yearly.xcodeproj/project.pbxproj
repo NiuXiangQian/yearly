@@ -4,6 +4,10 @@
 	classes = {};
 	objectVersion = 56;
 	objects = {
+        A00000000000000000000010 /* NativeSharingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSharingView.swift; sourceTree = "<group>"; };
+        B00000000000000000000010 /* NativeSharingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000010; };
+        A00000000000000000000009 /* NativeSharingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSharingStore.swift; sourceTree = "<group>"; };
+        B00000000000000000000009 /* NativeSharingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000009; };
         A00000000000000000000008 /* NativeTimelineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineStore.swift; sourceTree = "<group>"; };
         B00000000000000000000008 /* NativeTimelineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000008; };
 		A00000000000000000000007 /* NativeTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimeline.swift; sourceTree = "<group>"; };
@@ -41,6 +45,8 @@
 		F00000000000000000000021 /* Yearly */ = {
 			isa = PBXGroup;
 			children = (
+                A00000000000000000000010 /* NativeSharingView.swift */,
+                A00000000000000000000009 /* NativeSharingStore.swift */,
                 A00000000000000000000008 /* NativeTimelineStore.swift */,
 				F00000000000000000000011 /* YearlyApp.swift */,
 				F00000000000000000000015 /* SiteOrigin.swift */,
@@ -68,7 +74,7 @@
 		F00000000000000000000030 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (B00000000000000000000008, B00000000000000000000007, B00000000000000000000006, B00000000000000000000000, B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000005, F00000000000000000000001 /* YearlyApp.swift in Sources */, F00000000000000000000004 /* SiteOrigin.swift in Sources */);
+			files = (B00000000000000000000010, B00000000000000000000009, B00000000000000000000008, B00000000000000000000007, B00000000000000000000006, B00000000000000000000000, B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000005, F00000000000000000000001 /* YearlyApp.swift in Sources */, F00000000000000000000004 /* SiteOrigin.swift in Sources */);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F00000000000000000000031 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
