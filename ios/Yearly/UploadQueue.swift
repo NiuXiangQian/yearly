@@ -116,28 +116,39 @@ import Photos
         do { try persist(); for id in skipped { try store?.removeFiles(id) }; suspended = false; start() } catch { }
     }
     func resume(_ id: UUID) {
-        guard let i = items.firstIndex(where: { $0.id == id }), !items[i].isTerminal,
-              items[i].ownerID == session?.account?.id, items[i].site == site?.url.absoluteString,
-              session?.canEdit == true, [.paused, .failed].contains(items[i].phase) else { return }
-        if activeID == id && worker != nil {
-            pendingResumes.insert(id)
-            suspended = false
-            return
-        }
-        items[i].phase = items[i].resources.isEmpty ? .selected : items[i].confirmed ? .queued : .ready
-        items[i].message = ""
-        do { try persist(); suspended = false; start() } catch { }
+        resume(phases: [.paused, .failed], id: id)
     }
+
     func resumeAll() {
-        guard let site, session?.canEdit == true else { return }
-        for i in items.indices where items[i].site == site.url.absoluteString && items[i].ownerID == session?.account?.id && items[i].phase == .paused {
+        resume(phases: [.paused])
+    }
+
+    func retryFailed() {
+        resume(phases: [.failed])
+    }
+
+    private func resume(phases: Set<UploadPhase>, id: UUID? = nil) {
+        guard let site, let session, session.canEdit, let ownerID = session.account?.id else { return }
+        let matches = items.indices.filter { index in
+            let item = items[index]
+            return item.site == site.url.absoluteString && item.ownerID == ownerID &&
+                phases.contains(item.phase) && (id == nil || item.id == id)
+        }
+        guard !matches.isEmpty else { return }
+        for i in matches {
             if activeID == items[i].id && worker != nil {
                 pendingResumes.insert(items[i].id)
                 continue
             }
-            items[i].phase = items[i].resources.isEmpty ? .selected : items[i].confirmed ? .queued : .ready
+            requeue(at: i)
         }
         do { try persist(); suspended = false; start() } catch { }
+    }
+
+    private func requeue(at index: Int) {
+        let item = items[index]
+        items[index].phase = item.resources.isEmpty ? .selected : item.confirmed ? .queued : .ready
+        items[index].message = ""
     }
     func pause(_ id: UUID) {
         pendingResumes.remove(id)
@@ -307,8 +318,8 @@ import Photos
                 }
                 do { try persist() } catch { return }
             }
-            if pendingResumes.remove(id) != nil && items[index].phase == .paused {
-                items[index].phase = items[index].resources.isEmpty ? .selected : items[index].confirmed ? .queued : .ready
+            if pendingResumes.remove(id) != nil && [.paused, .failed].contains(items[index].phase) {
+                requeue(at: index)
                 do { try persist() } catch { return }
             }
             activeID = nil

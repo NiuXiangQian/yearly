@@ -37,6 +37,7 @@ struct NativeUploadView: View {
     private var ready: [UploadItem] { items.filter { $0.phase == .ready && !excluded.contains($0.id) } }
     private var pending: [UploadItem] { items.filter { !$0.isTerminal } }
     private var finished: [UploadItem] { items.filter(\.isTerminal) }
+    private var failedCount: Int { items.filter { $0.phase == .failed }.count }
     private var visibleItems: [UploadItem] {
         let active = pending.filter { [.preparing, .uploading].contains($0.phase) }
         let waiting = pending.filter { ![.preparing, .uploading].contains($0.phase) }
@@ -173,6 +174,13 @@ struct NativeUploadView: View {
                     if loadingAccount || openingPicker { ProgressView(openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
                     preparationSummary
                     uploadSummary
+                    if failedCount > 0 {
+                        Button {
+                            queue.retryFailed()
+                        } label: {
+                            Label("全部重试（\(failedCount) 项失败）", systemImage: "arrow.clockwise")
+                        }.disabled(account == nil)
+                    }
                     if !quickReviewIDs.isEmpty {
                         Button {
                             onTimeline(quickReviewIDs)
@@ -211,7 +219,7 @@ struct NativeUploadView: View {
 
                 } header: { Text("上传确认 · 人物、孩子与宠物可多选") }
                 Section {
-                    Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .skipped }.count) 重复已跳过 · \(items.filter { $0.phase == .failed }.count) 失败 · \(items.count) 项")
+                    Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .skipped }.count) 重复已跳过 · \(failedCount) 失败 · \(items.count) 项")
                     Text("照片 \(items.filter { $0.mediaType == "photo" }.count) · Live Photo \(items.filter { $0.mediaType == "live_photo" }.count) · 视频 \(items.filter { $0.mediaType == "video" }.count)")
                         .font(.caption).foregroundStyle(.secondary)
                     HStack {
