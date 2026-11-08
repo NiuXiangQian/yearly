@@ -336,6 +336,7 @@ onBeforeUnmount(() => {
                     ><SharedThumbnail :base="base" :media="item" /><span
                       v-if="item.title"
                       class="shared-caption"
+                      :class="{ 'with-live-badge': item.media_type === 'live_photo' }"
                       >{{ item.title }}</span
                     ></template
                   >
@@ -405,6 +406,7 @@ onBeforeUnmount(() => {
           <SharedThumbnail :base="base" :media="item" /><span
             v-if="item.title"
             class="shared-caption"
+            :class="{ 'with-live-badge': item.media_type === 'live_photo' }"
             >{{ item.title }}</span
           >
         </button>
@@ -602,6 +604,9 @@ onBeforeUnmount(() => {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.shared-caption.with-live-badge {
+  padding-left: 68px;
 }
 .shared-folder,
 .shared-diary {

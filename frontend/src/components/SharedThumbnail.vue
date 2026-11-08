@@ -94,6 +94,7 @@ onBeforeUnmount(() => observer?.disconnect());
   right: auto;
   left: 7px;
   bottom: 7px;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   gap: 4px;

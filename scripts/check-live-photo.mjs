@@ -144,6 +144,12 @@ try {
     assert.equal(await card.locator('.shared-live-badge').innerText(), 'LIVE');
     assert.equal(await card.locator('.shared-live-badge .live-photo-icon circle').count(), 3);
     assert.equal(await page.locator('.shared-live-badge').count(), 1, 'only the Live Photo gets a LIVE badge');
+    assert(await card.evaluate(el => {
+      const badge = el.querySelector('.shared-live-badge');
+      const caption = el.querySelector('.shared-caption');
+      return caption.getBoundingClientRect().left + parseFloat(getComputedStyle(caption).paddingLeft)
+        > badge.getBoundingClientRect().right;
+    }), 'the title starts to the right of the LIVE badge');
    }
    await page.waitForFunction(() => [...document.querySelectorAll('.shared-thumb img, .media-visual > img')].every(img=>img.complete && img.naturalWidth>0 && getComputedStyle(img).opacity==='1'));
    for(const image of await thumbnails.all()) assert.equal(await image.evaluate(el=>getComputedStyle(el).objectFit),'contain','thumbnail preserves complete frame');
