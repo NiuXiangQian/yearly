@@ -1,5 +1,35 @@
 import SwiftUI
 import AVKit
+import ImageIO
+
+// Memory-only, scoped to account/site. Nothing is written to a shared disk cache.
+@MainActor enum NativeImageCache {
+    private final class Entry: NSObject {
+        let image: UIImage
+        let created = Date()
+        init(_ image: UIImage) { self.image = image }
+    }
+    private static let cache: NSCache<NSString, Entry> = {
+        let value = NSCache<NSString, Entry>()
+        value.totalCostLimit = 32 * 1024 * 1024
+        value.countLimit = 100
+        return value
+    }()
+    static func image(for key: String) -> UIImage? {
+        guard let entry = cache.object(forKey: key as NSString) else { return nil }
+        let age = Date().timeIntervalSince(entry.created)
+        guard age >= 0, age < 120 else {
+            cache.removeObject(forKey: key as NSString); return nil
+        }
+        return entry.image
+    }
+    static func insert(_ image: UIImage, for key: String) {
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        guard cost > 0, cost <= 32 * 1024 * 1024 else { return }
+        cache.setObject(Entry(image), forKey: key as NSString, cost: cost)
+    }
+    static func clear() { cache.removeAllObjects() }
+}
 
 // Signed media never receives the account Cookie or CSRF token. No shared disk cache.
 enum NativeMediaNetwork {
@@ -13,11 +43,17 @@ enum NativeMediaNetwork {
         config.timeoutIntervalForRequest = 30
         return URLSession(configuration: config, delegate: UploadRedirectPolicy(), delegateQueue: nil)
     }()
-    static func image(_ url: URL) async throws -> UIImage {
+    static func image(_ url: URL, maximumDimension: Int) async throws -> UIImage {
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200, data.count <= 20 * 1024 * 1024,
-              let image = UIImage(data: data) else { throw UploadFailure(message: "图片预览暂时不可用，请重试。") }
-        return image
+              let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let bitmap = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: maximumDimension,
+                kCGImageSourceShouldCacheImmediately: true
+              ] as CFDictionary) else { throw UploadFailure(message: "图片预览暂时不可用，请重试。") }
+        return UIImage(cgImage: bitmap)
     }
 }
 
@@ -41,14 +77,20 @@ struct NativeMediaImage: View {
             } else { ProgressView() }
         }
         .task(id: "\(mediaID)-\(fileID)-\(purpose)-\(attempt)") {
-            image = nil; failure = ""
+            let owner = session.account?.id
+            let cacheKey = "\(session.site.url.absoluteString)|\(owner ?? -1)|\(mediaID)|\(fileID)|\(purpose)"
+            failure = ""
+            if attempt == 0, let cached = NativeImageCache.image(for: cacheKey) { image = cached; return }
+            image = nil
             do {
                 let resource: NativeMediaResource = try await session.get("/media/\(mediaID)/files/\(fileID)/url?purpose=\(purpose)")
                 guard let raw = resource.url, let url = AppConfiguration.httpsURL(raw) else {
                     throw UploadFailure(message: "预览正在准备。")
                 }
-                let result = try await NativeMediaNetwork.image(url)
+                let result = try await NativeMediaNetwork.image(url, maximumDimension: purpose == "thumbnail" ? 512 : 2048)
                 try Task.checkCancellation()
+                guard session.account?.id == owner else { return }
+                NativeImageCache.insert(result, for: cacheKey)
                 image = result
             } catch { if !Task.isCancelled { failure = friendly(error) } }
         }
@@ -151,7 +193,7 @@ struct NativeTimelineView: View {
             .refreshable { await store.loadProfiles(); await store.load() }
             .task { await store.loadProfiles() }
             .task(id: store.queryKey) {
-                do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.load() } catch { }
+                do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.loadIfNeeded() } catch { }
             }
             .safeAreaInset(edge: .bottom) {
                 if selecting {

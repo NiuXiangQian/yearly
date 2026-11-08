@@ -57,6 +57,16 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     private var loadedQuery = ""
     let session: NativeSession
     init(session: NativeSession) { self.session = session }
+    func resetForAccountChange() {
+        generation += 1
+        loadedQuery = ""; cursor = nil; loading = false
+        items = []; profiles = []; total = 0; error = ""
+        resetFilters()
+    }
+    func loadIfNeeded() async {
+        guard loadedQuery != queryKey else { return }
+        await load()
+    }
     func load(more: Bool = false) async {
         if more && (loading || cursor == nil || loadedQuery != queryKey) { return }
         if useDateRange && NativeDay.string(startDate) > NativeDay.string(endDate) {

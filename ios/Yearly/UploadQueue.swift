@@ -15,6 +15,7 @@ import Photos
     private var pendingResumes: Set<UUID> = []
     private var site: SiteOrigin?
     private weak var session: NativeSession?
+    private var configuredOwnerID: Int?
 
     init() {
         do {
@@ -28,8 +29,11 @@ import Photos
         }
     }
     func configure(session: NativeSession) {
-        if self.session !== session { pauseAll() }
-        duplicateNotice = ""; duplicateNames = []
+        if self.session !== session || configuredOwnerID != session.account?.id {
+            pauseAll()
+            duplicateNotice = ""; duplicateNames = []
+        }
+        configuredOwnerID = session.account?.id
         self.site = session.site
         self.session = session
     }
@@ -174,6 +178,8 @@ import Photos
                         try await PhotoOriginals.prepare(source, store: store) { [weak self] progress, message in
                             Task { @MainActor in
                                 guard let self, let i = self.items.firstIndex(where: { $0.id == id }), self.items[i].phase == .preparing else { return }
+                                // PhotoKit may emit frequent callbacks. Publish only visible progress changes.
+                                guard abs(self.items[i].preparationProgress - progress) >= 0.01 || self.items[i].message != message else { return }
                                 self.items[i].preparationProgress = progress
                                 self.items[i].message = message
                             }

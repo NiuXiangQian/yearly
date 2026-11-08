@@ -17,6 +17,20 @@ struct NativeUploadView: View {
     @State private var excluded: Set<UUID> = []
     @State private var message = ""
     @State private var showingDuplicate = false
+    @State private var loadingAccount = false
+    @State private var openingPicker = false
+    @State private var hasLoaded = false
+    @State private var showingPeople = false
+    @State private var profileSearch = ""
+    @State private var showFinished = false
+    @State private var confirmingIDs: Set<UUID> = []
+    @State private var cancelling: UploadItem?
+    private var chosenNames: String {
+        let names = profiles.filter { children.contains($0.id) }.map { $0.nickname.isEmpty ? $0.name : $0.nickname }
+        return names.isEmpty ? "仅家庭时光" : names.joined(separator: "、")
+    }
+    private var confirmationItems: [UploadItem] { items.filter { confirmingIDs.contains($0.id) } }
+    private var visibleItems: [UploadItem] { showFinished ? items : items.filter { !$0.isTerminal } }
 
     private var items: [UploadItem] { queue.items.filter { $0.site == site.url.absoluteString && $0.ownerID == session.account?.id } }
     private var ready: [UploadItem] { items.filter { $0.phase == .ready && !excluded.contains($0.id) } }
@@ -38,7 +52,8 @@ struct NativeUploadView: View {
                             } message: { Text(queue.duplicateNotice) }
                     }
                     Button { Task { await choosePhotos() } } label: { Label("从系统相册选择照片与视频", systemImage: "photo.on.rectangle.angled") }
-                        .disabled(account == nil)
+                        .disabled(account == nil || openingPicker)
+                    if loadingAccount || openingPicker { ProgressView(openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
                     Text("按点选顺序导入；Live Photo 自动包含图片与 MOV。仅访问你选择并授权的项目。")
                         .font(.caption).foregroundStyle(.secondary)
                     if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited {
@@ -56,9 +71,18 @@ struct NativeUploadView: View {
                     if useArchiveDate { DatePicker("归档日期", selection: $archiveDate, displayedComponents: .date) }
                     Text("归档日期独立于原始拍摄时间；留空按每份原件的拍摄日期归档。未选择人物时保留为家庭时光。")
                         .font(.caption).foregroundStyle(.secondary)
-                    ForEach(profiles) { profile in
-                        Toggle(profile.label, isOn: Binding(get: { children.contains(profile.id) }, set: { if $0 { children.insert(profile.id) } else { children.remove(profile.id) } }))
-                    }
+                    Button { showingPeople = true } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Label("关联人物与宠物", systemImage: "person.2")
+                                Text(chosenNames).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                                Text("自动记住选择，下次上传无需重选").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.disabled(!hasLoaded || account == nil)
+
                 } header: { Text("上传确认 · 人物、孩子与宠物可多选") }
                 Section {
                     ProgressView(value: totalProgress)
@@ -69,13 +93,12 @@ struct NativeUploadView: View {
                         Button("全部暂停") { queue.pauseAll() }
                         Spacer()
                         Button("继续暂停任务") { queue.resumeAll() }.disabled(account == nil)
-                    }
-                    Button("确认上传所选 \(ready.count) 项") { confirming = true }
-                        .disabled(ready.isEmpty || account == nil)
+                    }.buttonStyle(.borderless)
+                    Toggle("显示已结束记录（\(items.filter { $0.isTerminal }.count) 项）", isOn: $showFinished)
                     Text("原件先提取到本机，显示准确大小后再确认上传。缓存上限 8 GiB，预留 512 MiB；达到上限时先上传已准备的项目，再重试其余项目。进入后台会暂停，回到前台续传；强制退出后请点继续。")
                         .font(.caption).foregroundStyle(.secondary)
                 } header: { Text("上传任务") }
-                ForEach(items) { item in
+                ForEach(visibleItems) { item in
                     Section {
                         HStack(alignment: .top, spacing: 12) {
                             AssetThumbnail(identifier: item.assetIdentifier)
@@ -110,7 +133,7 @@ struct NativeUploadView: View {
                                     Button("暂停") { queue.pause(item.id) }
                                 }
                                 Spacer()
-                                Button("取消", role: .destructive) { queue.cancel(item.id) }
+                                Button("取消", role: .destructive) { cancelling = item }
                             }.buttonStyle(.borderless)
                         }
                     }
@@ -120,10 +143,54 @@ struct NativeUploadView: View {
                 }
             }
             .navigationTitle("珍藏原片")
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom) {
+                HStack(spacing: 12) {
+                    Button { Task { await choosePhotos() } } label: { Label("选照片", systemImage: "plus") }
+                        .buttonStyle(.bordered).disabled(account == nil || openingPicker)
+                    Button {
+                        confirmingIDs = Set(ready.map(\.id)); confirming = true
+                    } label: {
+                        Text(ready.isEmpty ? (visibleItems.isEmpty ? "选择照片后上传" : "等待原件准备") : "上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
+                    }.buttonStyle(.borderedProminent).disabled(ready.isEmpty || account == nil)
+                }.padding().background(.regularMaterial)
+            }
+            .refreshable { await loadAccount() }
+            .sheet(isPresented: $showingPeople) {
+                NavigationStack {
+                    List {
+                        Section {
+                            Button("仅家庭时光 · 取消全部关联") { selectPeople([]) }
+                            Text("已选：\(chosenNames)").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Section("人物、孩子与宠物可多选") {
+                            ForEach(profiles.filter { profileSearch.isEmpty || $0.label.localizedCaseInsensitiveContains(profileSearch) }) { profile in
+                                Button {
+                                    var updated = children
+                                    if !updated.insert(profile.id).inserted { updated.remove(profile.id) }
+                                    selectPeople(updated)
+                                    UISelectionFeedbackGenerator().selectionChanged()
+                                } label: {
+                                    HStack {
+                                        Label(profile.label, systemImage: profile.profile_type == "pet" ? "pawprint" : "person.crop.circle")
+                                        Spacer()
+                                        if children.contains(profile.id) { Image(systemName: "checkmark.circle.fill") }
+                                    }.contentShape(Rectangle())
+                                }.buttonStyle(.plain).accessibilityAddTraits(children.contains(profile.id) ? .isSelected : [])
+                            }
+                        }
+                    }.navigationTitle("关联人物与宠物")
+                        .searchable(text: $profileSearch, prompt: "搜索人物或宠物")
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingPeople = false } } }
+                }
+            }
+            .confirmationDialog("取消后会删除本机缓存，继续上传需要重新选择原件", isPresented: Binding(get: { cancelling != nil }, set: { if !$0 { cancelling = nil } }), titleVisibility: .visible) {
+                if let item = cancelling { Button("取消此任务", role: .destructive) { queue.cancel(item.id); cancelling = nil } }
+            }
             .onChange(of: queue.duplicateNotice.isEmpty) { empty in
                 if !empty { showingDuplicate = true }
             }
-            .task { queue.configure(session: session); await loadAccount() }
+            .task { queue.configure(session: session); if !hasLoaded { await loadAccount() } }
             .sheet(isPresented: $showPicker) {
                 NativePhotoPicker { identifiers, unavailable in
                     showPicker = false
@@ -136,29 +203,49 @@ struct NativeUploadView: View {
                     let formatter = DateFormatter()
                     formatter.locale = Locale(identifier: "en_US_POSIX")
                     formatter.dateFormat = "yyyy-MM-dd"
-                    queue.confirm(ids: Set(ready.map(\.id)), childIDs: Array(children), batchName: batchName,
+                    queue.confirm(ids: confirmingIDs, childIDs: Array(children), batchName: batchName,
                                   archiveDate: useArchiveDate ? formatter.string(from: archiveDate) : nil)
                 }
                 Button("返回检查", role: .cancel) { }
             } message: {
-                Text("\(ready.count) 项，\(ByteCountFormatter.string(fromByteCount: ready.reduce(0) { $0 + $1.size }, countStyle: .file))。\(useArchiveDate ? "全部归档到所选日期，保留原始拍摄时间。" : "按原始拍摄日期归档；没有可靠日期的保持未知。")\(ready.contains { !$0.warning.isEmpty } ? "部分项目含原件或元数据提示，请确认已阅读每项说明。" : "")")
+                Text("\(confirmationItems.count) 项，\(ByteCountFormatter.string(fromByteCount: confirmationItems.reduce(0) { $0 + $1.size }, countStyle: .file))。关联：\(chosenNames)。\(useArchiveDate ? "全部归档到所选日期，保留原始拍摄时间。" : "按原始拍摄日期归档；没有可靠日期的保持未知。")\(confirmationItems.contains { !$0.warning.isEmpty } ? "部分项目含原件或元数据提示，请确认已阅读每项说明。" : "")")
             }
         }
     }
+    private func selectPeople(_ ids: Set<Int>) {
+        guard let account, account.id == session.account?.id, hasLoaded else { return }
+        children = ids.intersection(Set(profiles.map(\.id)))
+        UploadProfilePreferences(site: site, ownerID: account.id).save(children)
+    }
     private func loadAccount() async {
+        guard !loadingAccount, let expectedOwner = session.account?.id else { return }
+        loadingAccount = true
+        defer { loadingAccount = false }
         do {
-            let api = session.uploadAPI()
-            let current = try await api.account()
-            let loaded = try await api.profiles()
-            account = current
-            profiles = loaded
-            message = ""
+            async let currentRequest: UploadAccount = session.get("/auth/me")
+            async let profilesRequest: [UploadProfile] = session.get("/children")
+            let (current, loaded) = try await (currentRequest, profilesRequest)
+            try Task.checkCancellation()
+            guard current.id == expectedOwner, session.account?.id == expectedOwner,
+                  ["admin", "member"].contains(current.role) else {
+                account = nil
+                throw UploadFailure(message: "当前账号没有上传权限，请重新登录。")
+            }
+            let previousBatch = items.last(where: { $0.confirmed })?.childIDs
+            let remembered = UploadProfilePreferences(site: site, ownerID: current.id)
+                .restore(validIDs: Set(loaded.map(\.id)), fallback: previousBatch)
+            account = current; profiles = loaded; children = remembered
+            hasLoaded = true; message = ""
         } catch {
-            account = nil
-            message = error is URLError ? "无法连接家庭站点，请检查网络。" : error.localizedDescription
+            if Task.isCancelled { return }
+            if !hasLoaded { account = nil }
+            message = error is URLError ? "无法连接家庭站点，请检查网络。已保存的人物选择不会丢失。" : error.localizedDescription
         }
     }
     private func choosePhotos() async {
+        guard !openingPicker, !showPicker, account != nil else { return }
+        openingPicker = true
+        defer { openingPicker = false }
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         guard status == .authorized || status == .limited else {
             message = "读取未修改原件需要照片访问权限。请在设置 → Yearly → 照片中允许访问所选照片。"

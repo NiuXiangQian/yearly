@@ -29,6 +29,7 @@ struct YearlyRootView: View {
             if phase == .active { uploads.enteredForeground() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            NativeImageCache.clear()
             uploads.pauseAll(); uploads.error = "系统内存紧张，已保存并暂停任务，请稍后继续。"
         }
     }
@@ -111,9 +112,10 @@ struct NativeAppShell: View {
         .sheet(isPresented: $showingShares) { NativeSharingView(session: session) }
         .task { await session.restore(); queue.configure(session: session) }
         .onChange(of: session.account?.id) { _ in
+            NativeImageCache.clear()
             queue.pauseAll(); queue.configure(session: session)
             showingShares = false
-            timeline.items = []; timeline.resetFilters(); tab = 0
+            timeline.resetForAccountChange(); tab = 0
         }
         .onDisappear { queue.pauseAll() }
     }

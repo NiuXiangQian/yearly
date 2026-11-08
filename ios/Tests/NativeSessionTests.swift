@@ -99,12 +99,21 @@ private final class SessionHTTP: URLProtocol {
         precondition(timeline.items.count == 2 && !timeline.loading && timeline.total == 3)
         precondition(timeline.items[0].primary?.id == 10 && timeline.items[0].motion?.id == 11)
         precondition(timeline.items[0].stableID != timeline.items[1].stableID)
+        let loadedRequestCount = SessionHTTP.requests.count
+        await timeline.loadIfNeeded()
+        precondition(SessionHTTP.requests.count == loadedRequestCount, "tab switching reuses loaded timeline")
         let filterQuery = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(filterQuery.filter { $0.name == "child_id" }.compactMap(\.value) == ["1", "2"])
         await timeline.load(more: true)
         precondition(timeline.items.count == 3 && timeline.cursor == nil && !timeline.loading)
         let cursorQuery = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(cursorQuery.first { $0.name == "cursor" }?.value == "next+cursor/==")
+        let beforeReset = SessionHTTP.requests.count
+        timeline.resetForAccountChange()
+        precondition(timeline.items.isEmpty && timeline.profiles.isEmpty && timeline.cursor == nil && timeline.total == 0)
+        await timeline.loadIfNeeded()
+        precondition(SessionHTTP.requests.count > beforeReset && timeline.items.count == 2, "account change invalidates the cached query")
+        await timeline.load(more: true)
         SessionHTTP.timelineFails = true
         await timeline.load()
         precondition(timeline.items.count == 3 && !timeline.error.isEmpty && !timeline.loading)
