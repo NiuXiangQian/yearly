@@ -37,6 +37,8 @@ xcrun devicectl device install app --device "$YEARLY_DEVICE_ID" \
   .local/ios/Device/Build/Products/Debug-iphoneos/Yearly.app
 ```
 
+模拟器的无签名构建仅用于编译检查；运行原生登录和 Keychain 时，应在 Xcode 选择 Team 后正常 Run，或用 `xcodebuild DEVELOPMENT_TEAM=你的TeamID` 默认签名构建。无签名 App 缺少 Keychain 身份会显示安全登录状态读取失败，不能通过改存普通文件绕过。本轮已使用带身份的模拟器构建确认登录页和站点验证码正常显示。
+
 `YEARLY_BUNDLE_ID` 可选，默认为 `family.yearly.app`。站点可在 App 内配置，个人安装无需填写发行隐私/支持 URL。原有 `archive` / `export` 是可选的付费商店发行工具，保留供历史流程使用；它们不是编译、安装、运行、续签的前提，也不代表应用已具备上架条件。
 
 ## 手机上如何使用
