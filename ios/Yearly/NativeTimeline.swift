@@ -247,14 +247,9 @@ struct NativeTimelineView: View {
                     if store.archiveExpanded {
                         Button("回到最新") { store.focusOnUploads([]) }.font(.subheadline)
                     } else if !store.items.isEmpty {
-                        Button("查看完整时间线") { showNewer(expanding: true) }
+                        Button("查看完整时间线") { expandArchive() }
                             .font(.subheadline).disabled(store.loading)
                     }
-                }
-                if store.hasNewer {
-                    Button { showNewer(expanding: false) } label: {
-                        Label("加载较新的回忆", systemImage: "arrow.up")
-                    }.frame(maxWidth: .infinity).disabled(store.loading)
                 }
             } else {
                 Picker("查看方式", selection: Binding(get: { store.byUpload }, set: store.setUploadOrder)) {
@@ -275,11 +270,6 @@ struct NativeTimelineView: View {
                         Text("已定位到 \(anchorDay)").font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Button("回到起点") { returningToStart = true; store.focusOnUploads([]) }.font(.caption)
-                    }
-                    if store.hasNewer {
-                        Button { showNewer(expanding: false) } label: {
-                            Label(store.ascending ? "加载较早的回忆" : "加载较新的回忆", systemImage: "arrow.up")
-                        }.frame(maxWidth: .infinity).disabled(store.loading)
                     }
                 }
             }
@@ -509,12 +499,11 @@ struct NativeTimelineView: View {
         Task { await store.load(more: true) }
     }
 
-    private func showNewer(expanding: Bool) {
+    private func expandArchive() {
         let first = store.items.first?.stableID
         positionBeforePrepend = first
         Task {
-            if expanding { await store.expandArchive() }
-            else { await store.loadNewer() }
+            await store.expandArchive()
             if store.items.first?.stableID == first { positionBeforePrepend = nil }
         }
     }
