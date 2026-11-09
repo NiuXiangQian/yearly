@@ -67,6 +67,12 @@ private final class SessionHTTP: URLProtocol {
             if Self.timelineFails { status = 503; body = "{}"; break }
             let params = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let more = params.contains { $0.name == "cursor" }
+            if params.contains(URLQueryItem(name: "anchor_day", value: "2020-01-03")) {
+                body = params.contains(URLQueryItem(name: "before", value: "true"))
+                    ? #"{"items":[{"id":6,"kind":"media","timeline_day":"2020-01-04"}],"total":3}"#
+                    : #"{"items":[{"id":5,"kind":"media","timeline_day":"2020-01-03"}],"total":3,"next_cursor":"day+cursor/=="}"#
+                break
+            }
             if params.contains(URLQueryItem(name: "anchor_media_id", value: "42")) {
                 if params.contains(URLQueryItem(name: "before", value: "true")) {
                     body = more
@@ -81,6 +87,11 @@ private final class SessionHTTP: URLProtocol {
             }
             body = more ? #"{"items":[{"id":7,"kind":"media","media_type":"live_photo"},{"id":8,"kind":"media","media_type":"video","timeline_day":"2026-11-07"}],"total":3,"next_cursor":null}"# : #"{"items":[{"id":7,"kind":"media","media_type":"live_photo","timeline_day":"2026-11-08","media_position":{"index":1,"total":2,"day_index":1,"day_total":1},"child_ids":[1,2],"files":[{"id":10,"file_role":"original","original_filename":"test.heic","mime_type":"image/heic","file_size":8},{"id":11,"file_role":"live_video","original_filename":"test.mov","mime_type":"video/quicktime","file_size":9}]},{"id":7,"kind":"event","content":"synthetic diary"}],"total":3,"next_cursor":"next+cursor/=="}"#
         default: break
+        }
+        if request.url!.path == "/yearly/api/timeline", status == 200,
+           request.url!.query?.contains("include_dates=true") == true {
+            body.removeLast()
+            body += #", "dates":["2020-01-03","2026-11-07","2026-11-08"]}"#
         }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
@@ -174,6 +185,30 @@ private final class SessionHTTP: URLProtocol {
         precondition(NativeDay.following(NativeDay.date("2024-02-28")!) == "2024-02-29")
         timeline.resetFilters()
         precondition(!timeline.hasFilters)
+        await timeline.load()
+        precondition(timeline.railDays == ["2020-01-03", "2026-11-07", "2026-11-08"], "the rail includes dates outside the loaded page and follows ascending order")
+        timeline.search = "旅途"
+        timeline.mediaType = "photo"
+        timeline.selected = [2]
+        await timeline.loadIfNeeded()
+        timeline.jump(to: "2020-01-03")
+        await timeline.loadIfNeeded()
+        precondition(timeline.anchorDay == "2020-01-03" && timeline.items.contains { $0.id == 5 })
+        precondition(timeline.cursor == "day+cursor/==" && !timeline.hasNewer)
+        let jumpParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        precondition(jumpParams.contains(URLQueryItem(name: "anchor_day", value: "2020-01-03")))
+        precondition(jumpParams.contains(URLQueryItem(name: "before", value: "true")))
+        precondition(jumpParams.contains(URLQueryItem(name: "q", value: "旅途")))
+        precondition(jumpParams.contains(URLQueryItem(name: "media_type", value: "photo")))
+        precondition(jumpParams.contains(URLQueryItem(name: "child_id", value: "2")))
+        timeline.search = "另一个关键词"
+        precondition(timeline.anchorDay == nil, "changing filters clears the date anchor")
+        await timeline.loadIfNeeded()
+        precondition(!timeline.archiveExpanded && !timeline.hasNewer)
+        precondition(SessionHTTP.requests.last!.url!.query?.contains("anchor_day") == false)
+        timeline.ascending = false
+        precondition(timeline.railDays.first == "2026-11-08")
+        timeline.resetFilters()
         let reorderPair = try JSONDecoder().decode([NativeTimelineItem].self, from: Data(
             #"[{"id":10,"kind":"media","timeline_day":"2026-11-08"},{"id":11,"kind":"media","timeline_day":"2026-11-08"}]"#.utf8
         ))

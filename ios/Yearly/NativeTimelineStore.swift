@@ -84,6 +84,7 @@ struct NativeTimelinePage: Decodable {
     let next_cursor: String?
     let previous_cursor: String?
     let day_sharing: [String: Bool]?
+    let dates: [String]?
 }
 struct NativeMediaResource: Decodable { let url: String?; let status: String }
 
@@ -103,12 +104,18 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     @Published var endDate = Date()
     @Published private(set) var uploadedMediaIDs: [Int] = []
     @Published private(set) var anchorMediaID: Int?
+    @Published private var dateAnchor: (day: String, filters: String)?
+    @Published private(set) var dates: [String] = []
     @Published private(set) var archiveExpanded = false
     @Published private(set) var hasNewer = false
     @Published private(set) var daySharing: [String: Bool] = [:]
     var showingUploads: Bool { !uploadedMediaIDs.isEmpty }
     var usesUploadOrder: Bool { byUpload && !showingUploads && anchorMediaID == nil }
     var isFocused: Bool { showingUploads || anchorMediaID != nil }
+    var anchorDay: String? { dateAnchor?.filters == filterKey ? dateAnchor?.day : nil }
+    var railDays: [String] {
+        orderedDays(Set(dates).union(items.map(groupDay).filter { $0 != "日期未知" }))
+    }
     func groupDay(_ item: NativeTimelineItem) -> String {
         guard usesUploadOrder else { return item.day }
         return item.uploadDate.map(NativeDay.string) ?? "日期未知"
@@ -124,10 +131,11 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         let groups = Dictionary(grouping: items.filter { $0.kind == "media" }, by: groupDay)
         return orderedDays(groups.keys).flatMap { groups[$0] ?? [] }
     }
-    var queryKey: String {
+    private var filterKey: String {
         if showingUploads { return "uploads|\(uploadedMediaIDs)" }
         return "\(selected.sorted())|\(search)|\(mediaType)|\(ascending)|\(byUpload)|\(anchorMediaID ?? 0)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
     }
+    var queryKey: String { filterKey + "|" + (anchorDay ?? "") }
     var hasFilters: Bool { !selected.isEmpty || !search.isEmpty || !mediaType.isEmpty || useDateRange }
     func resetFilters() { selected = []; search = ""; mediaType = ""; useDateRange = false }
 
@@ -142,8 +150,9 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     init(session: NativeSession) { self.session = session }
     func focusOnUploads(_ ids: [Int]) {
         let ids = Set(ids.filter { $0 > 0 }).sorted()
-        guard uploadedMediaIDs != ids || anchorMediaID != nil else { return }
+        guard uploadedMediaIDs != ids || anchorMediaID != nil || anchorDay != nil else { return }
         anchorMediaID = nil
+        dateAnchor = nil
         resetResults()
         loading = !ids.isEmpty
         uploadedMediaIDs = ids
@@ -153,6 +162,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         items = []; total = 0; cursor = nil; loadedQuery = ""; loading = false; error = ""
         archiveExpanded = false; hasNewer = false; previousCursor = nil
         daySharing = [:]
+        dates = []
     }
     func locate(_ item: NativeTimelineItem) {
         resetFilters()
@@ -160,6 +170,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         ascending = false
         uploadedMediaIDs = []
         anchorMediaID = item.id
+        dateAnchor = nil
         resetResults()
         loading = true
     }
@@ -173,6 +184,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     func setUploadOrder(_ enabled: Bool) {
         guard byUpload != enabled else { return }
         byUpload = enabled
+        dateAnchor = nil
         resetResults()
         loading = true
     }
@@ -189,6 +201,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         profilesError = ""
         uploadedMediaIDs = []
         anchorMediaID = nil
+        dateAnchor = nil
         byUpload = false
         resetFilters()
     }
@@ -197,6 +210,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         await load()
     }
     func load(more: Bool = false) async {
+        if !more, let dateAnchor, dateAnchor.filters != filterKey { self.dateAnchor = nil }
         await loadPage(more ? .older : .first)
         if !more && archiveExpanded && error.isEmpty { await loadNewer() }
     }
@@ -206,6 +220,13 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         hasNewer = true
         await loadNewer()
     }
+    func jump(to day: String) {
+        guard !loading, railDays.contains(day) else { return }
+        // Keep filters and the date index; only replace the loaded cursor window.
+        dateAnchor = (day, filterKey)
+        archiveExpanded = true
+        previousCursor = nil
+    }
     func loadNewer() async {
         guard archiveExpanded, hasNewer else { return }
         await loadPage(.newer)
@@ -213,8 +234,12 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
 
     private var timelineFilters: [URLQueryItem] {
         var params = [URLQueryItem(name: "group_folders", value: "false"), URLQueryItem(name: "order", value: ascending ? "asc" : "desc")]
-        if usesUploadOrder { params.append(URLQueryItem(name: "date_basis", value: "upload")) }
+        if usesUploadOrder {
+            params.append(URLQueryItem(name: "date_basis", value: "upload"))
+            params.append(URLQueryItem(name: "timezone_offset_minutes", value: String(TimeZone.current.secondsFromGMT() / 60)))
+        }
         if let anchorMediaID { params.append(URLQueryItem(name: "anchor_media_id", value: String(anchorMediaID))) }
+        if let anchorDay { params.append(URLQueryItem(name: "anchor_day", value: anchorDay)) }
         let queryText = String(search.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
         if !queryText.isEmpty { params.append(URLQueryItem(name: "q", value: queryText)) }
         if ["photo", "video", "live_photo"].contains(mediaType) { params.append(URLQueryItem(name: "media_type", value: mediaType)) }
@@ -272,6 +297,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         }
         var query = URLComponents()
         var params = timelineFilters + [URLQueryItem(name: "page_size", value: "40")]
+        if direction == .first && !isFocused { params.append(URLQueryItem(name: "include_dates", value: "true")) }
         if !usesUploadOrder { params.append(URLQueryItem(name: "media_positions", value: "true")) }
         if useDateRange {
             if usesUploadOrder {
@@ -294,8 +320,10 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
             switch direction {
             case .first:
                 items = page.items
+                dates = page.dates ?? []
                 cursor = page.next_cursor
                 previousCursor = nil
+                if anchorMediaID == nil { archiveExpanded = anchorDay != nil }
                 hasNewer = archiveExpanded
             case .older:
                 items += page.items.filter { !existing.contains($0.stableID) }

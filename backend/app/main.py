@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Response, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete, update, func, and_, or_, case
+from sqlalchemy import select, delete, update, func, and_, or_, case, literal_column
 from sqlalchemy.exc import IntegrityError
 from argon2.exceptions import VerificationError
 from .config import settings
@@ -897,6 +897,9 @@ def timeline(
     cursor: str | None = Query(default=None, max_length=512),
     date_basis: Literal["timeline", "capture", "upload"] = "timeline",
     anchor_media_id: int | None = Query(default=None, ge=1),
+    anchor_day: date | None = None,
+    include_dates: bool = False,
+    timezone_offset_minutes: int = Query(default=0, ge=-840, le=840),
     before: bool = False,
     order: Literal["asc", "desc"] = "desc",
     media_positions: bool = False,
@@ -908,7 +911,9 @@ def timeline(
     upload_order = date_basis == "upload"
     if anchor_media_id is not None and (date_basis != "timeline" or group_folders):
         raise HTTPException(422, "只能在归档时间线定位影像")
-    if before and anchor_media_id is None:
+    if anchor_day is not None and anchor_media_id is not None:
+        raise HTTPException(422, "请选择日期或影像中的一种定位方式")
+    if before and anchor_media_id is None and anchor_day is None:
         raise HTTPException(422, "加载较新的记录需要归档位置")
     sort_time = Media.taken_at_local
     sort_day = func.date(timeline_time())
@@ -923,7 +928,7 @@ def timeline(
             .scalar_subquery()
         )
         sort_time = func.coalesce(completed_at, Media.created_at)
-        sort_day = func.date(sort_time)
+        sort_day = func.date(func.timestampadd(literal_column("MINUTE"), timezone_offset_minutes, sort_time))
         sort_position = literal(0)
     media_query = filter_children(
         select(
@@ -1048,6 +1053,12 @@ def timeline(
         query = query.where(timeline_boundary(
             ordering, position, before=before, inclusive=not cursor and not before
         ))
+    elif anchor_day is not None:
+        day = mixed.c.sort_day
+        boundary = day > anchor_day if (order == "asc") != before else day < anchor_day
+        if not before:
+            boundary = or_(boundary, day == anchor_day, day.is_(None))
+        query = query.where(boundary)
     else:
         query = query.offset((page - 1) * page_size)
     rows = db.execute(query.limit(page_size + 1)).mappings().all()
@@ -1063,7 +1074,7 @@ def timeline(
             position.model_dump_json().encode()
         ).decode()
         if before:
-            previous_cursor = continuation
+            previous_cursor = "upload." + continuation if upload_order else continuation
         else:
             next_cursor = "upload." + continuation if upload_order else continuation
     media_ids = [r["id"] for r in rows if r["kind"] == "media"]
@@ -1151,6 +1162,10 @@ def timeline(
         "page": page,
         "page_size": page_size,
         "next_cursor": next_cursor,
+        **({"dates": db.scalars(
+            select(mixed.c.sort_day).where(mixed.c.sort_day.is_not(None))
+            .distinct().order_by(mixed.c.sort_day)
+        ).all()} if include_dates else {}),
         **({"previous_cursor": previous_cursor} if before else {}),
         "day_sharing": {
             row.timeline_date.isoformat(): row.share_allowed

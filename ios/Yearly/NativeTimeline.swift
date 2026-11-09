@@ -115,13 +115,60 @@ struct NativeTimelineView: View {
     @State private var batchEdit = false
     @State private var diaryRequest: NativeDiaryRequest?
     @State private var positionBeforePrepend: String?
+    @State private var currentDay = ""
+    @State private var pendingRailDay: String?
+    @State private var returningToStart = false
+    @State private var visibleDayCounts: [String: Int] = [:]
     private var timelineList: some View {
         ScrollViewReader { proxy in
             ScrollView { timelineContent }
+                .coordinateSpace(name: "timeline-reading")
+                .onPreferenceChange(NativeTimelineDayPositions.self) { positions in
+                    let ordered = positions.sorted { $0.value < $1.value }
+                    if let day = ordered.last(where: { $0.value <= 32 })?.key ?? ordered.first?.key {
+                        currentDay = day
+                    }
+                }
+                .safeAreaInset(edge: .leading, spacing: 0) {
+                    if !store.isFocused && !store.railDays.isEmpty {
+                        GeometryReader { geometry in
+                            NativeTimelineRail(days: store.railDays, current: currentDay, disabled: store.loading) { day in
+                                if store.items.contains(where: { store.groupDay($0) == day }) {
+                                    proxy.scrollTo("day-\(day)", anchor: .top)
+                                    currentDay = day
+                                } else {
+                                    pendingRailDay = day
+                                    store.jump(to: day)
+                                }
+                            }
+                            .frame(height: min(520, max(140, geometry.size.height - 32)))
+                            .frame(maxHeight: .infinity)
+                        }.frame(width: 44).zIndex(1)
+                    }
+                }
+                .onChange(of: store.loading) { loading in
+                    guard !loading, store.error.isEmpty else { return }
+                    if returningToStart {
+                        returningToStart = false
+                        DispatchQueue.main.async { proxy.scrollTo("timeline-start", anchor: .top) }
+                    }
+                    guard let day = pendingRailDay,
+                          store.items.contains(where: { store.groupDay($0) == day }) else { return }
+                    pendingRailDay = nil
+                    DispatchQueue.main.async {
+                        proxy.scrollTo("day-\(day)", anchor: .top)
+                        currentDay = day
+                    }
+                }
                 .onChange(of: store.items.first?.stableID) { first in
                     guard let id = positionBeforePrepend, first != id,
                           let item = store.items.first(where: { $0.stableID == id }) else { return }
                     positionBeforePrepend = nil
+                    let day = store.groupDay(item)
+                    let dayItems = store.items.filter { store.groupDay($0) == day }
+                    if let index = dayItems.firstIndex(where: { $0.stableID == id }) {
+                        visibleDayCounts[day] = max(visibleDayCounts[day] ?? 8, index + 1)
+                    }
                     // Lay out the lazy day section first, then place the original card in view.
                     proxy.scrollTo("day-\(store.groupDay(item))", anchor: .top)
                     DispatchQueue.main.async {
@@ -171,6 +218,18 @@ struct NativeTimelineView: View {
                     Spacer()
                     if store.hasFilters { Button("清除筛选") { store.resetFilters() }.font(.caption) }
                 }
+                if let anchorDay = store.anchorDay {
+                    HStack {
+                        Text("已定位到 \(anchorDay)").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("回到起点") { returningToStart = true; store.focusOnUploads([]) }.font(.caption)
+                    }
+                    if store.hasNewer {
+                        Button { showNewer(expanding: false) } label: {
+                            Label(store.ascending ? "加载较早的回忆" : "加载较新的回忆", systemImage: "arrow.up")
+                        }.frame(maxWidth: .infinity).disabled(store.loading)
+                    }
+                }
             }
             if !store.error.isEmpty {
                 Text(store.error).foregroundStyle(.red)
@@ -182,9 +241,11 @@ struct NativeTimelineView: View {
                 else { Text(store.hasFilters ? "没有符合条件的回忆，试试其他关键词或日期。" : "还没有回忆，去上传页珍藏第一张照片吧。") }
             }
             ForEach(days, id: \.self) { day in
+                let dayItems = groups[day] ?? []
+                let visibleCount = visibleDayCounts[day] ?? 8
                 Section {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                        ForEach(groups[day] ?? [], id: \.stableID) { item in
+                        ForEach(Array(dayItems.prefix(visibleCount)), id: \.stableID) { item in
                             VStack(alignment: .leading, spacing: 5) {
                                 Button {
                                     if selecting {
@@ -240,6 +301,16 @@ struct NativeTimelineView: View {
                             .id(item.stableID)
                         }
                     }
+                    if dayItems.count > visibleCount {
+                        HStack {
+                            Text("已显示 \(visibleCount) / 已加载 \(dayItems.count) 项")
+                                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                            Spacer()
+                            Button("加载更多") { visibleDayCounts[day] = visibleCount + 8 }
+                                .font(.subheadline).frame(minHeight: 44)
+                                .accessibilityLabel("加载 \(day) 的更多回忆")
+                        }
+                    }
                 } header: {
                     HStack {
                         Text(day).font(.title3.bold())
@@ -258,14 +329,18 @@ struct NativeTimelineView: View {
                             } label: { Label("当天操作", systemImage: "ellipsis.circle").font(.caption) }
                         }
                     }
+                    .background(GeometryReader { geometry in
+                        Color.clear.preference(key: NativeTimelineDayPositions.self,
+                                               value: [day: geometry.frame(in: .named("timeline-reading")).minY])
+                    })
                 }.id("day-\(day)")
             }
             if store.loading { ProgressView().frame(maxWidth: .infinity) }
             if store.cursor != nil {
-                Button(store.archiveExpanded ? "加载较早的回忆" : "加载更多回忆") { Task { await store.load(more: true) } }
+                Button(store.archiveExpanded ? (store.ascending ? "加载较新的回忆" : "加载较早的回忆") : "加载更多回忆") { Task { await store.load(more: true) } }
                     .frame(maxWidth: .infinity).disabled(store.loading)
             }
-        }.padding()
+        }.padding().id("timeline-start")
     }
 
     private func showNewer(expanding: Bool) {
@@ -285,6 +360,7 @@ struct NativeTimelineView: View {
                 else { timelineList.searchable(text: $store.search, prompt: "搜索标题、批次、备注或地点") }
             }
             .navigationTitle(store.showingUploads ? "刚上传的回忆" : "家庭时光")
+            .onChange(of: store.queryKey) { _ in visibleDayCounts = [:] }
             .onChange(of: store.uploadedMediaIDs) { _ in
                 selecting = false
                 chosen = []
@@ -311,7 +387,8 @@ struct NativeTimelineView: View {
             .refreshable { await store.loadProfiles(); await store.load() }
             .task { await store.loadProfiles() }
             .task(id: store.queryKey) {
-                if store.isFocused { await store.loadIfNeeded() }
+                pendingRailDay = store.anchorDay
+                if store.isFocused || store.anchorDay != nil { await store.loadIfNeeded() }
                 else {
                     do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.loadIfNeeded() } catch { }
                 }

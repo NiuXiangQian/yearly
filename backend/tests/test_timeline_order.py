@@ -345,3 +345,84 @@ def test_share_date_index_and_anchor_keep_scope_and_permissions(context, order):
         db.commit()
     assert context.client.get(base + "/dates").status_code == 404
     assert context.client.get(base + "?anchor=2024-04-01").status_code == 404
+
+
+@pytest.mark.parametrize("order", ["asc", "desc"])
+def test_date_rail_index_and_bidirectional_anchor(context, order):
+    with context.db() as db:
+        rows = [
+            Media(owner_id=1, media_type="photo", status="active",
+                  timeline_date=date(2024, 3, day), sort_order=position)
+            for day in range(1, 6) for position in (0, 10, 20)
+        ]
+        rows.append(Media(owner_id=1, media_type="photo", status="active"))
+        db.add_all(rows)
+        db.commit()
+    params = {"order": order, "page_size": 2, "include_dates": "true"}
+    first = context.client.get("/api/timeline", params=params)
+    assert first.status_code == 200, first.text
+    assert first.json()["dates"] == [f"2024-03-0{d}" for d in range(1, 6)]
+    assert len(first.json()["items"]) == 2
+    complete = context.client.get("/api/timeline", params={"order": order, "page_size": 100}).json()
+    expected = [item["id"] for item in complete["items"]]
+    params["anchor_day"] = "2024-03-03"
+    anchored = context.client.get("/api/timeline", params=params).json()
+    assert anchored["items"][0]["timeline_day"] == "2024-03-03"
+    assert anchored["dates"] == first.json()["dates"]
+    assert anchored["total"] == complete["total"]
+    forward, cursor = [item["id"] for item in anchored["items"]], anchored["next_cursor"]
+    while cursor:
+        page = context.client.get("/api/timeline", params={**params, "cursor": cursor}).json()
+        forward += [item["id"] for item in page["items"]]
+        cursor = page["next_cursor"]
+    backward, cursor = [], None
+    for _ in range(10):
+        request = {**params, "before": "true"}
+        if cursor:
+            request["cursor"] = cursor
+        page = context.client.get("/api/timeline", params=request).json()
+        backward = [item["id"] for item in page["items"]] + backward
+        cursor = page["previous_cursor"]
+        if not cursor:
+            break
+    assert backward + forward == expected
+    assert len(set(backward + forward)) == len(expected)
+
+
+def test_date_rail_index_respects_filters_and_excludes_unknown(context):
+    with context.db() as db:
+        db.add_all([
+            Media(owner_id=1, title="旅途", media_type="photo", status="active", timeline_date=date(2024, 3, 1)),
+            Media(owner_id=1, title="旅途", media_type="video", status="active", timeline_date=date(2024, 3, 2)),
+            Media(owner_id=1, title="旅途", media_type="photo", status="deleted", timeline_date=date(2024, 3, 3)),
+            Media(owner_id=1, title="家人", media_type="photo", status="active", timeline_date=date(2024, 3, 4)),
+            Media(owner_id=1, title="旅途", media_type="photo", status="active", timeline_date=date(2024, 3, 5)),
+            Media(owner_id=1, title="旅途", media_type="photo", status="active"),
+            Event(title="旅途日记", start_at=datetime(2024, 3, 6), status="active", created_by=1),
+        ])
+        db.commit()
+    result = context.client.get("/api/timeline", params={"include_dates": "true", "q": "旅途", "media_type": "photo", "end": "2024-03-05T00:00:00"})
+    assert result.status_code == 200, result.text
+    assert result.json()["dates"] == ["2024-03-01"]
+    unfiltered = context.client.get("/api/timeline?include_dates=true").json()
+    assert unfiltered["dates"] == ["2024-03-01", "2024-03-02", "2024-03-04", "2024-03-05", "2024-03-06"]
+    assert context.client.get("/api/timeline?anchor_day=2024-03-01&anchor_media_id=1").status_code == 422
+
+
+def test_upload_date_rail_uses_local_days_and_prefixed_backward_cursors(context):
+    with context.db() as db:
+        rows = [Media(owner_id=1, media_type="photo", status="active",
+                      timeline_date=date(2018, 1, 1), created_at=datetime(2024, 3, day, 20))
+                for day in range(1, 6)]
+        db.add_all(rows)
+        db.commit()
+    params = {"date_basis": "upload", "timezone_offset_minutes": 480, "include_dates": "true", "anchor_day": "2024-03-04", "page_size": 1}
+    anchored = context.client.get("/api/timeline", params=params)
+    assert anchored.status_code == 200, anchored.text
+    assert anchored.json()["dates"] == [f"2024-03-0{day}" for day in range(2, 7)]
+    assert anchored.json()["items"][0]["uploaded_at"].startswith("2024-03-03")
+    prior = context.client.get("/api/timeline", params={**params, "before": "true"}).json()
+    assert prior["previous_cursor"].startswith("upload.")
+    following = context.client.get("/api/timeline", params={**params, "before": "true", "cursor": prior["previous_cursor"]})
+    assert following.status_code == 200, following.text
+    assert following.json()["items"][0]["uploaded_at"].startswith("2024-03-05")
