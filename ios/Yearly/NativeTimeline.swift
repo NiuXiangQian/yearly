@@ -3,7 +3,7 @@ import AVKit
 import ImageIO
 import UniformTypeIdentifiers
 
-// Memory-only, scoped to account/site. Nothing is written to a shared disk cache.
+// Decoded images stay in bounded memory; processed previews also persist in the app cache.
 @MainActor enum NativeImageCache {
     private final class Entry: NSObject {
         let image: UIImage
@@ -16,18 +16,23 @@ import UniformTypeIdentifiers
         value.countLimit = 100
         return value
     }()
-    static func image(for key: String) -> UIImage? {
-        guard let entry = cache.object(forKey: key as NSString) else { return nil }
-        let age = Date().timeIntervalSince(entry.created)
-        guard age >= 0, age < 120 else {
-            cache.removeObject(forKey: key as NSString); return nil
+    private static let disk = NativeLocalCache()
+    static func image(for key: String, scope: String? = nil) -> UIImage? {
+        if let entry = cache.object(forKey: key as NSString), Date().timeIntervalSince(entry.created) < 120 {
+            return entry.image
         }
-        return entry.image
+        guard let scope, let data = disk.data(scope: scope, key: key, category: "images"),
+              let image = UIImage(data: data) else { return nil }
+        insert(image, for: key)
+        return image
     }
-    static func insert(_ image: UIImage, for key: String) {
+    static func insert(_ image: UIImage, for key: String, scope: String? = nil) {
         let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
         guard cost > 0, cost <= 32 * 1024 * 1024 else { return }
         cache.setObject(Entry(image), forKey: key as NSString, cost: cost)
+        if let scope, let data = image.pngData() {
+            disk.insert(data, scope: scope, key: key, category: "images", lifetime: 7 * 24 * 60 * 60)
+        }
     }
     static func clear() { cache.removeAllObjects() }
 }
@@ -81,7 +86,7 @@ struct NativeMediaImage: View {
             let owner = session.account?.id
             let cacheKey = "\(session.site.url.absoluteString)|\(owner ?? -1)|\(mediaID)|\(fileID)|\(purpose)"
             failure = ""
-            if attempt == 0, let cached = NativeImageCache.image(for: cacheKey) { image = cached; return }
+            if attempt == 0, let cached = NativeImageCache.image(for: cacheKey, scope: session.cacheScope) { image = cached; return }
             image = nil
             do {
                 let resource: NativeMediaResource = try await session.get("/media/\(mediaID)/files/\(fileID)/url?purpose=\(purpose)")
@@ -91,7 +96,7 @@ struct NativeMediaImage: View {
                 let result = try await NativeMediaNetwork.image(url, maximumDimension: purpose == "thumbnail" ? 512 : 2048)
                 try Task.checkCancellation()
                 guard session.account?.id == owner else { return }
-                NativeImageCache.insert(result, for: cacheKey)
+                NativeImageCache.insert(result, for: cacheKey, scope: session.cacheScope)
                 image = result
             } catch { if !Task.isCancelled { failure = friendly(error) } }
         }
@@ -118,6 +123,7 @@ struct NativeTimelineView: View {
     @State private var currentDay = ""
     @State private var pendingRailDay: String?
     @State private var returningToStart = false
+    @State private var visibleEndItem: String?
     private var timelineList: some View {
         ScrollViewReader { proxy in
             ScrollView { timelineContent }
@@ -147,6 +153,7 @@ struct NativeTimelineView: View {
                 }
                 .onChange(of: store.loading) { loading in
                     guard !loading, store.error.isEmpty else { return }
+                    loadMoreIfNeeded()
                     if returningToStart {
                         returningToStart = false
                         DispatchQueue.main.async { proxy.scrollTo("timeline-start", anchor: .top) }
@@ -293,9 +300,13 @@ struct NativeTimelineView: View {
                             }
                             .id(item.stableID)
                             .onAppear {
-                                guard item.stableID == store.items.last?.stableID,
-                                      store.cursor != nil, !store.loading, store.error.isEmpty else { return }
-                                Task { await store.load(more: true) }
+                                if item.stableID == store.items.last?.stableID {
+                                    visibleEndItem = item.stableID
+                                    loadMoreIfNeeded()
+                                }
+                            }
+                            .onDisappear {
+                                if visibleEndItem == item.stableID { visibleEndItem = nil }
                             }
                         }
                     }
@@ -325,6 +336,12 @@ struct NativeTimelineView: View {
             }
             if store.loading { ProgressView().frame(maxWidth: .infinity) }
         }.padding().id("timeline-start")
+    }
+
+    private func loadMoreIfNeeded() {
+        guard visibleEndItem == store.items.last?.stableID,
+              visibleEndItem != nil, store.cursor != nil, !store.loading, store.error.isEmpty else { return }
+        Task { await store.load(more: true) }
     }
 
     private func showNewer(expanding: Bool) {
@@ -367,7 +384,7 @@ struct NativeTimelineView: View {
                     }
                 }
             }
-            .refreshable { await store.loadProfiles(); await store.load() }
+            .refreshable { await store.loadProfiles(); await store.load(refresh: true) }
             .task { await store.loadProfiles() }
             .task(id: store.queryKey) {
                 pendingRailDay = store.anchorDay

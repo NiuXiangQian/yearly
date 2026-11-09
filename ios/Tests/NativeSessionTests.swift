@@ -101,6 +101,18 @@ private final class SessionHTTP: URLProtocol {
 }
 @main struct NativeSessionTests {
     @MainActor static func main() async throws {
+        let cacheDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("YearlyCacheTests-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+        let disk = NativeLocalCache(directory: cacheDirectory)
+        disk.insert(Data("[]".utf8), scope: "site-a|1", key: "page", category: "lists", lifetime: 300)
+        let reopened = NativeLocalCache(directory: cacheDirectory)
+        precondition(reopened.data(scope: "site-a|1", key: "page", category: "lists") == Data("[]".utf8), "empty results persist across cache instances")
+        precondition(reopened.data(scope: "site-a|2", key: "page", category: "lists") == nil)
+        precondition(reopened.data(scope: "site-b|1", key: "page", category: "lists") == nil)
+        disk.insert(Data("expired".utf8), scope: "site-a|1", key: "old", category: "lists", lifetime: -1)
+        precondition(reopened.data(scope: "site-a|1", key: "old", category: "lists") == nil)
+        disk.clear(scope: "site-a|1")
+        precondition(reopened.data(scope: "site-a|1", key: "page", category: "lists") == nil)
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [SessionHTTP.self]
         config.httpCookieStorage = nil
@@ -108,7 +120,7 @@ private final class SessionHTTP: URLProtocol {
         defer { transport.invalidateAndCancel() }
         let site = SiteOrigin("https://native.invalid/yearly/")!
         let store = MemoryCredentials()
-        let session = NativeSession(site: site, store: store, transport: transport)
+        let session = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory)
         await session.restore()
         precondition(!session.restoring && session.account == nil)
         let captcha = try await session.captcha()
@@ -138,6 +150,14 @@ private final class SessionHTTP: URLProtocol {
         precondition(timeline.items[0].primary?.id == 10 && timeline.items[0].motion?.id == 11)
         precondition(timeline.items[0].media_position?.total == 2 && timeline.items[0].media_position?.day_total == 1)
         precondition(timeline.items[0].stableID != timeline.items[1].stableID)
+        let firstLoadCount = SessionHTTP.requests.count
+        let reopenedTimeline = NativeTimelineStore(session: session)
+        reopenedTimeline.selected = [1, 2]
+        await reopenedTimeline.load()
+        precondition(SessionHTTP.requests.count == firstLoadCount && reopenedTimeline.items.count == 2, "recreating the list reuses persisted pages")
+        try await session.write("/media/42", json: ["title": "updated"])
+        await timeline.load()
+        precondition(SessionHTTP.requests.count == firstLoadCount + 2, "a successful write invalidates cached pages")
         let loadedRequestCount = SessionHTTP.requests.count
         await timeline.loadIfNeeded()
         precondition(SessionHTTP.requests.count == loadedRequestCount, "tab switching reuses loaded timeline")
@@ -156,10 +176,10 @@ private final class SessionHTTP: URLProtocol {
         timeline.resetForAccountChange()
         precondition(timeline.items.isEmpty && timeline.profiles.isEmpty && timeline.cursor == nil && timeline.total == 0)
         await timeline.loadIfNeeded()
-        precondition(SessionHTTP.requests.count > beforeReset && timeline.items.count == 2, "account change invalidates the cached query")
+        precondition(SessionHTTP.requests.count > beforeReset && timeline.items.count == 2, "resetting account filters requests their own cached query")
         await timeline.load(more: true)
         SessionHTTP.timelineFails = true
-        await timeline.load()
+        await timeline.load(refresh: true)
         precondition(timeline.items.count == 3 && !timeline.error.isEmpty && !timeline.loading)
         SessionHTTP.timelineFails = false
         await timeline.load()
@@ -310,10 +330,10 @@ private final class SessionHTTP: URLProtocol {
         precondition(sharing.created?.link(site: site)?.absoluteString == "https://native.invalid/yearly/share/copy_share_token")
         let expiredLink = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2020-01-01T00:00:00Z","expired":false,"revoked":false,"token":"synthetic_expired"}"#.utf8))
         precondition(expiredLink.link(site: site) == nil && !expiredLink.usable)
-        let restored = NativeSession(site: site, store: store, transport: transport)
+        let restored = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory)
         await restored.restore()
         precondition(restored.account?.id == 1)
-        let otherSite = NativeSession(site: SiteOrigin("https://native.invalid/other/")!, store: store, transport: transport)
+        let otherSite = NativeSession(site: SiteOrigin("https://native.invalid/other/")!, store: store, transport: transport, cacheDirectory: cacheDirectory)
         await otherSite.restore()
         precondition(otherSite.account == nil && otherSite.cookies().isEmpty)
         try await restored.logout()
@@ -332,7 +352,7 @@ private final class SessionHTTP: URLProtocol {
         await readOnlySharing.create(title: "Denied", start: startDate, end: endDate, hours: 24)
         precondition(SessionHTTP.requests.count == beforeShare && readOnlySharing.created == nil && !readOnlySharing.error.isEmpty)
         SessionHTTP.authorized = false
-        let expired = NativeSession(site: site, store: store, transport: transport)
+        let expired = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory)
         await expired.restore()
         precondition(expired.account == nil && store.values.isEmpty)
         SessionHTTP.secureCookie = false

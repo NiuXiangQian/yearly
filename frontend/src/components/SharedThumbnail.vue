@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import { Play, ImageOff } from "lucide-vue-next";
-import { api } from "../lib/api";
+import { cachedMediaResource, releaseMediaResource } from "../lib/media-resource";
 import { t } from "../lib/i18n";
 import LivePhotoIcon from "./LivePhotoIcon.vue";
 const props = defineProps<{ base: string; media: any }>();
@@ -9,6 +9,7 @@ const root = ref<HTMLElement>(),
   url = ref(""),
   failed = ref(false),
   loaded = ref(false);
+let disposed = false;
 let observer: IntersectionObserver;
 onMounted(() => {
   observer = new IntersectionObserver(
@@ -16,11 +17,11 @@ onMounted(() => {
       if (!entries[0].isIntersecting) return;
       observer.disconnect();
       try {
-        url.value = (
-          await api(
-            `${props.base}/media/${props.media.id}/url?purpose=thumbnail`,
-          )
-        ).url;
+        const resource = await cachedMediaResource(
+          `${props.base}/media/${props.media.id}/url?purpose=thumbnail`, true,
+        );
+        if (disposed) releaseMediaResource(resource.url);
+        else url.value = resource.url || "";
       } catch {
         failed.value = true;
       }
@@ -29,7 +30,11 @@ onMounted(() => {
   );
   if (root.value) observer.observe(root.value);
 });
-onBeforeUnmount(() => observer?.disconnect());
+onBeforeUnmount(() => {
+  disposed = true;
+  observer?.disconnect();
+  releaseMediaResource(url.value);
+});
 </script>
 <template>
   <div ref="root" class="shared-thumb">

@@ -2,7 +2,7 @@
 import { t } from "../lib/i18n";
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import { Check, Play, ImageOff, Layers } from "lucide-vue-next";
-import { mediaResource } from "../lib/media-resource";
+import { mediaResource, releaseMediaResource } from "../lib/media-resource";
 const props = defineProps<{
   media: any;
   selected?: boolean;
@@ -14,6 +14,7 @@ const root = ref<HTMLElement>(),
   url = ref(""),
   failed = ref(false),
   loaded = ref(false);
+let disposed = false;
 let observer: IntersectionObserver,
   timer: ReturnType<typeof setTimeout> | undefined,
   long = false,
@@ -28,9 +29,9 @@ onMounted(() => {
       observer.disconnect();
       if (!preview) return;
       try {
-        url.value =
-          (await mediaResource(props.media.id, preview.id, "thumbnail")).url ||
-          "";
+        const resource = await mediaResource(props.media.id, preview.id, "thumbnail");
+        if (disposed) releaseMediaResource(resource.url);
+        else url.value = resource.url || "";
       } catch {
         failed.value = true;
       }
@@ -40,7 +41,9 @@ onMounted(() => {
   if (root.value) observer.observe(root.value);
 });
 onBeforeUnmount(() => {
+  disposed = true;
   observer?.disconnect();
+  releaseMediaResource(url.value);
   clearTimeout(timer);
 });
 function press(e: PointerEvent) {

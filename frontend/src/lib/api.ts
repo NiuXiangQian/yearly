@@ -1,4 +1,8 @@
 import { t } from "./i18n";
+import {
+  cacheScope, cacheRevision, readCachedJSON, writeCachedJSON,
+  setCacheAccount, invalidateCachedLists, clearCachedScope, rememberShare,
+} from "./local-cache";
 import { ElMessage } from "element-plus";
 let csrf = "";
 export function sitePath(path: string) {
@@ -11,6 +15,20 @@ export async function api<T = any>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
+  const method = options.method || "GET";
+  const scope = cacheScope(path);
+  const cacheable = method === "GET" && scope && options.cache !== "reload" && options.cache !== "no-store" && (
+    /^\/(timeline|media|events|children|folders|stats)(?:[/?]|$)/.test(path) && !path.includes("/url?") ||
+    /^\/public\/shares\/[^/?]+(?:[?]|$|\/(days|folders)\/)/.test(path)
+  );
+  const revision = cacheRevision();
+  if (cacheable) {
+    const cached = await readCachedJSON(scope, path);
+    if (cached !== undefined) {
+      if (cached.share?.expires_at) rememberShare(path, cached.share.expires_at);
+      return cached;
+    }
+  }
   const response = await fetch(sitePath("/api" + path), {
     credentials: "same-origin",
     ...options,
@@ -21,6 +39,10 @@ export async function api<T = any>(
     },
   });
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      if (scope) await clearCachedScope(scope);
+      if (response.status === 401 && !path.startsWith("/public/")) setCacheAccount(null);
+    }
     const body = await response.json().catch(() => ({}));
     const message =
       typeof body.detail === "string"
@@ -36,7 +58,16 @@ export async function api<T = any>(
       location.assign(sitePath("/login"));
     throw new Error(t(message));
   }
-  return response.json();
+  const value = await response.json();
+  if ((path === "/auth/me" || path === "/auth/login") && value.id) setCacheAccount(value.id);
+  if (method !== "GET") invalidateCachedLists();
+  if (path === "/auth/logout") {
+    if (scope) await clearCachedScope(scope);
+    setCacheAccount(null);
+  }
+  if (value.share?.expires_at) rememberShare(path, value.share.expires_at);
+  if (cacheable && revision === cacheRevision()) await writeCachedJSON(scope, path, value);
+  return value;
 }
 export const post = <T = any>(path: string, body: any = {}) =>
   api<T>(path, { method: "POST", body: JSON.stringify(body) });

@@ -3,7 +3,7 @@ import { t } from "../lib/i18n";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ImageOff, Layers, Image, FileImage, Maximize, Minimize } from "lucide-vue-next";
 import { bytes } from "../lib/api";
-import { mediaResource, type MediaResource } from "../lib/media-resource";
+import { mediaResource, releaseMediaResource, type MediaResource } from "../lib/media-resource";
 import LivePhotoViewer from "./LivePhotoViewer.vue";
 import ImageViewer from "./ImageViewer.vue";
 import VideoPlayer from "./VideoPlayer.vue";
@@ -52,6 +52,8 @@ watch(
     let timer: ReturnType<typeof setTimeout>;
     onCleanup(() => {
       active = false;
+      releaseMediaResource(resource.value?.url);
+      releaseMediaResource(poster.value);
       clearTimeout(timer);
     });
     resource.value = undefined;
@@ -68,6 +70,7 @@ watch(
       mediaResource(mid, fid, "thumbnail")
         .then((value) => {
           if (active) poster.value = value.url || "";
+          else releaseMediaResource(value.url);
         })
         .catch(() => {});
     async function refresh() {

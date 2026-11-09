@@ -65,7 +65,7 @@ struct NativeFamilyAvatar: View {
         loadedID = nil
         guard let mediaID, let account = session.account?.id else { return }
         let cacheKey = "avatar|\(session.site.url.absoluteString)|\(account)|\(mediaID)"
-        if let cached = NativeImageCache.image(for: cacheKey) {
+        if let cached = NativeImageCache.image(for: cacheKey, scope: session.cacheScope) {
             remote = cached
             loadedID = mediaID
             return
@@ -78,7 +78,7 @@ struct NativeFamilyAvatar: View {
             let image = try await NativeMediaNetwork.image(url, maximumDimension: 256)
             try Task.checkCancellation()
             guard session.account?.id == account else { return }
-            NativeImageCache.insert(image, for: cacheKey)
+            NativeImageCache.insert(image, for: cacheKey, scope: session.cacheScope)
             remote = image
             loadedID = mediaID
         } catch { /* Initials are also the fallback for unavailable avatars. */ }

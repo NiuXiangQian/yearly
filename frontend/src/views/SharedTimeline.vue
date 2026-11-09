@@ -10,6 +10,7 @@ import {
 import { useRoute } from "vue-router";
 import { Leaf, Folder, ShieldCheck } from "lucide-vue-next";
 import { api, notify } from "../lib/api";
+import { cacheScope, clearCachedScope } from "../lib/local-cache";
 import { t, locale } from "../lib/i18n";
 import LanguageSwitch from "../components/LanguageSwitch.vue";
 import TimelineMonths from "../components/TimelineMonths.vue";
@@ -18,7 +19,7 @@ import TimelineOrder from "../components/TimelineOrder.vue";
 import TimelineRail from "../components/TimelineRail.vue";
 import SharedThumbnail from "../components/SharedThumbnail.vue";
 import LivePhotoViewer from "../components/LivePhotoViewer.vue";
-import type { MediaResource } from "../lib/media-resource";
+import { cachedMediaResource, releaseMediaResource, type MediaResource } from "../lib/media-resource";
 import ImageViewer from "../components/ImageViewer.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 const route = useRoute();
@@ -64,6 +65,8 @@ let expiryTimer: ReturnType<typeof setTimeout>;
 let previewGeneration = 0;
 let loadGeneration = 0;
 function expire() {
+  void clearCachedScope(cacheScope(base)!);
+  releaseMediaResource(preview.value);
   error.value = t("分享已失效或不存在");
   share.value = null;
   days.value = [];
@@ -177,16 +180,17 @@ async function openMedia(item: any, playLive = item.media_type === "live_photo")
   previewFullscreen.value = item.kind !== "event";
   selected.value = item;
   live.value = playLive;
+  releaseMediaResource(preview.value);
   preview.value = "";
   previewError.value = "";
   const generation = ++previewGeneration;
   if (item.kind === "event") return;
   previewLoading.value = true;
   try {
-    const data = await api(
-      `${base}/media/${item.id}/url?purpose=preview&live=false`,
+    const data = await cachedMediaResource(
+      `${base}/media/${item.id}/url?purpose=preview&live=false`, item.media_type !== "video",
     );
-    if (generation !== previewGeneration) return;
+    if (generation !== previewGeneration) { releaseMediaResource(data.url); return; }
     if (data.url) preview.value = data.url;
     else previewError.value = t("压缩预览仍在准备，请稍后再试");
   } catch (e) {
@@ -251,6 +255,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearTimeout(expiryTimer);
   cancelAnimationFrame(scrollFrame);
+  releaseMediaResource(preview.value);
   window.removeEventListener("scroll", trackDate);
 });
 </script>
@@ -423,6 +428,7 @@ onBeforeUnmount(() => {
       append-to-body
       destroy-on-close
       @close="
+        releaseMediaResource(preview);
         selected = null;
         previewGeneration++;
       "

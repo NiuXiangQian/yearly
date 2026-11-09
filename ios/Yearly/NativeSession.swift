@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import Security
+import CryptoKit
 
 struct NativeAPIError: LocalizedError {
     let status: Int
@@ -73,11 +74,15 @@ struct LoginCaptcha: Decodable {
     private let transport: URLSession
     private var credential: SessionCredential?
     private var generation = 0
+    private(set) var cacheRevision = 0
+    let localCache: NativeLocalCache
+    var cacheScope: String? { account.map { "\(site.url.absoluteString)|\($0.id)" } }
     var canEdit: Bool { ["admin", "member"].contains(account?.role ?? "") }
 
-    init(site: SiteOrigin, store: SessionCredentialStore = KeychainSessionStore(), transport: URLSession? = nil) {
+    init(site: SiteOrigin, store: SessionCredentialStore = KeychainSessionStore(), transport: URLSession? = nil, cacheDirectory: URL? = nil) {
         self.site = site
         self.store = store
+        self.localCache = NativeLocalCache(directory: cacheDirectory)
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil
         config.httpShouldSetCookies = false
@@ -162,6 +167,8 @@ struct LoginCaptcha: Decodable {
         credential = saved; self.account = account; error = ""
     }
     func logout() async throws {
+        if let cacheScope { localCache.clear(scope: cacheScope) }
+        cacheRevision += 1
         generation += 1
         var failure: Error?
         if account != nil { do { _ = try await send("/auth/logout", method: "POST", body: Data("{}".utf8)) } catch { failure = error } }
@@ -169,25 +176,48 @@ struct LoginCaptcha: Decodable {
         try store.write(nil, site: site.url.absoluteString)
         if let failure { throw failure }
     }
-    func get<T: Decodable>(_ path: String) async throws -> T {
+    func get<T: Decodable>(_ path: String, refresh: Bool = false) async throws -> T {
+        guard let credential, credential.expires > Date() else {
+            expire()
+            throw NativeAPIError(status: 401, message: "请先登录家庭账号。")
+        }
+        let scope = cacheScope
+        let revision = cacheRevision
+        let cacheable = path.range(of: #"^/(timeline|media|events|children|folders|stats)([/?]|$)"#, options: .regularExpression) != nil && !path.contains("/url?")
+        if cacheable, !refresh, let scope,
+           let data = localCache.data(scope: scope, key: path, category: "lists"),
+           let value = try? JSONDecoder().decode(T.self, from: data) { return value }
         let (data, _) = try await send(path)
-        return try JSONDecoder().decode(T.self, from: data)
+        let value = try JSONDecoder().decode(T.self, from: data)
+        if cacheable, let scope, scope == cacheScope, revision == cacheRevision {
+            localCache.insert(data, scope: scope, key: path, category: "lists", lifetime: 300)
+        }
+        return value
+    }
+    func invalidateCachedLists() {
+        cacheRevision += 1
+        if let cacheScope { localCache.clear(scope: cacheScope, category: "lists") }
     }
     func write(_ path: String, method: String = "PUT", json: [String: Any]) async throws {
         guard canEdit else { throw NativeAPIError(status: 403, message: "此账号为只读账号。") }
         _ = try await send(path, method: method, body: JSONSerialization.data(withJSONObject: json))
+        invalidateCachedLists()
     }
     func post<T: Decodable>(_ path: String, json: [String: Any]) async throws -> T {
         guard canEdit else { throw NativeAPIError(status: 403, message: "此账号为只读账号。") }
         let (data, _) = try await send(path, method: "POST", body: JSONSerialization.data(withJSONObject: json))
+        invalidateCachedLists()
         return try JSONDecoder().decode(T.self, from: data)
     }
     func updateProfile(id: Int, json: [String: Any]) async throws -> UploadProfile {
         guard canEdit else { throw NativeAPIError(status: 403, message: "此账号为只读账号。") }
         let (data, _) = try await send("/children/\(id)", method: "PUT", body: JSONSerialization.data(withJSONObject: json))
+        invalidateCachedLists()
         return try JSONDecoder().decode(UploadProfile.self, from: data)
     }
     private func expire() {
+        if let cacheScope { localCache.clear(scope: cacheScope) }
+        cacheRevision += 1
         generation += 1
         account = nil; credential = nil
         error = "登录已失效，请重新登录后继续未完成任务。"
@@ -206,4 +236,57 @@ func friendly(_ error: Error) -> String {
     if error is CancellationError { return "操作已取消。" }
     if error is URLError { return "网络连接失败，请检查网络和站点地址后重试。" }
     return error.localizedDescription
+}
+
+// App cache files live outside backups and are separated by site and account.
+@MainActor final class NativeLocalCache {
+    private struct Entry: Codable {
+        let expires: Date
+        let data: Data
+    }
+    private let directory: URL
+    init(directory: URL? = nil) {
+        self.directory = directory ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("YearlyLocalCache-v1", isDirectory: true)
+    }
+    private func digest(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    private func folder(_ scope: String, _ category: String) -> URL {
+        directory.appendingPathComponent(digest(scope), isDirectory: true).appendingPathComponent(category, isDirectory: true)
+    }
+    func data(scope: String, key: String, category: String) -> Data? {
+        let file = folder(scope, category).appendingPathComponent(digest(key))
+        guard let raw = try? Data(contentsOf: file),
+              let entry = try? PropertyListDecoder().decode(Entry.self, from: raw), entry.expires > Date() else {
+            try? FileManager.default.removeItem(at: file)
+            return nil
+        }
+        return entry.data
+    }
+    func insert(_ data: Data, scope: String, key: String, category: String, lifetime: TimeInterval) {
+        let limit = category == "images" ? 128 * 1024 * 1024 : 4 * 1024 * 1024
+        guard data.count < limit else { return }
+        let folder = folder(scope, category)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        guard let encoded = try? encoder.encode(Entry(expires: Date().addingTimeInterval(lifetime), data: data)) else { return }
+        let file = folder.appendingPathComponent(digest(key))
+        guard (try? encoded.write(to: file, options: .atomic)) != nil else { return }
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey])) ?? []
+        let entries = files.compactMap { url -> (URL, Int, Date)? in
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return nil }
+            return (url, values.fileSize ?? 0, values.contentModificationDate ?? .distantPast)
+        }.sorted { $0.2 < $1.2 }
+        var size = entries.reduce(0) { $0 + $1.1 }
+        for entry in entries where size > limit {
+            try? FileManager.default.removeItem(at: entry.0)
+            size -= entry.1
+        }
+    }
+    func clear(scope: String, category: String? = nil) {
+        let folder = category.map { folder(scope, $0) } ?? directory.appendingPathComponent(digest(scope), isDirectory: true)
+        try? FileManager.default.removeItem(at: folder)
+    }
 }

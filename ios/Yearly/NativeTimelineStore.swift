@@ -209,9 +209,9 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         guard loadedQuery != queryKey else { return }
         await load()
     }
-    func load(more: Bool = false) async {
+    func load(more: Bool = false, refresh: Bool = false) async {
         if !more, let dateAnchor, dateAnchor.filters != filterKey { self.dateAnchor = nil }
-        await loadPage(more ? .older : .first)
+        await loadPage(more ? .older : .first, refresh: refresh)
         if !more && archiveExpanded && error.isEmpty { await loadNewer() }
     }
     func expandArchive() async {
@@ -266,7 +266,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         return request == queryKey ? result.total : nil
     }
 
-    private func loadPage(_ direction: Page) async {
+    private func loadPage(_ direction: Page, refresh: Bool = false) async {
         if direction != .first && (loading || loadedQuery != queryKey) { return }
         if direction == .older && cursor == nil { return }
         if !showingUploads && useDateRange && NativeDay.string(startDate) > NativeDay.string(endDate) {
@@ -312,7 +312,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         if let position { params.append(URLQueryItem(name: "cursor", value: position)) }
         query.queryItems = params
         do {
-            let page: NativeTimelinePage = try await session.get("/timeline?" + (query.percentEncodedQuery ?? ""))
+            let page: NativeTimelinePage = try await session.get("/timeline?" + (query.percentEncodedQuery ?? ""), refresh: refresh)
             guard ticket == generation, requestedQuery == queryKey, !Task.isCancelled else { return }
             let existing = Set(items.map(\.stableID))
             if direction == .first { daySharing = page.day_sharing ?? [:] }

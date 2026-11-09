@@ -68,6 +68,7 @@ struct NativeAppShell: View {
                     Group {
                         if session.canEdit {
                             NativeUploadView(queue: queue, session: session, profileRevision: profileRevision, requestedDay: $uploadDay) { destination in
+                                session.invalidateCachedLists()
                                 switch destination {
                                 case .timeline:
                                     timeline.focusOnUploads([])

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
 import SharedTimeline from "../../views/SharedTimeline.vue";
 import { api } from "../api";
+import { clearMediaResources } from "../media-resource";
 vi.mock("vue-router", () => ({
   useRoute: () => ({ params: { token: "virtual" } }),
 }));
@@ -52,6 +53,7 @@ function button(text: string) {
     buttons.find((b) => b.textContent?.includes(text)))!;
 }
 beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
   vi.stubGlobal("IntersectionObserver", class {
     target?: Element;
     constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
@@ -62,6 +64,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   app?.unmount();
+  clearMediaResources();
   document.body.innerHTML = "";
   vi.clearAllMocks();
   localStorage.clear();

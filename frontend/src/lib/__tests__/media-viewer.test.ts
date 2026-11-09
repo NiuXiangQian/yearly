@@ -6,7 +6,7 @@ import ImageViewer from "../../components/ImageViewer.vue";
 import VideoPlayer from "../../components/VideoPlayer.vue";
 import { mediaResource } from "../media-resource";
 import { heicPreview } from "../heic";
-vi.mock("../media-resource", () => ({ mediaResource: vi.fn() }));
+vi.mock("../media-resource", () => ({ mediaResource: vi.fn(), releaseMediaResource: vi.fn() }));
 vi.mock("../heic", () => ({ heicPreview: vi.fn() }));
 const applications: ReturnType<typeof createApp>[] = [];
 afterEach(() => {

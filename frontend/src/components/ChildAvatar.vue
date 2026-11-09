@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { ref, watch, onBeforeUnmount } from "vue";
 import { api } from "../lib/api";
-import { mediaResource } from "../lib/media-resource";
+import { mediaResource, releaseMediaResource } from "../lib/media-resource";
 const props = defineProps<{ child: any }>(),
   url = ref(""),
   failed = ref(false);
@@ -22,7 +22,8 @@ watch(
         media.files.find((f: any) => f.file_role === "original");
       if (file) {
         const resource = await mediaResource(id, file.id, "thumbnail");
-        if (!cancelled) url.value = resource.url || "";
+        if (cancelled) releaseMediaResource(resource.url);
+        else url.value = resource.url || "";
       }
     } catch {
       if (!cancelled) failed.value = true;
@@ -30,6 +31,8 @@ watch(
   },
   { immediate: true },
 );
+onBeforeUnmount(() => releaseMediaResource(url.value));
+watch(url, (_, previous) => releaseMediaResource(previous));
 </script>
 <template>
   <span class="child-avatar" :style="{ '--child-color': child.theme_color }"
