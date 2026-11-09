@@ -3,6 +3,7 @@ import { hasGrowthTimeline } from "../lib/profiles";
 import { t, ageLabel } from "../lib/i18n";
 import ShareDialog from "../components/ShareDialog.vue";
 import TimelineMonths from "../components/TimelineMonths.vue";
+import ScrollLoader from "../components/ScrollLoader.vue";
 import TimelineOrder from "../components/TimelineOrder.vue";
 import DateField from "../components/DateField.vue";
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
@@ -67,14 +68,6 @@ async function saveDaySharing(date: string, event: Event) {
     savingDaySharing.value = "";
   }
 }
-const expandedDays = ref<Record<string, boolean>>({});
-const mobile = ref(window.matchMedia("(max-width: 700px)").matches);
-const mobileQuery = window.matchMedia("(max-width: 700px)");
-function updateMobile(event: MediaQueryListEvent) {
-  mobile.value = event.matches;
-}
-onMounted(() => mobileQuery.addEventListener("change", updateMobile));
-onBeforeUnmount(() => mobileQuery.removeEventListener("change", updateMobile));
 const nextCursor = ref<string | null>(null);
 const folderId = ref<number | null>(null),
   folderCreate = ref(false),
@@ -124,6 +117,7 @@ const items = ref<any[]>([]),
   total = ref(0),
   loading = ref(false),
   error = ref(""),
+  failedMore = ref(false),
   selection = ref(false),
   selected = ref<number[]>([]),
   detail = ref<number | null>(null),
@@ -222,10 +216,8 @@ const sortDate = ref(""),
 const grid = ref<HTMLElement>(),
   rect = ref<any>(null),
   anchor = ref(0),
-  dragEnabled = ref(false),
-  sentinel = ref<HTMLElement>();
+  dragEnabled = ref(false);
 let dragStart: any = null,
-  observer: IntersectionObserver,
   searchTimer: ReturnType<typeof setTimeout>,
   generation = 0;
 const trash = computed(() => !!route.meta.trash);
@@ -334,6 +326,7 @@ async function load(reset = true, preserveLoaded = false) {
   } catch (e) {
     if (ticket === generation) {
       error.value = e instanceof Error ? e.message : t("加载失败");
+      failedMore.value = !reset;
     }
   } finally {
     if (ticket === generation) loading.value = false;
@@ -386,17 +379,9 @@ onMounted(() => {
   } catch {}
   load();
   loadMarkers();
-  observer = new IntersectionObserver(
-    (entries) => {
-      if (entries[0].isIntersecting) next();
-    },
-    { rootMargin: "200px" },
-  );
-  if (sentinel.value) observer.observe(sentinel.value);
   window.addEventListener("pointerup", endDrag);
 });
 onBeforeUnmount(() => {
-  observer?.disconnect();
   clearTimeout(searchTimer);
   window.removeEventListener("pointerup", endDrag);
 });
@@ -1083,10 +1068,9 @@ function saveStages() {
     <div v-if="error" class="error-panel">
       <h3>{{ t("暂时没能翻开回忆") }}</h3>
       <p>{{ error }}</p>
-      <button class="button" @click="load()">{{ t("重新加载") }}</button>
+      <button class="button" @click="load(!failedMore)">{{ t("重新加载") }}</button>
     </div>
     <div
-      v-else
       ref="grid"
       class="timeline-content"
       :class="{ 'drag-mode': dragEnabled }"
@@ -1203,12 +1187,7 @@ function saveStages() {
             :class="{ 'order-preview': dragDay === group.date && dropTarget }"
           >
             <div
-              v-for="m in mobile &&
-              !expandedDays[group.date] &&
-              !selection &&
-              sortDate !== group.date
-                ? group.media.slice(0, 8)
-                : group.media"
+              v-for="m in group.media"
               :key="m.kind + '-' + m.id"
               class="timeline-entry"
               :class="{
@@ -1383,22 +1362,6 @@ function saveStages() {
               </button>
             </div>
           </TransitionGroup>
-          <button
-            v-if="
-              mobile &&
-              group.media.length > 8 &&
-              !selection &&
-              sortDate !== group.date
-            "
-            class="button day-expand"
-            @click="expandedDays[group.date] = !expandedDays[group.date]"
-          >
-            {{
-              expandedDays[group.date]
-                ? t("收起")
-                : t("展开更多（剩余 {p0} 项）", { p0: group.media.length - 8 })
-            }}
-          </button>
         </div>
       </TimelineMonths>
       <div v-if="loading" class="media-grid loading-grid">
@@ -1407,7 +1370,7 @@ function saveStages() {
         </div>
       </div>
       <EmptyState
-        v-if="!items.length && !loading"
+        v-if="!items.length && !loading && !error"
         :title="
           trash
             ? t('回收站空空的')
@@ -1436,12 +1399,14 @@ function saveStages() {
         </span></EmptyState
       >
     </div>
-    <div ref="sentinel" class="load-more">
-      <button v-if="nextCursor && !loading" class="button" @click="next">
-        {{ t("加载更多回忆") }}</button
-      ><span v-else-if="items.length && !loading">
-        {{ t("— 这些日子，都在这里 —") }}
-      </span>
+    <div class="load-more">
+      <ScrollLoader
+        v-if="nextCursor && !error"
+        :loading="loading"
+        :has-more="!!nextCursor"
+        @load="next"
+      />
+      <span v-else-if="items.length && !loading">{{ t("— 这些日子，都在这里 —") }}</span>
     </div>
     <div
       v-if="rect"
@@ -1630,10 +1595,6 @@ function saveStages() {
   </div>
 </template>
 <style scoped>
-.day-expand {
-  margin: 16px auto 0;
-  display: flex;
-}
 .folder-drag-handle {
   margin-left: auto;
   display: inline-flex;

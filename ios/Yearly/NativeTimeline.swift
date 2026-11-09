@@ -118,7 +118,6 @@ struct NativeTimelineView: View {
     @State private var currentDay = ""
     @State private var pendingRailDay: String?
     @State private var returningToStart = false
-    @State private var visibleDayCounts: [String: Int] = [:]
     private var timelineList: some View {
         ScrollViewReader { proxy in
             ScrollView { timelineContent }
@@ -164,11 +163,6 @@ struct NativeTimelineView: View {
                     guard let id = positionBeforePrepend, first != id,
                           let item = store.items.first(where: { $0.stableID == id }) else { return }
                     positionBeforePrepend = nil
-                    let day = store.groupDay(item)
-                    let dayItems = store.items.filter { store.groupDay($0) == day }
-                    if let index = dayItems.firstIndex(where: { $0.stableID == id }) {
-                        visibleDayCounts[day] = max(visibleDayCounts[day] ?? 8, index + 1)
-                    }
                     // Lay out the lazy day section first, then place the original card in view.
                     proxy.scrollTo("day-\(store.groupDay(item))", anchor: .top)
                     DispatchQueue.main.async {
@@ -242,10 +236,9 @@ struct NativeTimelineView: View {
             }
             ForEach(days, id: \.self) { day in
                 let dayItems = groups[day] ?? []
-                let visibleCount = visibleDayCounts[day] ?? 8
                 Section {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                        ForEach(Array(dayItems.prefix(visibleCount)), id: \.stableID) { item in
+                        ForEach(dayItems, id: \.stableID) { item in
                             VStack(alignment: .leading, spacing: 5) {
                                 Button {
                                     if selecting {
@@ -299,16 +292,11 @@ struct NativeTimelineView: View {
                                 }
                             }
                             .id(item.stableID)
-                        }
-                    }
-                    if dayItems.count > visibleCount {
-                        HStack {
-                            Text("已显示 \(visibleCount) / 已加载 \(dayItems.count) 项")
-                                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                            Spacer()
-                            Button("加载更多") { visibleDayCounts[day] = visibleCount + 8 }
-                                .font(.subheadline).frame(minHeight: 44)
-                                .accessibilityLabel("加载 \(day) 的更多回忆")
+                            .onAppear {
+                                guard item.stableID == store.items.last?.stableID,
+                                      store.cursor != nil, !store.loading, store.error.isEmpty else { return }
+                                Task { await store.load(more: true) }
+                            }
                         }
                     }
                 } header: {
@@ -336,10 +324,6 @@ struct NativeTimelineView: View {
                 }.id("day-\(day)")
             }
             if store.loading { ProgressView().frame(maxWidth: .infinity) }
-            if store.cursor != nil {
-                Button(store.archiveExpanded ? (store.ascending ? "加载较新的回忆" : "加载较早的回忆") : "加载更多回忆") { Task { await store.load(more: true) } }
-                    .frame(maxWidth: .infinity).disabled(store.loading)
-            }
         }.padding().id("timeline-start")
     }
 
@@ -360,7 +344,6 @@ struct NativeTimelineView: View {
                 else { timelineList.searchable(text: $store.search, prompt: "搜索标题、批次、备注或地点") }
             }
             .navigationTitle(store.showingUploads ? "刚上传的回忆" : "家庭时光")
-            .onChange(of: store.queryKey) { _ in visibleDayCounts = [:] }
             .onChange(of: store.uploadedMediaIDs) { _ in
                 selecting = false
                 chosen = []

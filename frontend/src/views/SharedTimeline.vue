@@ -8,11 +8,12 @@ import {
   onBeforeUnmount,
 } from "vue";
 import { useRoute } from "vue-router";
-import { Leaf, Folder, ChevronDown, ShieldCheck } from "lucide-vue-next";
+import { Leaf, Folder, ShieldCheck } from "lucide-vue-next";
 import { api, notify } from "../lib/api";
 import { t, locale } from "../lib/i18n";
 import LanguageSwitch from "../components/LanguageSwitch.vue";
 import TimelineMonths from "../components/TimelineMonths.vue";
+import ScrollLoader from "../components/ScrollLoader.vue";
 import TimelineOrder from "../components/TimelineOrder.vue";
 import TimelineRail from "../components/TimelineRail.vue";
 import SharedThumbnail from "../components/SharedThumbnail.vue";
@@ -38,6 +39,7 @@ const previousDate = computed(() => {
   const first = days.value[0]?.day;
   return first && railDates.value.indexOf(first) > 0 ? first : null;
 });
+const pendingDay = computed(() => days.value.find((day) => day.items.length < day.total));
 const currentDate = ref("");
 const monthList = ref<{ reveal(date: string): void }>();
 const reading = ref<HTMLElement>();
@@ -45,7 +47,9 @@ const loading = ref(false),
   error = ref(""),
   folder = ref<any>(null),
   selected = ref<any>(null);
-const expanded = ref<Record<string, boolean>>({}),
+const dayErrors = ref<Record<string, string>>({}),
+  pageError = ref(""),
+  folderError = ref(""),
   busyDay = ref(""),
   folderBusy = ref(false);
 const preview = ref(""),
@@ -72,15 +76,16 @@ function expire() {
 }
 async function load(direction: "replace" | "next" | "previous" = "replace", anchor?: string) {
   const more = direction !== "replace";
-  if (more && loading.value) return;
+  if (more && (loading.value || busyDay.value)) return;
   const generation = ++loadGeneration;
   const order = timelineOrder.value;
   loading.value = true;
   error.value = "";
+  pageError.value = "";
   if (!more && !anchor) {
     days.value = [];
     nextDate.value = null;
-    expanded.value = {};
+    dayErrors.value = {};
     folder.value = null;
   }
   try {
@@ -119,33 +124,41 @@ async function load(direction: "replace" | "next" | "previous" = "replace", anch
     );
   } catch (e) {
     if (generation === loadGeneration) {
-      if (more || anchor) notify(e);
+      if (more) pageError.value = e instanceof Error ? e.message : t("请求失败");
+      else if (anchor) notify(e);
       else error.value = e instanceof Error ? e.message : t("请求失败");
     }
   } finally {
     if (generation === loadGeneration) loading.value = false;
   }
 }
-async function expand(day: any) {
-  if (busyDay.value) return;
-  expanded.value[day.day] = true;
-  if (day.items.length >= day.total) return;
+async function loadDay(day: any) {
+  if (busyDay.value || loading.value || day.items.length >= day.total) return;
   busyDay.value = day.day;
+  dayErrors.value[day.day] = "";
+  const generation = loadGeneration;
   try {
     const data = await api(
       `${base}/days/${day.day}?offset=${day.items.length}&order=${timelineOrder.value}`,
     );
+    if (generation !== loadGeneration) return;
     day.items.push(...data.items);
     day.total = data.total;
   } catch (e) {
-    notify(e);
+    if (generation === loadGeneration)
+      dayErrors.value[day.day] = e instanceof Error ? e.message : t("请求失败");
   } finally {
     busyDay.value = "";
   }
 }
+async function loadNext() {
+  if (pendingDay.value) await loadDay(pendingDay.value);
+  else if (nextDate.value) await load("next");
+}
 async function openFolder(item: any, more = false) {
   if (folderBusy.value) return;
   folderBusy.value = true;
+  folderError.value = "";
   try {
     const data = await api(
       `${base}/folders/${item.id}?offset=${more ? folder.value.items.length : 0}&order=${timelineOrder.value}`,
@@ -154,7 +167,8 @@ async function openFolder(item: any, more = false) {
       ? { ...data, items: [...folder.value.items, ...data.items] }
       : data;
   } catch (e) {
-    notify(e);
+    if (more) folderError.value = e instanceof Error ? e.message : t("请求失败");
+    else notify(e);
   } finally {
     folderBusy.value = false;
   }
@@ -300,9 +314,7 @@ onBeforeUnmount(() => {
               </header>
               <div class="shared-grid">
                 <button
-                  v-for="item in expanded[day.day]
-                    ? day.items
-                    : day.items.slice(0, 8)"
+                  v-for="item in day.items"
                   :key="item.kind + item.id"
                   class="shared-card"
                   @click="
@@ -342,47 +354,27 @@ onBeforeUnmount(() => {
                   >
                 </button>
               </div>
-              <div v-if="day.total > 8" class="expand-actions">
-                <button
-                  v-if="!expanded[day.day] || day.items.length < day.total"
-                  class="button"
-                  :disabled="!!busyDay"
-                  @click="expand(day)"
-                >
-                  <ChevronDown :size="15" />{{
-                    t("展开更多（剩余 {p0} 项）", {
-                      p0:
-                        day.total - (expanded[day.day] ? day.items.length : 8),
-                    })
-                  }}</button
-                ><button
-                  v-if="expanded[day.day]"
-                  class="text-button"
-                  @click="expanded[day.day] = false"
-                >
-                  {{ t("收起") }}
-                </button>
-              </div>
+              <ScrollLoader
+                v-if="day.items.length < day.total"
+                :loading="loading || !!busyDay"
+                :has-more="day.items.length < day.total"
+                :error="dayErrors[day.day]"
+                @load="loadDay(day)"
+              />
             </section>
           </TimelineMonths>
           <div v-if="!days.length && !loading" class="shared-empty">
             {{ t("这个范围还没有可分享的回忆") }}
           </div>
           <footer class="shared-footer">
-            <button
-              v-if="nextDate"
-              class="button"
-              :disabled="loading"
-              @click="load('next')"
-            >
-              {{
-                loading
-                  ? t("正在加载…")
-                  : timelineOrder === "asc"
-                    ? t("更晚的日子")
-                    : t("更早的日子")
-              }}</button
-            ><span v-else>{{ t("— 这些日子，都在这里 —") }}</span>
+            <ScrollLoader
+              v-if="nextDate || pendingDay"
+              :loading="loading || !!busyDay"
+              :has-more="!!nextDate || !!pendingDay"
+              :error="pageError || dayErrors[pendingDay?.day]"
+              @load="loadNext"
+            />
+            <span v-else-if="!loading">{{ t("— 这些日子，都在这里 —") }}</span>
           </footer>
         </div>
       </div>
@@ -411,14 +403,13 @@ onBeforeUnmount(() => {
           >
         </button>
       </div>
-      <button
+      <ScrollLoader
         v-if="folder && folder.items.length < folder.total"
-        class="button"
-        :disabled="folderBusy"
-        @click="openFolder(folder, true)"
-      >
-        {{ t("加载更多") }}
-      </button></ElDialog
+        :loading="folderBusy"
+        :has-more="folder.items.length < folder.total"
+        :error="folderError"
+        @load="openFolder(folder, true)"
+      /></ElDialog
     >
     <ElDialog
       :model-value="!!selected"
@@ -659,13 +650,6 @@ onBeforeUnmount(() => {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-.expand-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  margin-top: 16px;
 }
 .shared-footer {
   text-align: center;

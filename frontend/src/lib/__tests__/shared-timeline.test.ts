@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { createApp } from "vue";
+import { createApp, nextTick } from "vue";
 import SharedTimeline from "../../views/SharedTimeline.vue";
 import { api } from "../api";
 vi.mock("vue-router", () => ({
@@ -13,6 +13,10 @@ vi.mock("../../components/SharedThumbnail.vue", () => ({
 vi.mock("element-plus/es/components/base/style/css", () => ({}));
 vi.mock("element-plus/es/components/dialog/style/css", () => ({}));
 let app: ReturnType<typeof createApp>, host: HTMLElement;
+const observers = new Map<Element, (entries: { isIntersecting: boolean }[]) => void>();
+function intersect(element: Element) {
+  observers.get(element)!([{ isIntersecting: true }]);
+}
 const items = Array.from({ length: 12 }, (_, i) => ({
   id: i + 1,
   kind: "media",
@@ -48,6 +52,12 @@ function button(text: string) {
     buttons.find((b) => b.textContent?.includes(text)))!;
 }
 beforeEach(() => {
+  vi.stubGlobal("IntersectionObserver", class {
+    target?: Element;
+    constructor(private callback: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe(target: Element) { this.target = target; observers.set(target, this.callback); }
+    disconnect() { if (this.target) observers.delete(this.target); }
+  });
   vi.mocked(api).mockResolvedValue(response());
 });
 afterEach(() => {
@@ -55,32 +65,47 @@ afterEach(() => {
   document.body.innerHTML = "";
   vi.clearAllMocks();
   localStorage.clear();
+  observers.clear();
+  vi.unstubAllGlobals();
 });
-it("shows eight entries per day and keeps the next day readable; expands and collapses", async () => {
+it("automatically fills a day at its end without a manual expand button", async () => {
   await mount();
-  await vi.waitFor(() =>
-    expect(host.querySelectorAll(".shared-card")).toHaveLength(9),
-  );
-  expect(vi.mocked(api)).toHaveBeenCalledWith(
-    "/public/shares/virtual?order=desc",
-  );
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
+  expect(host.textContent).not.toContain("展开更多");
   vi.mocked(api).mockResolvedValueOnce({ items: items.slice(8), total: 12 });
-  button("展开更多").click();
-  await vi.waitFor(() =>
-    expect(host.querySelectorAll(".shared-card")).toHaveLength(13),
-  );
+  intersect(host.querySelector(".shared-day .scroll-loader")!);
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(13));
   expect(vi.mocked(api)).toHaveBeenLastCalledWith(
     "/public/shares/virtual/days/2024-01-02?offset=8&order=desc",
   );
-  button("收起").click();
-  await vi.waitFor(() =>
-    expect(host.querySelectorAll(".shared-card")).toHaveLength(9),
-  );
-  button("展开更多").click();
-  await vi.waitFor(() =>
-    expect(host.querySelectorAll(".shared-card")).toHaveLength(13),
-  );
-  expect(vi.mocked(api)).toHaveBeenCalledTimes(3);
+  expect(host.querySelector(".shared-day .scroll-loader")).toBeNull();
+});
+
+it("keeps loading while the day end stays visible and stops at its total", async () => {
+  await mount();
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
+  vi.mocked(api)
+    .mockResolvedValueOnce({ items: items.slice(8, 10), total: 12 })
+    .mockResolvedValueOnce({ items: items.slice(10), total: 12 });
+  intersect(host.querySelector(".shared-day .scroll-loader")!);
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(13));
+  expect(api).toHaveBeenCalledWith("/public/shares/virtual/days/2024-01-02?offset=10&order=desc");
+  await nextTick();
+  expect(api).toHaveBeenCalledTimes(4);
+});
+
+it("preserves cards on a failed automatic page and retries only when requested", async () => {
+  await mount();
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
+  vi.mocked(api).mockRejectedValueOnce(new Error("加载失败"));
+  intersect(host.querySelector(".shared-day .scroll-loader")!);
+  await vi.waitFor(() => expect(host.textContent).toContain("加载失败"));
+  expect(host.querySelectorAll(".shared-card")).toHaveLength(9);
+  await nextTick();
+  expect(api).toHaveBeenCalledTimes(3);
+  vi.mocked(api).mockResolvedValueOnce({ items: items.slice(8), total: 12 });
+  button("重试").click();
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(13));
 });
 it("displays an unavailable share without private navigation or sign-in", async () => {
   vi.mocked(api).mockRejectedValue(new Error("分享已失效或不存在"));
@@ -112,6 +137,7 @@ it("switches chronological direction and paginates using the corresponding day c
     expect(host.querySelectorAll(".shared-day")).toHaveLength(2),
   );
   const reversed = response();
+  reversed.days[0].items = items;
   reversed.days.reverse();
   vi.mocked(api).mockResolvedValueOnce({
     ...reversed,
@@ -131,7 +157,7 @@ it("switches chronological direction and paginates using the corresponding day c
     days: [],
     next_after: null,
   });
-  button("更晚的日子").click();
+  intersect(host.querySelector("footer .scroll-loader")!);
   await vi.waitFor(() =>
     expect(api).toHaveBeenLastCalledWith(
       "/public/shares/virtual?order=asc&after=2024-01-02",
@@ -142,6 +168,7 @@ it("switches chronological direction and paginates using the corresponding day c
 it("folds months without fetching media and preserves the fold when loading another page", async () => {
   vi.mocked(api).mockResolvedValueOnce({
     ...response(),
+    days: response().days.map((day) => ({ ...day, total: day.items.length })),
     next_before: "2024-01-01",
   });
   await mount();
@@ -157,7 +184,7 @@ it("folds months without fetching media and preserves the fold when loading anot
     ...response(),
     days: [{ day: "2023-12-31", total: 1, items: [items[0]] }],
   });
-  button("更早的日子").click();
+  intersect(host.querySelector("footer .scroll-loader")!);
   await vi.waitFor(() =>
     expect(host.querySelectorAll(".timeline-month")).toHaveLength(2),
   );
@@ -269,6 +296,40 @@ it("shows exact selection without implying a date range or month grouping, and k
   expect(host.querySelector(".shared-sort")).toBeNull();
   expect(host.querySelector(".rail-hint")).toBeNull();
   vi.mocked(api).mockResolvedValue({ items: items.slice(8), total: 12 });
-  button("展开更多").click();
+  intersect(host.querySelector(".shared-day .scroll-loader")!);
   await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(12));
+});
+
+it("fills unfinished days when a fast scroll reaches the footer before loading later dates", async () => {
+  vi.mocked(api).mockResolvedValue({ ...response(), next_before: "2024-01-01" });
+  await mount();
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
+  vi.mocked(api)
+    .mockResolvedValueOnce({ items: items.slice(8), total: 12 })
+    .mockResolvedValueOnce({ ...response(), days: [], next_before: null });
+  intersect(host.querySelector("footer .scroll-loader")!);
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(13));
+  await vi.waitFor(() => expect(host.querySelector("footer .scroll-loader")).toBeNull());
+  const calls = vi.mocked(api).mock.calls.map(([path]) => path);
+  expect(calls.slice(-2)).toEqual([
+    "/public/shares/virtual/days/2024-01-02?offset=8&order=desc",
+    "/public/shares/virtual?order=desc&before=2024-01-01",
+  ]);
+});
+
+it("automatically appends shared folder contents when its end becomes visible", async () => {
+  const data = response();
+  data.days = [{ day: "2024-01-02", total: 1, items: [{
+    id: 90, kind: "folder", name: "合成文件夹", previews: [], media_count: 12,
+  } as any] }];
+  vi.mocked(api).mockResolvedValue(data);
+  await mount();
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(1));
+  vi.mocked(api).mockResolvedValueOnce({ id: 90, name: "合成文件夹", items: items.slice(0, 8), total: 12 });
+  (host.querySelector(".shared-card") as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(document.querySelectorAll(".shared-folder-dialog .shared-card")).toHaveLength(8));
+  vi.mocked(api).mockResolvedValueOnce({ id: 90, name: "合成文件夹", items: items.slice(8), total: 12 });
+  intersect(document.querySelector(".shared-folder-dialog .scroll-loader")!);
+  await vi.waitFor(() => expect(document.querySelectorAll(".shared-folder-dialog .shared-card")).toHaveLength(12));
+  expect(api).toHaveBeenLastCalledWith("/public/shares/virtual/folders/90?offset=8&order=desc");
 });

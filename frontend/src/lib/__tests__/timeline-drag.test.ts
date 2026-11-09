@@ -48,6 +48,7 @@ vi.mock("element-plus/es/components/base/style/css", () => ({}));
 vi.mock("element-plus/es/components/dialog/style/css", () => ({}));
 vi.mock("element-plus/es/components/popconfirm/style/css", () => ({}));
 let app: ReturnType<typeof createApp>, host: HTMLElement;
+let loadIntersection: (entries: { isIntersecting: boolean }[]) => void;
 function drag(el: Element, type: string, x = 50, y = 50) {
   const e = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperties(e, {
@@ -78,6 +79,7 @@ beforeEach(() => {
   vi.stubGlobal(
     "IntersectionObserver",
     class {
+      constructor(callback: typeof loadIntersection) { loadIntersection = callback; }
       observe() {}
       disconnect() {}
     },
@@ -403,4 +405,34 @@ it("uses one date mode at a time, including leap days and year boundaries", asyn
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("shows every loaded item on mobile and automatically appends the next cursor page", async () => {
+  vi.stubGlobal("matchMedia", () => ({
+    matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+  }));
+  const first = Array.from({ length: 40 }, (_, index) => ({
+    id: index + 1, kind: "media", timeline_day: "2024-03-31", files: [],
+  }));
+  vi.mocked(api).mockResolvedValueOnce({ items: first, total: 41, next_cursor: "next-page" });
+  host = document.createElement("div");
+  document.body.append(host);
+  app = createApp(Timeline);
+  app.component("RouterLink", { template: "<a><slot/></a>" });
+  app.mount(host);
+  await vi.waitFor(() => expect(host.querySelectorAll(".timeline-entry")).toHaveLength(40));
+  expect(host.textContent).not.toContain("展开更多");
+  expect(host.textContent).not.toContain("加载更多回忆");
+  vi.mocked(api)
+    .mockRejectedValueOnce(new Error("下一页加载失败"))
+    .mockResolvedValueOnce({
+      items: [{ ...first[0], id: 41 }], total: 41, next_cursor: null,
+    });
+  loadIntersection([{ isIntersecting: true }]);
+  await vi.waitFor(() => expect(host.textContent).toContain("下一页加载失败"));
+  expect(host.querySelectorAll(".timeline-entry")).toHaveLength(40);
+  button("重新加载").click();
+  await vi.waitFor(() => expect(host.querySelectorAll(".timeline-entry")).toHaveLength(41));
+  expect(vi.mocked(api).mock.calls.at(-1)?.[0]).toContain("cursor=next-page");
+  expect(host.querySelector(".scroll-loader")).toBeNull();
 });
