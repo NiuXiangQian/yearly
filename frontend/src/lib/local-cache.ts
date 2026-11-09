@@ -93,7 +93,7 @@ export async function saveCachedImage(scope: string, path: string, blob: Blob) {
     const db = await imageDatabase();
     if (!db) return;
     const key = await storageKey(scope, path);
-    const hashedScope = await sha256(scope);
+    const hashedScope = await sha256(prefix + scope);
     const expires = Math.min(Date.now() + imageLifetime, shareExpiry.get(scope) ?? Infinity);
     const entries = await result(db.transaction("images").objectStore("images").getAll());
     const transaction = db.transaction("images", "readwrite");
@@ -123,7 +123,8 @@ export async function clearCachedScope(scope: string) {
       if (key.startsWith(prefix + hashedScope + ":")) localStorage.removeItem(key);
     const db = await imageDatabase();
     if (!db) return;
-    const keys = await result(db.transaction("images").objectStore("images").index("scope").getAllKeys(hashedScope));
+    const imageScope = await sha256(prefix + scope);
+    const keys = await result(db.transaction("images").objectStore("images").index("scope").getAllKeys(imageScope));
     const store = db.transaction("images", "readwrite").objectStore("images");
     for (const key of keys) store.delete(key);
   } catch { /* Cache cleanup is best effort when browser storage is unavailable. */ }
