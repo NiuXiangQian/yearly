@@ -148,7 +148,8 @@ struct NativeTimelineView: View {
                 .coordinateSpace(name: "timeline-reading")
                 .onPreferenceChange(NativeTimelineDayPositions.self) { positions in
                     dayFrames = positions
-                    if scrubDay != nil { scrollWithinDay() }
+                    if scrubDay != nil || pendingRailDay != nil { scrollWithinDay() }
+                    if newerEndVisible { loadMoreIfNeeded() }
                     if !railHeld {
                         let ordered = positions.sorted { $0.value.visible.minY < $1.value.visible.minY }
                         if let day = ordered.last(where: { $0.value.visible.minY <= 32 })?.key ?? ordered.first?.key {
@@ -189,42 +190,18 @@ struct NativeTimelineView: View {
                     proxy.scrollTo("day-\(day)", anchor: .top)
                     collapsingDay = nil
                 }
-                .onChange(of: store.loading) { loading in
-                    guard !loading, store.error.isEmpty else { return }
-                    loadMoreIfNeeded()
-                    if let day = scrubDay {
-                        if !store.items.contains(where: { store.groupDay($0) == day }) {
-                            store.jump(to: day)
-                            return
-                        }
-                        collapsedMonths[String(day.prefix(7))] = false
-                        pendingRailDay = nil
-                        DispatchQueue.main.async { scrollWithinDay() }
-                        return
-                    }
-                    if returningToStart {
-                        returningToStart = false
-                        DispatchQueue.main.async { proxy.scrollTo("timeline-start", anchor: .top) }
-                    }
-                    guard let day = pendingRailDay,
-                          store.items.contains(where: { store.groupDay($0) == day }) else { return }
-                    pendingRailDay = nil
-                    let month = String(day.prefix(7))
-                    collapsedMonths[month] = false
-                    proxy.scrollTo("month-\(month)", anchor: .top)
-                    DispatchQueue.main.async {
-                        proxy.scrollTo("day-\(day)", anchor: .top)
-                        currentDay = day
-                    }
-                }
+                .onChange(of: store.loading) { _ in finishLoading() }
                 .onChange(of: store.items.first?.stableID) { first in
                     guard let id = positionBeforePrepend, first != id,
                           let item = store.items.first(where: { $0.stableID == id }) else { return }
-                    positionBeforePrepend = nil
-                    // Lay out the lazy day section first, then place the original card in view.
-                    proxy.scrollTo("day-\(store.groupDay(item))", anchor: .top)
+                    let day = store.groupDay(item)
+                    let dayItems = store.items.filter { store.groupDay($0) == day }
+                    if !dayItems.prefix(8).contains(where: { $0.stableID == id }) { expandedDays[day] = true }
+                    // Lay out the day section first, then place the original card in view.
+                    proxy.scrollTo("day-\(day)", anchor: .top)
                     DispatchQueue.main.async {
                         proxy.scrollTo(id, anchor: item.id == store.anchorMediaID && item.kind == "media" ? .center : .top)
+                        positionBeforePrepend = nil
                     }
                 }
         }
@@ -248,7 +225,7 @@ struct NativeTimelineView: View {
                     if store.archiveExpanded {
                         Button("回到最新") { store.focusOnUploads([]) }.font(.subheadline)
                     } else if !store.items.isEmpty {
-                        Button("查看完整时间线") { expandArchive() }
+                        Button("查看完整时间线") { prependNewer(expandingArchive: true) }
                             .font(.subheadline).disabled(store.loading)
                     }
                 }
@@ -500,7 +477,13 @@ struct NativeTimelineView: View {
     }
 
     private func scrollWithinDay() {
-        guard let day = scrubDay, let frames = dayFrames[day], let scroll = timelineScroll else { return }
+        guard let scroll = timelineScroll else { return }
+        if !railHeld && (scroll.isTracking || scroll.isDecelerating) {
+            scrubDay = nil
+            pendingRailDay = nil
+            return
+        }
+        guard let day = scrubDay, let frames = dayFrames[day] else { return }
         let frame = frames.content
         let minimum = -scroll.adjustedContentInset.top
         let maximum = max(minimum, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
@@ -509,21 +492,65 @@ struct NativeTimelineView: View {
         if abs(scroll.contentOffset.y - target) > 0.5 {
             scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: target), animated: false)
         }
-        if !railHeld && (requested <= maximum || store.cursor == nil) { scrubDay = nil }
+        let layoutReady = scroll.contentSize.height >= frame.maxY
+        if !railHeld && (requested <= maximum || store.cursor == nil && layoutReady) { scrubDay = nil }
+    }
+
+    private func finishLoading() {
+        guard !store.loading, store.error.isEmpty else { return }
+        if let day = scrubDay {
+            if !store.items.contains(where: { store.groupDay($0) == day }) {
+                store.jump(to: day)
+                return
+            }
+            collapsedMonths[String(day.prefix(7))] = false
+            pendingRailDay = nil
+        } else if returningToStart {
+            returningToStart = false
+            DispatchQueue.main.async {
+                if let scroll = timelineScroll {
+                    scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: -scroll.adjustedContentInset.top), animated: false)
+                }
+            }
+        } else if let day = pendingRailDay, store.items.contains(where: { store.groupDay($0) == day }) {
+            pendingRailDay = nil
+            collapsedMonths[String(day.prefix(7))] = false
+            scrubDay = day
+            scrubFraction = 0
+        }
+        DispatchQueue.main.async {
+            scrollWithinDay()
+            loadMoreIfNeeded()
+        }
+    }
+
+    private var newerEndVisible: Bool {
+        guard let scroll = timelineScroll, let first = store.items.first,
+              let frame = dayFrames[store.groupDay(first)]?.content else { return false }
+        return frame.minY - scroll.contentOffset.y - scroll.adjustedContentInset.top >= -100
     }
 
     private func loadMoreIfNeeded() {
         let endVisible = foldedDayEndVisible || collapsedEndVisible || (visibleEndItem != nil && visibleEndItem == store.items.last?.stableID)
-        guard !railHeld, endVisible, store.cursor != nil, !store.loading, store.error.isEmpty else { return }
-        Task { await store.load(more: true) }
+        guard !railHeld, !store.loading, positionBeforePrepend == nil, store.error.isEmpty else { return }
+        if newerEndVisible && store.hasNewer && scrubDay == nil && pendingRailDay == nil {
+            prependNewer()
+        } else if endVisible && store.cursor != nil {
+            Task {
+                await store.load(more: true)
+                finishLoading()
+            }
+        }
     }
 
-    private func expandArchive() {
+    private func prependNewer(expandingArchive: Bool = false) {
         let first = store.items.first?.stableID
         positionBeforePrepend = first
         Task {
-            await store.expandArchive()
+            if expandingArchive { await store.expandArchive() }
+            else { await store.loadNewer() }
             if store.items.first?.stableID == first { positionBeforePrepend = nil }
+            finishLoading()
         }
     }
 
@@ -566,6 +593,7 @@ struct NativeTimelineView: View {
                 else {
                     do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.loadIfNeeded() } catch { }
                 }
+                if !Task.isCancelled { finishLoading() }
             }
             .safeAreaInset(edge: .bottom) {
                 if selecting {
