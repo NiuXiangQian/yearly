@@ -161,3 +161,22 @@ it("enables sound for original-motion autoplay as well as ordinary video", async
   await vi.waitFor(() => expect(host.querySelector("video")?.getAttribute("src")).toBe("/original.mov"));
   expect(host.querySelector("video")?.muted).toBe(false);
 });
+
+it("autoplays a Live Photo once on fullscreen entry", async () => {
+  vi.mocked(mediaResource).mockImplementation(async (_mid, fid) => ({
+    url: fid === 3 ? "/motion.mp4" : "/still.jpg", status: "ready",
+  }));
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  render(MediaViewer, { media: {
+    ...photo, media_type: "live_photo",
+    files: [...photo.files, { id: 3, file_role: "live_video", mime_type: "video/quicktime", file_size: 5000 }],
+  } });
+  await vi.waitFor(() => expect(document.querySelector(".live-photo-img")).not.toBeNull());
+  expect(play).not.toHaveBeenCalled();
+  (document.querySelector('[aria-label="全屏预览"]') as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+  document.querySelector("video")!.dispatchEvent(new Event("ended"));
+  await nextTick();
+  expect(document.querySelector(".live-photo.is-playing")).toBeNull();
+  expect(play).toHaveBeenCalledOnce();
+});

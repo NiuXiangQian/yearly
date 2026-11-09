@@ -14,19 +14,18 @@ struct NativeTimelineRail: View {
 
     var body: some View {
         if let first = days.first, let last = days.last {
-            VStack(spacing: 14) {
+            VStack(spacing: 18) {
                 Text(first.prefix(7).replacingOccurrences(of: "-", with: "."))
                 GeometryReader { geometry in
                     let selectedIndex = dragY.map { index(at: $0, height: geometry.size.height) } ?? currentIndex
                     let y = days.count > 1 ? CGFloat(selectedIndex) / CGFloat(days.count - 1) * geometry.size.height : 0
-                    let tickCount = min(days.count, 25)
-                    let tickSpacing = tickCount > 1 ? geometry.size.height / CGFloat(tickCount - 1) : 0
+                    let tickSpacing = days.count > 1 ? geometry.size.height / CGFloat(days.count - 1) : 0
                     ZStack(alignment: .topLeading) {
                         Rectangle().fill(.secondary.opacity(0.25))
                             .frame(width: 2, height: geometry.size.height)
                             .position(x: 22, y: geometry.size.height / 2)
-                        ForEach(0..<tickCount, id: \.self) { tick in
-                            Circle().fill(.tint).opacity(0.5).frame(width: 5, height: 5)
+                        ForEach(days.indices, id: \.self) { tick in
+                            Circle().fill(.tint).opacity(0.65).frame(width: 6, height: 6)
                                 .position(x: 22, y: CGFloat(tick) * tickSpacing)
                         }
                         Circle().fill(.tint).opacity(0.16).frame(width: 24, height: 24)
@@ -50,7 +49,7 @@ struct NativeTimelineRail: View {
                 Text(last.prefix(7).replacingOccurrences(of: "-", with: "."))
             }
             .font(.system(size: 9)).monospacedDigit().foregroundStyle(.secondary)
-            .frame(width: 44).padding(.vertical, 12)
+            .frame(width: 44).padding(.vertical, 8)
             .opacity(disabled ? 0.5 : 1)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("拖动时间轴定位日期")

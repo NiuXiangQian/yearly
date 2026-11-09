@@ -439,7 +439,7 @@ onBeforeUnmount(() => {
       <template v-else-if="selected"
         ><div class="shared-viewer">
           <LivePhotoViewer v-if="live && preview" :key="selected.id"
-            :src="preview" :alt="selected.title" :load-motion="motionSource"
+            :src="preview" :alt="selected.title" :load-motion="motionSource" :autoplay="previewFullscreen"
             @error="preview = ''; previewError = t('预览加载失败')" />
           <VideoPlayer
             v-else-if="video && preview"

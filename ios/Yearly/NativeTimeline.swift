@@ -124,6 +124,9 @@ struct NativeTimelineView: View {
     @State private var pendingRailDay: String?
     @State private var returningToStart = false
     @State private var visibleEndItem: String?
+    @State private var collapsedMonths: [String: Bool] = [:]
+    @State private var collapseAllMonths = false
+    @State private var collapsedEndVisible = false
     private var timelineList: some View {
         ScrollViewReader { proxy in
             ScrollView { timelineContent }
@@ -138,16 +141,21 @@ struct NativeTimelineView: View {
                     if !store.isFocused && !store.railDays.isEmpty {
                         GeometryReader { geometry in
                             NativeTimelineRail(days: store.railDays, current: currentDay, disabled: store.loading) { day in
+                                let month = String(day.prefix(7))
+                                collapsedMonths[month] = false
                                 if store.items.contains(where: { store.groupDay($0) == day }) {
-                                    proxy.scrollTo("day-\(day)", anchor: .top)
-                                    currentDay = day
+                                    proxy.scrollTo("month-\(month)", anchor: .top)
+                                    DispatchQueue.main.async {
+                                        proxy.scrollTo("day-\(day)", anchor: .top)
+                                        currentDay = day
+                                    }
                                 } else {
                                     pendingRailDay = day
                                     store.jump(to: day)
                                 }
                             }
-                            .frame(height: min(520, max(140, geometry.size.height - 32)))
-                            .frame(maxHeight: .infinity)
+                            .frame(height: min(geometry.size.height, min(520, max(180, geometry.size.height * 0.56)) + 70))
+                            .frame(maxHeight: .infinity, alignment: .top)
                         }.frame(width: 44).zIndex(1)
                     }
                 }
@@ -161,6 +169,9 @@ struct NativeTimelineView: View {
                     guard let day = pendingRailDay,
                           store.items.contains(where: { store.groupDay($0) == day }) else { return }
                     pendingRailDay = nil
+                    let month = String(day.prefix(7))
+                    collapsedMonths[month] = false
+                    proxy.scrollTo("month-\(month)", anchor: .top)
                     DispatchQueue.main.async {
                         proxy.scrollTo("day-\(day)", anchor: .top)
                         currentDay = day
@@ -182,6 +193,7 @@ struct NativeTimelineView: View {
     private var timelineContent: some View {
         let groups = Dictionary(grouping: store.items, by: store.groupDay)
         let days = store.orderedDays(groups.keys)
+        let months = Dictionary(grouping: days) { String($0.prefix(7)) }
         return LazyVStack(alignment: .leading, spacing: 22) {
             if store.showingUploads {
                 HStack {
@@ -241,106 +253,185 @@ struct NativeTimelineView: View {
                 else if store.usesUploadOrder && !store.hasFilters { Text("还没有已上传的影像。") }
                 else { Text(store.hasFilters ? "没有符合条件的回忆，试试其他关键词或日期。" : "还没有回忆，去上传页珍藏第一张照片吧。") }
             }
-            ForEach(days, id: \.self) { day in
-                let dayItems = groups[day] ?? []
+            if !days.isEmpty && !store.showingUploads {
+                HStack(spacing: 12) {
+                    Text("按月浏览").font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Button("全部收起") { collapseAllMonths = true; collapsedMonths = [:] }
+                    Button("全部展开") { collapseAllMonths = false; collapsedMonths = [:] }
+                }
+                .font(.caption).frame(minHeight: 44).disabled(selecting)
+            }
+            ForEach(store.orderedDays(months.keys), id: \.self) { month in
+                let monthDays = months[month] ?? []
+                let closed = monthIsCollapsed(month)
                 Section {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                        ForEach(dayItems, id: \.stableID) { item in
-                            VStack(alignment: .leading, spacing: 5) {
-                                Button {
-                                    if selecting {
-                                        if let index = chosen.firstIndex(where: { $0.id == item.id }) { chosen.remove(at: index) }
-                                        else if chosen.count < 200 { chosen.append(item) }
-                                        else { selectionLimit = true }
-                                    } else { selectedItem = item }
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        if let file = item.primary {
-                                            NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
-                                                .frame(height: 150).clipShape(RoundedRectangle(cornerRadius: 12))
-                                                .overlay(alignment: .bottomLeading) {
-                                                    if item.media_type == "live_photo" { Label("LIVE", systemImage: "livephoto").font(.caption2.bold()).padding(5).background(.regularMaterial, in: Capsule()).padding(7) }
-                                                    if item.media_type == "video" { Image(systemName: "play.fill").padding(8).background(.regularMaterial, in: Circle()).padding(7) }
-                                                }
-                                        } else {
-                                            Image(systemName: "book.closed").frame(maxWidth: .infinity).frame(height: 150).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-                                        }
-                                        Text(item.label).font(.caption).lineLimit(2)
-                                        if item.kind == "media" && store.anchorMediaID == item.id {
-                                            Label("当前影像", systemImage: "scope").font(.caption.bold()).foregroundStyle(.tint)
-                                        }
-                                    }
-                                }.buttonStyle(.plain)
-                                .disabled(selecting && item.kind != "media")
-                                .overlay(alignment: .topTrailing) {
-                                    if selecting && item.kind == "media" {
-                                        Image(systemName: chosen.contains(where: { $0.id == item.id }) ? "checkmark.circle.fill" : "circle")
-                                            .font(.title2).foregroundStyle(.tint).padding(7).background(.regularMaterial, in: Circle()).allowsHitTesting(false)
-                                    }
-                                }
-                                .modifier(MediaReorderGesture(enabled: store.session.canEdit && !selecting && !store.isFocused && !store.usesUploadOrder && item.kind == "media", token: dragToken, item: item, store: store))
-                                .contextMenu {
-                                    if store.session.canEdit {
-                                        Button(item.kind == "event" ? "编辑日记" : "编辑影像", systemImage: "square.and.pencil") { editingItem = item }
-                                        if item.kind == "media" {
-                                            Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
-                                        }
-                                    }
-                                }
-                                if store.usesUploadOrder && !selecting {
-                                    if let date = item.uploadDate {
-                                        Text("上传于 \(date.formatted(date: .omitted, time: .shortened))")
-                                            .font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                    Button { store.locate(item) } label: {
-                                        Label("跳到归档 · \(item.day)", systemImage: "arrow.turn.down.right")
-                                            .font(.caption)
-                                    }.buttonStyle(.borderless)
-                                }
-                            }
-                            .id(item.stableID)
-                            .onAppear {
-                                if item.stableID == store.items.last?.stableID {
-                                    visibleEndItem = item.stableID
-                                    loadMoreIfNeeded()
-                                }
-                            }
-                            .onDisappear {
-                                if visibleEndItem == item.stableID { visibleEndItem = nil }
-                            }
+                    if !closed {
+                        ForEach(monthDays, id: \.self) { day in
+                            daySection(day, items: groups[day] ?? [])
                         }
                     }
                 } header: {
-                    HStack {
-                        Text(day).font(.title3.bold())
-                        Spacer()
-                        if store.showingUploads && NativeDay.date(day) != nil {
-                            Button("查看当天全部") { store.showDay(day) }.font(.caption)
-                        } else if !store.usesUploadOrder && store.session.canEdit {
-                            Menu {
-                                if NativeDay.date(day) != nil {
-                                    Button("分享当天", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(day: day) }
-                                    Button("上传到当天", systemImage: "plus") { appendToDay(day) }
-                                    Button("给当天写日记", systemImage: "book") { diaryRequest = NativeDiaryRequest(day: day) }
-                                }
-                                Button("选择当天已加载的影像", systemImage: "checkmark.circle") { selectLoadedDay(groups[day] ?? []) }
-                                Button("当天设置", systemImage: "slider.horizontal.3") { daySettings = day }
-                            } label: { Label("当天操作", systemImage: "ellipsis.circle").font(.caption) }
+                    if !store.showingUploads {
+                        Button { collapsedMonths[month] = !closed } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: closed ? "chevron.right" : "chevron.down").font(.caption)
+                                Text(NativeDay.date(month + "-01").map {
+                                    $0.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN")))
+                                } ?? "拍摄时间未知").font(.headline)
+                                Spacer(minLength: 4)
+                                Text("已加载 \(monthDays.count) 天").font(.caption).foregroundStyle(.secondary)
+                            }
+                            .foregroundStyle(.primary).padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
                         }
+                        .buttonStyle(.plain).disabled(selecting)
+                        .accessibilityValue(closed ? "已收起" : "已展开")
+                        .accessibilityHint("按月展开或收起回忆")
                     }
-                    .background(GeometryReader { geometry in
-                        Color.clear.preference(key: NativeTimelineDayPositions.self,
-                                               value: [day: geometry.frame(in: .named("timeline-reading")).minY])
-                    })
-                }.id("day-\(day)")
+                }.id("month-\(month)")
+            }
+            if store.cursor != nil, store.error.isEmpty, let lastDay = days.last, monthIsCollapsed(String(lastDay.prefix(7))) {
+                Color.clear.frame(height: 44)
+                    .onAppear { collapsedEndVisible = true; loadMoreIfNeeded() }
+                    .onDisappear { collapsedEndVisible = false }
             }
             if store.loading { ProgressView().frame(maxWidth: .infinity) }
         }.padding().id("timeline-start")
     }
 
+    private func monthIsCollapsed(_ month: String) -> Bool {
+        !store.showingUploads && !selecting && (collapsedMonths[month] ?? collapseAllMonths)
+    }
+
+    private func daySection(_ day: String, items dayItems: [NativeTimelineItem]) -> some View {
+        return Section {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                ForEach(dayItems, id: \.stableID) { item in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Button {
+                            if selecting {
+                                if let index = chosen.firstIndex(where: { $0.id == item.id }) { chosen.remove(at: index) }
+                                else if chosen.count < 200 { chosen.append(item) }
+                                else { selectionLimit = true }
+                            } else { selectedItem = item }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 7) {
+                                if let file = item.primary {
+                                    NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
+                                        .aspectRatio(4 / 3, contentMode: .fit)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay(alignment: .bottomLeading) {
+                                            if let title = item.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                                Text(title).font(.caption).foregroundStyle(.white).lineLimit(1)
+                                                    .padding(.leading, item.media_type == "live_photo" ? 68 : 10)
+                                                    .padding(.trailing, item.media_type == "video" ? 44 : 10)
+                                                    .padding(.bottom, 10).padding(.top, 24)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .background(LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom))
+                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                            }
+                                        }
+                                        .overlay(alignment: .bottomLeading) {
+                                            if item.media_type == "live_photo" {
+                                                Label("LIVE", systemImage: "livephoto").font(.caption2.bold())
+                                                    .padding(5).background(.regularMaterial, in: Capsule()).padding(7)
+                                            }
+                                        }
+                                        .overlay(alignment: .bottomTrailing) {
+                                            if item.media_type == "video" {
+                                                Image(systemName: "play.fill").padding(8)
+                                                    .background(.regularMaterial, in: Circle()).padding(7)
+                                            }
+                                        }
+                                } else {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text("成长日记").font(.caption2).foregroundStyle(.tint)
+                                        Text(item.label).font(.headline).lineLimit(2)
+                                        Text(item.content ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(12).frame(maxWidth: .infinity, alignment: .topLeading)
+                                    .aspectRatio(4 / 3, contentMode: .fit)
+                                    .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                                }
+                                if item.kind == "media" && store.anchorMediaID == item.id {
+                                    Label("当前影像", systemImage: "scope").font(.caption.bold()).foregroundStyle(.tint)
+                                }
+                            }
+                        }.buttonStyle(.plain)
+                        .accessibilityLabel(item.label)
+                        .disabled(selecting && item.kind != "media")
+                        .overlay(alignment: .topTrailing) {
+                            if selecting && item.kind == "media" {
+                                Image(systemName: chosen.contains(where: { $0.id == item.id }) ? "checkmark.circle.fill" : "circle")
+                                    .font(.title2).foregroundStyle(.tint).padding(7).background(.regularMaterial, in: Circle()).allowsHitTesting(false)
+                            }
+                        }
+                        .modifier(MediaReorderGesture(enabled: store.session.canEdit && !selecting && !store.isFocused && !store.usesUploadOrder && item.kind == "media", token: dragToken, item: item, store: store))
+                        .contextMenu {
+                            if store.session.canEdit {
+                                Button(item.kind == "event" ? "编辑日记" : "编辑影像", systemImage: "square.and.pencil") { editingItem = item }
+                                if item.kind == "media" {
+                                    Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
+                                }
+                            }
+                        }
+                        if store.usesUploadOrder && !selecting {
+                            if let date = item.uploadDate {
+                                Text("上传于 \(date.formatted(date: .omitted, time: .shortened))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Button { store.locate(item) } label: {
+                                Label("跳到归档 · \(item.day)", systemImage: "arrow.turn.down.right")
+                                    .font(.caption)
+                            }.buttonStyle(.borderless)
+                        }
+                    }
+                    .id(item.stableID)
+                    .onAppear {
+                        if item.stableID == store.items.last?.stableID {
+                            visibleEndItem = item.stableID
+                            loadMoreIfNeeded()
+                        }
+                    }
+                    .onDisappear {
+                        if visibleEndItem == item.stableID { visibleEndItem = nil }
+                    }
+                }
+            }
+        } header: {
+            HStack {
+                Circle().fill(.tint).frame(width: 7, height: 7)
+                Text(day.replacingOccurrences(of: "-", with: "."))
+                    .font(.system(size: 18, weight: .medium, design: .serif))
+                Spacer(minLength: 4)
+                Text("已加载 \(dayItems.count) 项").font(.caption).foregroundStyle(.secondary)
+                if store.showingUploads && NativeDay.date(day) != nil {
+                    Button("查看当天全部") { store.showDay(day) }.font(.caption)
+                } else if !store.usesUploadOrder && store.session.canEdit {
+                    Menu {
+                        if NativeDay.date(day) != nil {
+                            Button("分享当天", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(day: day) }
+                            Button("上传到当天", systemImage: "plus") { appendToDay(day) }
+                            Button("给当天写日记", systemImage: "book") { diaryRequest = NativeDiaryRequest(day: day) }
+                        }
+                        Button("选择当天已加载的影像", systemImage: "checkmark.circle") { selectLoadedDay(dayItems) }
+                        Button("当天设置", systemImage: "slider.horizontal.3") { daySettings = day }
+                    } label: { Image(systemName: "ellipsis.circle").frame(width: 44, height: 44) }
+                    .accessibilityLabel("当天操作")
+                }
+            }
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: NativeTimelineDayPositions.self,
+                                       value: [day: geometry.frame(in: .named("timeline-reading")).minY])
+            })
+        }.id("day-\(day)")
+    }
+
     private func loadMoreIfNeeded() {
-        guard visibleEndItem == store.items.last?.stableID,
-              visibleEndItem != nil, store.cursor != nil, !store.loading, store.error.isEmpty else { return }
+        let endVisible = collapsedEndVisible || (visibleEndItem != nil && visibleEndItem == store.items.last?.stableID)
+        guard endVisible, store.cursor != nil, !store.loading, store.error.isEmpty else { return }
         Task { await store.load(more: true) }
     }
 
@@ -655,6 +746,7 @@ struct NativeMediaDetail: View {
     @State private var message = ""
     @State private var observation: NSKeyValueObservation?
     @State private var playbackTask: Task<Void, Never>?
+    @State private var startedAutomaticPlayback = false
     @State private var showingInfo = false
     @State private var showingShare = false
     @State private var zoom = 1.0
@@ -776,11 +868,12 @@ struct NativeMediaDetail: View {
             }
             .task {
                 guard initial.kind != "event" else { return }
-                if initial.media_type == "live_photo" { play() }
+                startAutomaticPlaybackIfNeeded()
                 do {
                     let current: NativeTimelineItem = try await session.get("/media/\(initial.id)")
                     try Task.checkCancellation()
                     detail = current
+                    startAutomaticPlaybackIfNeeded()
                 } catch { if !Task.isCancelled { message = friendly(error) } }
             }
             .alert("移到回收站？", isPresented: $confirmingDelete) {
@@ -799,7 +892,7 @@ struct NativeMediaDetail: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
-                if let ended = notification.object as? AVPlayerItem, ended === player?.currentItem, item.motion != nil { stop() }
+                if let ended = notification.object as? AVPlayerItem, ended === player?.currentItem, item.media_type == "live_photo" { stop() }
             }
             .onDisappear { stop() }
             .onChange(of: scenePhase) { if $0 != .active { stop() } }
@@ -874,6 +967,12 @@ struct NativeMediaDetail: View {
         }
     }
 
+    private func startAutomaticPlaybackIfNeeded() {
+        guard !startedAutomaticPlayback, item.media_type == "live_photo", item.motion != nil else { return }
+        startedAutomaticPlayback = true
+        play()
+    }
+
     private func stop() {
         observation?.invalidate(); observation = nil
         playbackTask?.cancel(); playbackTask = nil
@@ -891,8 +990,14 @@ struct NativeMediaDetail: View {
         stop(); message = ""; loading = true
         playbackTask = Task {
             do {
-                let resource: NativeMediaResource = try await session.get("/media/\(item.id)/files/\(file.id)/url?purpose=preview")
+                var resource: NativeMediaResource = try await session.get("/media/\(item.id)/files/\(file.id)/url?purpose=preview")
+                while live && resource.url == nil && ["pending", "processing"].contains(resource.status) {
+                    message = "动态预览正在准备…"
+                    try await Task.sleep(nanoseconds: 15_000_000_000)
+                    resource = try await session.get("/media/\(item.id)/files/\(file.id)/url?purpose=preview")
+                }
                 try Task.checkCancellation()
+                message = ""
                 guard let raw = resource.url, let url = AppConfiguration.httpsURL(raw) else {
                     throw UploadFailure(message: resource.status == "failed" ? "动态预览生成失败，请稍后重试。原件已安全保存。" : "动态预览正在生成，请稍后再试。")
                 }

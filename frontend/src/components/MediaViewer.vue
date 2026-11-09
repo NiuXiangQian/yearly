@@ -164,7 +164,7 @@ function motionSource(refresh = false) {
       <LivePhotoViewer
         v-if="live && liveFile && !original && resource?.url && !failed"
         :key="media.id" :src="resource.url" :alt="media.title"
-        :load-motion="motionSource" @error="failed = true"
+        :load-motion="motionSource" :autoplay="expanded" @error="failed = true"
       />
       <VideoPlayer
         v-else-if="isVideo && resource?.url && !failed"

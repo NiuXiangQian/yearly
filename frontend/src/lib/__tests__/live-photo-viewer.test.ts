@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
-import { createApp, nextTick } from "vue";
+import { createApp, nextTick, reactive, h } from "vue";
 import LivePhotoViewer from "../../components/LivePhotoViewer.vue";
 let app: ReturnType<typeof createApp>;
 afterEach(() => {
@@ -9,15 +9,16 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
-async function render(loadMotion = vi.fn().mockResolvedValue({ url: "/motion.mp4", status: "ready" })) {
+async function render(loadMotion = vi.fn().mockResolvedValue({ url: "/motion.mp4", status: "ready" }), autoplay = false) {
   const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
   const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   const host = document.createElement("div");
   document.body.append(host);
-  app = createApp(LivePhotoViewer, { src: "/photo.jpg", loadMotion });
+  const props = reactive({ src: "/photo.jpg", loadMotion, autoplay });
+  app = createApp({ render: () => h(LivePhotoViewer, props) });
   app.mount(host);
   await Promise.resolve(); await Promise.resolve(); await nextTick();
-  return { host, play, pause, loadMotion, stage: host.querySelector(".live-photo")!, video: host.querySelector("video")! };
+  return { host, play, pause, loadMotion, props, stage: host.querySelector(".live-photo")!, video: host.querySelector("video")! };
 }
 function pointer(target: Element | Window, type: string, values: Record<string, unknown> = {}) {
   const event = new Event(type);
@@ -32,6 +33,7 @@ it("loads no video bytes before interaction and only fades the still once playba
   expect(video.hasAttribute("playsinline")).toBe(true);
   expect(play).not.toHaveBeenCalled();
   pointer(stage, "pointerenter", { pointerType: "mouse" });
+  pointer(stage, "pointerleave", { pointerType: "mouse" });
   expect(play).toHaveBeenCalledOnce();
   await nextTick();
   expect(stage.classList.contains("is-playing")).toBe(false);
@@ -163,4 +165,53 @@ it("does not restart after a long press or a scrolling gesture generates a click
   pointer(window, "pointerup");
   stage.dispatchEvent(new MouseEvent("click"));
   expect(play).toHaveBeenCalledTimes(2);
+});
+
+it("plays once per fullscreen entry and returns to the still when ended", async () => {
+  const { props, stage, video, play } = await render(undefined, true);
+  await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+  pointer(stage, "pointerenter", { pointerType: "mouse" });
+  pointer(stage, "pointerleave", { pointerType: "mouse" });
+  expect(play).toHaveBeenCalledOnce();
+  video.dispatchEvent(new Event("playing"));
+  await nextTick();
+  expect(stage.classList.contains("is-playing")).toBe(true);
+  video.dispatchEvent(new Event("ended"));
+  await nextTick();
+  expect(stage.classList.contains("is-playing")).toBe(false);
+  expect(video.loop).toBe(false);
+  expect(play).toHaveBeenCalledOnce();
+  props.autoplay = false;
+  await nextTick();
+  props.autoplay = true;
+  await nextTick();
+  expect(play).toHaveBeenCalledTimes(2);
+});
+it("automatically plays once after a pending fullscreen preview becomes ready", async () => {
+  vi.useFakeTimers();
+  const load = vi.fn().mockResolvedValueOnce({ url: null, status: "pending" })
+    .mockResolvedValue({ url: "/ready.mp4", status: "ready" });
+  const { video, play } = await render(load, true);
+  expect(play).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(play).toHaveBeenCalledOnce();
+  expect(video.getAttribute("src")).toBe("/ready.mp4");
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(play).toHaveBeenCalledOnce();
+});
+it("ignores a late automatic preview after leaving fullscreen", async () => {
+  let resolve!: (value: any) => void;
+  const { props, play } = await render(vi.fn(() => new Promise(r => { resolve = r; })), true);
+  props.autoplay = false;
+  await nextTick();
+  resolve({ url: "/late.mp4", status: "ready" });
+  await Promise.resolve(); await Promise.resolve(); await nextTick();
+  expect(play).not.toHaveBeenCalled();
+});
+it("retries blocked automatic playback muted", async () => {
+  const { props, play, video } = await render();
+  play.mockRejectedValueOnce(new DOMException("Autoplay blocked", "NotAllowedError"));
+  props.autoplay = true;
+  await vi.waitFor(() => expect(play).toHaveBeenCalledTimes(2));
+  expect(video.muted).toBe(true);
 });

@@ -261,9 +261,9 @@ it("plays layered Live Photos using only share-authorized preview URLs", async (
     await vi.waitFor(() => expect(host.querySelector(".shared-card")).not.toBeNull());
     (host.querySelector(".shared-card") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(document.querySelector(".live-photo-img")?.getAttribute("src")).toBe("/still.jpg"));
-    expect(play).not.toHaveBeenCalled();
-    (document.querySelector(".live-photo-badge") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+    (document.querySelector(".live-photo-badge") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(play).toHaveBeenCalledTimes(2));
     expect(document.querySelector(".live-photo-video")?.getAttribute("src")).toBe("/motion.mp4");
     expect(api).toHaveBeenCalledWith("/public/shares/virtual/media/1/url?purpose=preview&live=true");
     expect(vi.mocked(api).mock.calls.every(([path]) => path.startsWith("/public/shares/virtual"))).toBe(true);
