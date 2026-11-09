@@ -121,47 +121,86 @@ struct NativeTimelineView: View {
     @State private var diaryRequest: NativeDiaryRequest?
     @State private var positionBeforePrepend: String?
     @State private var currentDay = ""
+    @State private var currentDayFraction: CGFloat = 0
     @State private var pendingRailDay: String?
     @State private var returningToStart = false
     @State private var visibleEndItem: String?
     @State private var collapsedMonths: [String: Bool] = [:]
     @State private var collapseAllMonths = false
     @State private var collapsedEndVisible = false
+    @State private var expandedDays: Set<String> = []
+    @State private var foldedDayEndVisible = false
+    @State private var collapsingDay: String?
+    @State private var timelineScroll: UIScrollView?
+    @State private var dayFrames: [String: NativeTimelineDayFrame] = [:]
+    @State private var railHeld = false
+    @State private var scrubDay: String?
+    @State private var scrubFraction: CGFloat = 0
     private var timelineList: some View {
         ScrollViewReader { proxy in
-            ScrollView { timelineContent }
+            ScrollView {
+                timelineContent.coordinateSpace(name: "timeline-content").background(NativeTimelineScrollReader { value in
+                    if timelineScroll !== value { timelineScroll = value }
+                    if scrubDay != nil { scrollWithinDay() }
+                })
+            }
                 .coordinateSpace(name: "timeline-reading")
                 .onPreferenceChange(NativeTimelineDayPositions.self) { positions in
-                    let ordered = positions.sorted { $0.value < $1.value }
-                    if let day = ordered.last(where: { $0.value <= 32 })?.key ?? ordered.first?.key {
-                        currentDay = day
+                    dayFrames = positions
+                    if scrubDay != nil { scrollWithinDay() }
+                    if !railHeld {
+                        let ordered = positions.sorted { $0.value.visible.minY < $1.value.visible.minY }
+                        if let day = ordered.last(where: { $0.value.visible.minY <= 32 })?.key ?? ordered.first?.key {
+                            currentDay = day
+                            let frame = positions[day]!.visible
+                            currentDayFraction = min(1, max(0, (32 - frame.minY) / frame.height))
+                        }
                     }
                 }
                 .safeAreaInset(edge: .leading, spacing: 0) {
                     if !store.isFocused && !store.railDays.isEmpty {
                         GeometryReader { geometry in
-                            NativeTimelineRail(days: store.railDays, current: currentDay, disabled: store.loading) { day in
-                                let month = String(day.prefix(7))
-                                collapsedMonths[month] = false
+                            NativeTimelineRail(days: store.railDays, current: currentDay, fraction: currentDayFraction, hold: { held in
+                                railHeld = held
+                                if !held { scrollWithinDay(); loadMoreIfNeeded() }
+                            }, scrub: { day, fraction in
+                                scrubDay = day
+                                scrubFraction = fraction
+                                collapsedMonths[String(day.prefix(7))] = false
                                 if store.items.contains(where: { store.groupDay($0) == day }) {
-                                    proxy.scrollTo("month-\(month)", anchor: .top)
-                                    DispatchQueue.main.async {
-                                        proxy.scrollTo("day-\(day)", anchor: .top)
-                                        currentDay = day
-                                    }
-                                } else {
-                                    pendingRailDay = day
-                                    store.jump(to: day)
-                                }
+                                    scrollWithinDay()
+                                } else if !store.loading { store.jump(to: day) }
+                            }) { day in
+                                scrubDay = day
+                                scrubFraction = 0
+                                collapsedMonths[String(day.prefix(7))] = false
+                                if store.items.contains(where: { store.groupDay($0) == day }) {
+                                    scrollWithinDay()
+                                } else { store.jump(to: day) }
                             }
                             .frame(height: min(geometry.size.height, min(520, max(180, geometry.size.height * 0.56)) + 70))
                             .frame(maxHeight: .infinity, alignment: .top)
                         }.frame(width: 44).zIndex(1)
                     }
                 }
+                .onChange(of: collapsingDay) { day in
+                    guard let day else { return }
+                    proxy.scrollTo("day-\(day)", anchor: .top)
+                    collapsingDay = nil
+                }
                 .onChange(of: store.loading) { loading in
                     guard !loading, store.error.isEmpty else { return }
                     loadMoreIfNeeded()
+                    if let day = scrubDay {
+                        if !store.items.contains(where: { store.groupDay($0) == day }) {
+                            store.jump(to: day)
+                            return
+                        }
+                        collapsedMonths[String(day.prefix(7))] = false
+                        pendingRailDay = nil
+                        DispatchQueue.main.async { scrollWithinDay() }
+                        return
+                    }
                     if returningToStart {
                         returningToStart = false
                         DispatchQueue.main.async { proxy.scrollTo("timeline-start", anchor: .top) }
@@ -194,7 +233,7 @@ struct NativeTimelineView: View {
         let groups = Dictionary(grouping: store.items, by: store.groupDay)
         let days = store.orderedDays(groups.keys)
         let months = Dictionary(grouping: days) { String($0.prefix(7)) }
-        return LazyVStack(alignment: .leading, spacing: 22) {
+        return VStack(alignment: .leading, spacing: 22) {
             if store.showingUploads {
                 HStack {
                     Text("按归档日期查看刚上传的影像").font(.subheadline).foregroundStyle(.secondary)
@@ -305,9 +344,33 @@ struct NativeTimelineView: View {
     }
 
     private func daySection(_ day: String, items dayItems: [NativeTimelineItem]) -> some View {
-        return Section {
+        let expanded = selecting || store.isFocused || expandedDays.contains(day)
+        let visibleItems = expanded ? dayItems : Array(dayItems.prefix(8))
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Circle().fill(.tint).frame(width: 7, height: 7)
+                Text(day.replacingOccurrences(of: "-", with: "."))
+                    .font(.system(size: 18, weight: .medium, design: .serif))
+                Spacer(minLength: 4)
+                Text("已加载 \(dayItems.count) 项").font(.caption).foregroundStyle(.secondary)
+                if store.showingUploads && NativeDay.date(day) != nil {
+                    Button("查看当天全部") { store.showDay(day) }.font(.caption)
+                } else if !store.usesUploadOrder && store.session.canEdit {
+                    Menu {
+                        if NativeDay.date(day) != nil {
+                            Button("分享当天", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(day: day) }
+                            Button("上传到当天", systemImage: "plus") { appendToDay(day) }
+                            Button("给当天写日记", systemImage: "book") { diaryRequest = NativeDiaryRequest(day: day) }
+                        }
+                        Button("选择当天已加载的影像", systemImage: "checkmark.circle") { selectLoadedDay(dayItems) }
+                        Button("当天设置", systemImage: "slider.horizontal.3") { daySettings = day }
+                    } label: { Image(systemName: "ellipsis.circle").frame(width: 44, height: 44) }
+                    .accessibilityLabel("当天操作")
+                }
+            }
+
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(dayItems, id: \.stableID) { item in
+                ForEach(visibleItems, id: \.stableID) { item in
                     VStack(alignment: .leading, spacing: 5) {
                         Button {
                             if selecting {
@@ -400,38 +463,49 @@ struct NativeTimelineView: View {
                     }
                 }
             }
-        } header: {
-            HStack {
-                Circle().fill(.tint).frame(width: 7, height: 7)
-                Text(day.replacingOccurrences(of: "-", with: "."))
-                    .font(.system(size: 18, weight: .medium, design: .serif))
-                Spacer(minLength: 4)
-                Text("已加载 \(dayItems.count) 项").font(.caption).foregroundStyle(.secondary)
-                if store.showingUploads && NativeDay.date(day) != nil {
-                    Button("查看当天全部") { store.showDay(day) }.font(.caption)
-                } else if !store.usesUploadOrder && store.session.canEdit {
-                    Menu {
-                        if NativeDay.date(day) != nil {
-                            Button("分享当天", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(day: day) }
-                            Button("上传到当天", systemImage: "plus") { appendToDay(day) }
-                            Button("给当天写日记", systemImage: "book") { diaryRequest = NativeDiaryRequest(day: day) }
-                        }
-                        Button("选择当天已加载的影像", systemImage: "checkmark.circle") { selectLoadedDay(dayItems) }
-                        Button("当天设置", systemImage: "slider.horizontal.3") { daySettings = day }
-                    } label: { Image(systemName: "ellipsis.circle").frame(width: 44, height: 44) }
-                    .accessibilityLabel("当天操作")
+            if dayItems.count > 8 && !selecting && !store.isFocused {
+                Button {
+                    if expanded {
+                        expandedDays.remove(day)
+                        collapsingDay = day
+                    } else { expandedDays.insert(day) }
+                } label: {
+                    Label(expanded ? "收起当天影像" : "展开其余 \(dayItems.count - 8) 项",
+                          systemImage: expanded ? "chevron.up" : "chevron.down")
+                        .font(.subheadline).frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderless)
+                if !expanded && store.items.last.map(store.groupDay) == day && store.cursor != nil {
+                    Color.clear.frame(height: 1)
+                        .onAppear { foldedDayEndVisible = true; loadMoreIfNeeded() }
+                        .onDisappear { foldedDayEndVisible = false }
                 }
             }
-            .background(GeometryReader { geometry in
-                Color.clear.preference(key: NativeTimelineDayPositions.self,
-                                       value: [day: geometry.frame(in: .named("timeline-reading")).minY])
-            })
-        }.id("day-\(day)")
+        }
+        .background(GeometryReader { geometry in
+            Color.clear.preference(key: NativeTimelineDayPositions.self,
+                                   value: [day: NativeTimelineDayFrame(visible: geometry.frame(in: .named("timeline-reading")),
+                                                                     content: geometry.frame(in: .named("timeline-content")))])
+        })
+        .id("day-\(day)")
+    }
+
+    private func scrollWithinDay() {
+        guard let day = scrubDay, let frames = dayFrames[day], let scroll = timelineScroll else { return }
+        let frame = frames.content
+        let minimum = -scroll.adjustedContentInset.top
+        let maximum = max(minimum, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+        let requested = frame.minY + frame.height * scrubFraction - scroll.adjustedContentInset.top
+        let target = min(maximum, max(minimum, requested))
+        if abs(scroll.contentOffset.y - target) > 0.5 {
+            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: target), animated: false)
+        }
+        if !railHeld && (requested <= maximum || store.cursor == nil) { scrubDay = nil }
     }
 
     private func loadMoreIfNeeded() {
-        let endVisible = collapsedEndVisible || (visibleEndItem != nil && visibleEndItem == store.items.last?.stableID)
-        guard endVisible, store.cursor != nil, !store.loading, store.error.isEmpty else { return }
+        let endVisible = foldedDayEndVisible || collapsedEndVisible || (visibleEndItem != nil && visibleEndItem == store.items.last?.stableID)
+        guard !railHeld, endVisible, store.cursor != nil, !store.loading, store.error.isEmpty else { return }
         Task { await store.load(more: true) }
     }
 
@@ -452,6 +526,7 @@ struct NativeTimelineView: View {
                 else { timelineList.searchable(text: $store.search, prompt: "搜索标题、批次、备注或地点") }
             }
             .navigationTitle(store.showingUploads ? "刚上传的回忆" : "家庭时光")
+            .navigationBarTitleDisplayMode(.inline)
             .onChange(of: store.uploadedMediaIDs) { _ in
                 selecting = false
                 chosen = []

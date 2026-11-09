@@ -6,7 +6,7 @@ import TimelineMonths from "../components/TimelineMonths.vue";
 import ScrollLoader from "../components/ScrollLoader.vue";
 import TimelineOrder from "../components/TimelineOrder.vue";
 import DateField from "../components/DateField.vue";
-import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   ArrowUpRight,
@@ -236,6 +236,14 @@ watch(
   },
   { flush: "sync" },
 );
+const expandedDays = ref<Record<string, boolean>>({});
+async function toggleDay(date: string) {
+  expandedDays.value[date] = !expandedDays.value[date];
+  if (!expandedDays.value[date]) {
+    await nextTick();
+    document.getElementById(`timeline-day-${date}`)?.scrollIntoView({ block: "start" });
+  }
+}
 const groups = computed(() => {
   const map = new Map<string, any[]>();
   for (const item of items.value) {
@@ -1084,7 +1092,7 @@ function saveStages() {
         "
         v-slot="{ day: group }"
       >
-        <div class="day-group">
+        <div class="day-group" :id="`timeline-day-${group.date}`">
           <div class="date-heading">
             <span class="date-dot"></span>
             <h2>
@@ -1187,7 +1195,7 @@ function saveStages() {
             :class="{ 'order-preview': dragDay === group.date && dropTarget }"
           >
             <div
-              v-for="m in group.media"
+              v-for="m in selection || sortDate === group.date || expandedDays[group.date] ? group.media : group.media.slice(0, 8)"
               :key="m.kind + '-' + m.id"
               class="timeline-entry"
               :class="{
@@ -1362,6 +1370,10 @@ function saveStages() {
               </button>
             </div>
           </TransitionGroup>
+          <button v-if="group.media.length > 8 && !selection && sortDate !== group.date"
+            class="button day-toggle" :aria-expanded="!!expandedDays[group.date]" @click="toggleDay(group.date)">
+            {{ expandedDays[group.date] ? t("收起当天影像") : t("展开其余 {p0} 项", { p0: group.media.length - 8 }) }}
+          </button>
         </div>
       </TimelineMonths>
       <div v-if="loading" class="media-grid loading-grid">
@@ -1721,6 +1733,7 @@ function saveStages() {
   margin-bottom: 0;
   min-width: 0;
 }
+.day-toggle { width: 100%; min-height: 44px; margin-top: 12px; }
 .day-group {
   margin-bottom: 34px;
 }

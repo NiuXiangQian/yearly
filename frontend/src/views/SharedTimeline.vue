@@ -42,6 +42,38 @@ const previousDate = computed(() => {
 });
 const pendingDay = computed(() => days.value.find((day) => day.items.length < day.total));
 const currentDate = ref("");
+const currentFraction = ref(0);
+const railHeld = ref(false);
+let scrubTarget: { date: string; fraction: number } | undefined;
+async function scrubDate(date: string, fraction: number) {
+  scrubTarget = { date, fraction };
+  await applyScrub();
+}
+async function applyScrub() {
+  const target = scrubTarget;
+  if (!target || loading.value) return;
+  if (!days.value.some(day => day.day === target.date)) await seekDate(target.date);
+  if (target !== scrubTarget) return;
+  monthList.value?.reveal(target.date);
+  await nextTick();
+  const element = document.getElementById(`shared-day-${target.date}`);
+  if (element) {
+    const frame = element.getBoundingClientRect();
+    window.scrollTo({ top: window.scrollY + frame.top + frame.height * target.fraction, behavior: "instant" });
+    if (!railHeld.value) scrubTarget = undefined;
+  }
+}
+const expandedDays = ref<Record<string, boolean>>({});
+function visibleDayItems(day: any) {
+  return share.value?.scope === "selection" || expandedDays.value[day.day] ? day.items : day.items.slice(0, 8);
+}
+async function toggleDay(day: string) {
+  expandedDays.value[day] = !expandedDays.value[day];
+  if (!expandedDays.value[day]) {
+    await nextTick();
+    document.getElementById(`shared-day-${day}`)?.scrollIntoView({ block: "start" });
+  }
+}
 const monthList = ref<{ reveal(date: string): void }>();
 const reading = ref<HTMLElement>();
 const loading = ref(false),
@@ -61,6 +93,7 @@ const previewFullscreen = ref(true);
 const video = computed(
   () => selected.value?.media_type === "video",
 );
+watch(loading, value => { if (!value && scrubTarget) void applyScrub(); });
 let expiryTimer: ReturnType<typeof setTimeout>;
 let previewGeneration = 0;
 let loadGeneration = 0;
@@ -217,6 +250,7 @@ async function seekDate(date: string) {
   const target = days.value.find((day) => day.day === date)?.day;
   if (!target) return;
   currentDate.value = target;
+  currentFraction.value = 0;
   monthList.value?.reveal(target);
   await nextTick();
   document
@@ -228,6 +262,7 @@ function trackDate() {
   if (scrollFrame) return;
   scrollFrame = requestAnimationFrame(() => {
     scrollFrame = 0;
+    if (railHeld.value) return;
     const sections =
       reading.value?.querySelectorAll<HTMLElement>(".shared-day");
     if (!sections?.length) return;
@@ -242,6 +277,8 @@ function trackDate() {
     )
       closest = sections[sections.length - 1];
     currentDate.value = closest.dataset.day!;
+    const frame = closest.getBoundingClientRect();
+    currentFraction.value = Math.max(0, Math.min(1, -frame.top / frame.height));
   });
 }
 watch(timelineOrder, (value) => {
@@ -294,13 +331,14 @@ onBeforeUnmount(() => {
       <div class="shared-reader" :class="{ 'has-rail': share.scope !== 'selection' && dateIndex.length }">
         <TimelineRail v-if="share.scope !== 'selection'"
           :dates="railDates"
-          :current="currentDate"
-          :disabled="loading || !!busyDay || folderBusy"
-          @select="seekDate"
+          :current="currentDate" :fraction="currentFraction"
+          :disabled="folderBusy"
+          @hold="railHeld = $event" @scrub="scrubDate"
+          @select="scrubTarget = undefined; seekDate($event)"
         />
         <div ref="reading" class="shared-reading">
           <p v-if="share.scope !== 'selection' && dateIndex.length" class="rail-hint">
-            {{ t("拖动左侧时间轴，松开跳转到对应日期") }}
+            {{ t("拖动连续浏览，点击跳到日期节点") }}
           </p>
           <div v-if="previousDate" class="shared-footer">
             <button class="button" :disabled="loading" @click="load('previous')">
@@ -319,7 +357,7 @@ onBeforeUnmount(() => {
               </header>
               <div class="shared-grid">
                 <button
-                  v-for="item in day.items"
+                  v-for="item in visibleDayItems(day)"
                   :key="item.kind + item.id"
                   class="shared-card"
                   @click="
@@ -359,9 +397,13 @@ onBeforeUnmount(() => {
                   >
                 </button>
               </div>
+              <button v-if="share.scope !== 'selection' && day.items.length > 8"
+                class="button day-toggle" :aria-expanded="!!expandedDays[day.day]" @click="toggleDay(day.day)">
+                {{ expandedDays[day.day] ? t("收起当天影像") : t("展开其余 {p0} 项", { p0: day.items.length - 8 }) }}
+              </button>
               <ScrollLoader
                 v-if="day.items.length < day.total"
-                :loading="loading || !!busyDay"
+                :loading="railHeld || loading || !!busyDay"
                 :has-more="day.items.length < day.total"
                 :error="dayErrors[day.day]"
                 @load="loadDay(day)"
@@ -374,7 +416,7 @@ onBeforeUnmount(() => {
           <footer class="shared-footer">
             <ScrollLoader
               v-if="nextDate || pendingDay"
-              :loading="loading || !!busyDay"
+              :loading="railHeld || loading || !!busyDay"
               :has-more="!!nextDate || !!pendingDay"
               :error="pageError || dayErrors[pendingDay?.day]"
               @load="loadNext"
@@ -536,6 +578,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
   margin: 0 0 20px;
 }
+.day-toggle { width: 100%; min-height: 44px; margin-top: 12px; }
 .shared-day {
   scroll-margin-top: 28px;
   margin-bottom: 36px;

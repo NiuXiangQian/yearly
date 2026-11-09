@@ -77,10 +77,14 @@ it("automatically fills a day at its end without a manual expand button", async 
   expect(host.textContent).not.toContain("展开更多");
   vi.mocked(api).mockResolvedValueOnce({ items: items.slice(8), total: 12 });
   intersect(host.querySelector(".shared-day .scroll-loader")!);
-  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(13));
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
   expect(vi.mocked(api)).toHaveBeenLastCalledWith(
     "/public/shares/virtual/days/2024-01-02?offset=8&order=desc",
   );
+  await vi.waitFor(() => expect(button("展开其余 4 项")).toBeDefined());
+  button("展开其余 4 项").click();
+  await nextTick();
+  expect(host.querySelectorAll(".shared-card")).toHaveLength(13);
   expect(host.querySelector(".shared-day .scroll-loader")).toBeNull();
 });
 
@@ -91,8 +95,8 @@ it("keeps loading while the day end stays visible and stops at its total", async
     .mockResolvedValueOnce({ items: items.slice(8, 10), total: 12 })
     .mockResolvedValueOnce({ items: items.slice(10), total: 12 });
   intersect(host.querySelector(".shared-day .scroll-loader")!);
-  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(13));
-  expect(api).toHaveBeenCalledWith("/public/shares/virtual/days/2024-01-02?offset=10&order=desc");
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
+  await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/public/shares/virtual/days/2024-01-02?offset=10&order=desc"));
   await nextTick();
   expect(api).toHaveBeenCalledTimes(4);
 });
@@ -108,7 +112,7 @@ it("preserves cards on a failed automatic page and retries only when requested",
   expect(api).toHaveBeenCalledTimes(3);
   vi.mocked(api).mockResolvedValueOnce({ items: items.slice(8), total: 12 });
   button("重试").click();
-  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(13));
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
 });
 it("displays an unavailable share without private navigation or sign-in", async () => {
   vi.mocked(api).mockRejectedValue(new Error("分享已失效或不存在"));
@@ -311,7 +315,7 @@ it("fills unfinished days when a fast scroll reaches the footer before loading l
     .mockResolvedValueOnce({ items: items.slice(8), total: 12 })
     .mockResolvedValueOnce({ ...response(), days: [], next_before: null });
   intersect(host.querySelector("footer .scroll-loader")!);
-  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(13));
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
   await vi.waitFor(() => expect(host.querySelector("footer .scroll-loader")).toBeNull());
   const calls = vi.mocked(api).mock.calls.map(([path]) => path);
   expect(calls.slice(-2)).toEqual([

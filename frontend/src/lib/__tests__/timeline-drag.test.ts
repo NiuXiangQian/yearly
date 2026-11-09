@@ -407,7 +407,7 @@ it("uses one date mode at a time, including leap days and year boundaries", asyn
   }
 });
 
-it("shows every loaded item on mobile and automatically appends the next cursor page", async () => {
+it("folds a large day while still automatically appending and retrying the next cursor page", async () => {
   vi.stubGlobal("matchMedia", () => ({
     matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn(),
   }));
@@ -420,7 +420,7 @@ it("shows every loaded item on mobile and automatically appends the next cursor 
   app = createApp(Timeline);
   app.component("RouterLink", { template: "<a><slot/></a>" });
   app.mount(host);
-  await vi.waitFor(() => expect(host.querySelectorAll(".timeline-entry")).toHaveLength(40));
+  await vi.waitFor(() => expect(host.querySelectorAll(".timeline-entry")).toHaveLength(8));
   expect(host.textContent).not.toContain("展开更多");
   expect(host.textContent).not.toContain("加载更多回忆");
   vi.mocked(api)
@@ -430,8 +430,10 @@ it("shows every loaded item on mobile and automatically appends the next cursor 
     });
   loadIntersection([{ isIntersecting: true }]);
   await vi.waitFor(() => expect(host.textContent).toContain("下一页加载失败"));
-  expect(host.querySelectorAll(".timeline-entry")).toHaveLength(40);
+  expect(host.querySelectorAll(".timeline-entry")).toHaveLength(8);
   button("重新加载").click();
+  await vi.waitFor(() => expect(button("展开其余 33 项")).toBeDefined());
+  button("展开其余 33 项").click();
   await vi.waitFor(() => expect(host.querySelectorAll(".timeline-entry")).toHaveLength(41));
   expect(vi.mocked(api).mock.calls.at(-1)?.[0]).toContain("cursor=next-page");
   expect(host.querySelector(".scroll-loader")).toBeNull();

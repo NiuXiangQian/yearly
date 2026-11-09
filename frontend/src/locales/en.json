@@ -794,5 +794,8 @@
   "发现重复文件，已跳过上传": "Duplicate files found; upload skipped",
   "原件不会再次上传，已有照片仍可在时间线查看。其他文件继续上传。": "Originals will not be uploaded again. Existing photos remain in the timeline; other uploads continue.",
   "指定影像分享": "Selected media share",
-  "所选影像": "Selected media"
+  "所选影像": "Selected media",
+  "收起当天影像": "Collapse this day",
+  "展开其余 {p0} 项": "Show {p0} more items",
+  "拖动连续浏览，点击跳到日期节点": "Drag to browse continuously. Tap to jump to a date."
 }
