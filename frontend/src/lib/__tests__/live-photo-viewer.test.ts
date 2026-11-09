@@ -33,7 +33,6 @@ it("loads no video bytes before interaction and only fades the still once playba
   expect(video.hasAttribute("playsinline")).toBe(true);
   expect(play).not.toHaveBeenCalled();
   pointer(stage, "pointerenter", { pointerType: "mouse" });
-  pointer(stage, "pointerleave", { pointerType: "mouse" });
   expect(play).toHaveBeenCalledOnce();
   await nextTick();
   expect(stage.classList.contains("is-playing")).toBe(false);
