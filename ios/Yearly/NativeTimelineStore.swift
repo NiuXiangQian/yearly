@@ -88,6 +88,54 @@ struct NativeTimelinePage: Decodable {
 }
 struct NativeMediaResource: Decodable { let url: String?; let status: String }
 
+// Calendar positions stay independent of pagination and the number of photos in each day.
+struct NativeTimelineScale {
+    let days: [String]
+    private let positions: [Double]
+
+    init(days: [String]) {
+        let datedDays = days.compactMap { day in
+            (try? Date.ISO8601FormatStyle().parse(day + "T00:00:00Z")).map { (day, $0.timeIntervalSinceReferenceDate) }
+        }
+        self.days = datedDays.map { $0.0 }
+        let start = datedDays.first?.1 ?? 0
+        let span = (datedDays.last?.1 ?? start) - start
+        positions = datedDays.map { span == 0 ? 0 : ($0.1 - start) / span }
+    }
+
+    func ratio(for day: String) -> Double {
+        days.firstIndex(of: day).map { positions[$0] } ?? 0
+    }
+
+    func nearest(to ratio: Double) -> String? {
+        guard !days.isEmpty else { return nil }
+        var lower = 0
+        var upper = days.count - 1
+        while lower < upper {
+            let middle = (lower + upper) / 2
+            if positions[middle] < ratio { lower = middle + 1 }
+            else { upper = middle }
+        }
+        if lower > 0 && abs(positions[lower - 1] - ratio) <= abs(positions[lower] - ratio) { lower -= 1 }
+        return days[lower]
+    }
+
+    func markers(height: Double) -> [String] {
+        let count = min(days.count, max(2, Int(height / 44) + 1))
+        guard count > 1 else { return days }
+        let sampled = Set((0..<count).compactMap { nearest(to: Double($0) / Double(count - 1)) })
+        var markers = [days[0]]
+        for day in days.dropFirst().dropLast() where sampled.contains(day) {
+            let position = ratio(for: day)
+            if (position - ratio(for: markers.last!)) * height >= 44 && (1 - position) * height >= 44 {
+                markers.append(day)
+            }
+        }
+        markers.append(days.last!)
+        return markers
+    }
+}
+
 @MainActor final class NativeTimelineStore: ObservableObject {
     private enum Page { case first, older, newer }
     @Published var items: [NativeTimelineItem] = []

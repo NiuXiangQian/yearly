@@ -119,9 +119,8 @@ struct NativeTimelineView: View {
     @State private var daySettings: String?
     @State private var batchEdit = false
     @State private var diaryRequest: NativeDiaryRequest?
-    @State private var positionBeforePrepend: String?
+    @State private var positionBeforePrepend: (day: String, originY: CGFloat)?
     @State private var currentDay = ""
-    @State private var currentDayFraction: CGFloat = 0
     @State private var pendingRailDay: String?
     @State private var returningToStart = false
     @State private var visibleEndItem: String?
@@ -133,51 +132,55 @@ struct NativeTimelineView: View {
     @State private var foldedDayEndVisible = false
     @State private var collapsingDay: String?
     @State private var timelineScroll: UIScrollView?
-    @State private var dayFrames: [String: NativeTimelineDayFrame] = [:]
+    @State private var dayFrames: [String: CGRect] = [:]
+    @State private var contentHeight: CGFloat = 0
     @State private var railHeld = false
     @State private var scrubDay: String?
-    @State private var scrubFraction: CGFloat = 0
     private var timelineList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                timelineContent.coordinateSpace(name: "timeline-content").background(NativeTimelineScrollReader { value in
+                timelineContent.coordinateSpace(name: "timeline-content").background(NativeTimelineScrollReader(resolve: { value in
                     if timelineScroll !== value { timelineScroll = value }
-                    if scrubDay != nil { scrollWithinDay() }
+                    restoreReadingPosition()
+                    if scrubDay != nil { scrollToDay() }
+                    loadMoreIfNeeded()
+                }, didScroll: { value in
+                    updateReadingDay(value)
+                    loadMoreIfNeeded()
+                }))
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: NativeTimelineDayPositions.self,
+                                           value: NativeTimelineLayout(height: geometry.size.height))
                 })
             }
-                .coordinateSpace(name: "timeline-reading")
-                .onPreferenceChange(NativeTimelineDayPositions.self) { positions in
-                    dayFrames = positions
-                    if scrubDay != nil || pendingRailDay != nil { scrollWithinDay() }
+                .onPreferenceChange(NativeTimelineDayPositions.self) { layout in
+                    dayFrames = layout.days
+                    contentHeight = layout.height
+                    restoreReadingPosition()
+                    if scrubDay != nil || pendingRailDay != nil { scrollToDay() }
+                    if currentDay.isEmpty, let scroll = timelineScroll { updateReadingDay(scroll) }
                     if newerEndVisible { loadMoreIfNeeded() }
-                    if !railHeld {
-                        let ordered = positions.sorted { $0.value.visible.minY < $1.value.visible.minY }
-                        if let day = ordered.last(where: { $0.value.visible.minY <= 32 })?.key ?? ordered.first?.key {
-                            currentDay = day
-                            let frame = positions[day]!.visible
-                            currentDayFraction = min(1, max(0, (32 - frame.minY) / frame.height))
-                        }
-                    }
                 }
                 .safeAreaInset(edge: .leading, spacing: 0) {
                     if !store.isFocused && !store.railDays.isEmpty {
                         GeometryReader { geometry in
-                            NativeTimelineRail(days: store.railDays, current: currentDay, fraction: currentDayFraction, hold: { held in
+                            NativeTimelineRail(days: store.railDays, current: currentDay, hold: { held in
                                 railHeld = held
-                                if !held { scrollWithinDay(); loadMoreIfNeeded() }
-                            }, scrub: { day, fraction in
+                                if !held { scrollToDay(); loadMoreIfNeeded() }
+                            }, scrub: { day in
+                                guard scrubDay != day && currentDay != day else { return }
+                                currentDay = day
                                 scrubDay = day
-                                scrubFraction = fraction
                                 collapsedMonths[String(day.prefix(7))] = false
                                 if store.items.contains(where: { store.groupDay($0) == day }) {
-                                    scrollWithinDay()
+                                    scrollToDay()
                                 } else if !store.loading { store.jump(to: day) }
                             }) { day in
+                                currentDay = day
                                 scrubDay = day
-                                scrubFraction = 0
                                 collapsedMonths[String(day.prefix(7))] = false
                                 if store.items.contains(where: { store.groupDay($0) == day }) {
-                                    scrollWithinDay()
+                                    scrollToDay()
                                 } else { store.jump(to: day) }
                             }
                             .frame(height: geometry.size.height)
@@ -190,18 +193,9 @@ struct NativeTimelineView: View {
                     collapsingDay = nil
                 }
                 .onChange(of: store.loading) { _ in finishLoading() }
-                .onChange(of: store.items.first?.stableID) { first in
-                    guard let id = positionBeforePrepend, first != id,
-                          let item = store.items.first(where: { $0.stableID == id }) else { return }
-                    let day = store.groupDay(item)
-                    let dayItems = store.items.filter { store.groupDay($0) == day }
-                    if !dayItems.prefix(8).contains(where: { $0.stableID == id }) { expandedDays[day] = true }
-                    // Lay out the day section first, then place the original card in view.
-                    proxy.scrollTo("day-\(day)", anchor: .top)
-                    DispatchQueue.main.async {
-                        proxy.scrollTo(id, anchor: item.id == store.anchorMediaID && item.kind == "media" ? .center : .top)
-                        positionBeforePrepend = nil
-                    }
+                .onChange(of: store.items.first?.stableID) { _ in
+                    if let position = positionBeforePrepend, let first = store.items.first,
+                       store.groupDay(first) == position.day { positionBeforePrepend = nil }
                 }
         }
     }
@@ -469,24 +463,45 @@ struct NativeTimelineView: View {
         }
         .background(GeometryReader { geometry in
             Color.clear.preference(key: NativeTimelineDayPositions.self,
-                                   value: [day: NativeTimelineDayFrame(visible: geometry.frame(in: .named("timeline-reading")),
-                                                                     content: geometry.frame(in: .named("timeline-content")))])
+                                   value: NativeTimelineLayout(days: [day: geometry.frame(in: .named("timeline-content"))]))
         })
         .id("day-\(day)")
     }
 
-    private func scrollWithinDay() {
+    private var scrollLayoutReady: Bool {
+        guard let scroll = timelineScroll else { return false }
+        return contentHeight > 0 && abs(scroll.contentSize.height - contentHeight) < 1
+    }
+
+    private func restoreReadingPosition() {
+        guard scrollLayoutReady, let position = positionBeforePrepend, let scroll = timelineScroll,
+              let frame = dayFrames[position.day], frame.minY != position.originY,
+              scroll.contentSize.height >= frame.maxY else { return }
+        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: scroll.contentOffset.y + frame.minY - position.originY), animated: false)
+        positionBeforePrepend = nil
+    }
+
+    private func updateReadingDay(_ scroll: UIScrollView) {
+        guard !railHeld, scrubDay == nil, pendingRailDay == nil, positionBeforePrepend == nil,
+              currentDay.isEmpty || scroll.isTracking || scroll.isDecelerating else { return }
+        let readingY = scroll.contentOffset.y + scroll.adjustedContentInset.top + 32
+        if let frame = dayFrames[currentDay], frame.minY <= readingY && readingY < frame.maxY { return }
+        let day = dayFrames.filter { $0.value.minY <= readingY }.max { $0.value.minY < $1.value.minY }?.key
+            ?? dayFrames.min { $0.value.minY < $1.value.minY }?.key
+        if let day, day != currentDay { currentDay = day }
+    }
+
+    private func scrollToDay() {
         guard let scroll = timelineScroll else { return }
         if !railHeld && (scroll.isTracking || scroll.isDecelerating) {
             scrubDay = nil
             pendingRailDay = nil
             return
         }
-        guard let day = scrubDay, let frames = dayFrames[day] else { return }
-        let frame = frames.content
+        guard scrollLayoutReady, let day = scrubDay, let frame = dayFrames[day] else { return }
         let minimum = -scroll.adjustedContentInset.top
         let maximum = max(minimum, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
-        let requested = frame.minY + frame.height * scrubFraction - scroll.adjustedContentInset.top
+        let requested = frame.minY - scroll.adjustedContentInset.top
         let target = min(maximum, max(minimum, requested))
         if abs(scroll.contentOffset.y - target) > 0.5 {
             scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: target), animated: false)
@@ -515,23 +530,22 @@ struct NativeTimelineView: View {
             pendingRailDay = nil
             collapsedMonths[String(day.prefix(7))] = false
             scrubDay = day
-            scrubFraction = 0
         }
         DispatchQueue.main.async {
-            scrollWithinDay()
+            scrollToDay()
             loadMoreIfNeeded()
         }
     }
 
     private var newerEndVisible: Bool {
         guard let scroll = timelineScroll, let first = store.items.first,
-              let frame = dayFrames[store.groupDay(first)]?.content else { return false }
+              let frame = dayFrames[store.groupDay(first)] else { return false }
         return frame.minY - scroll.contentOffset.y - scroll.adjustedContentInset.top >= -100
     }
 
     private func loadMoreIfNeeded() {
         let endVisible = foldedDayEndVisible || collapsedEndVisible || (visibleEndItem != nil && visibleEndItem == store.items.last?.stableID)
-        guard !railHeld, !store.loading, positionBeforePrepend == nil, store.error.isEmpty else { return }
+        guard scrollLayoutReady, !railHeld, !store.loading, positionBeforePrepend == nil, store.error.isEmpty else { return }
         if newerEndVisible && store.hasNewer && scrubDay == nil && pendingRailDay == nil {
             prependNewer()
         } else if endVisible && store.cursor != nil {
@@ -544,7 +558,9 @@ struct NativeTimelineView: View {
 
     private func prependNewer(expandingArchive: Bool = false) {
         let first = store.items.first?.stableID
-        positionBeforePrepend = first
+        if let frame = dayFrames[currentDay] {
+            positionBeforePrepend = (currentDay, frame.minY)
+        }
         Task {
             if expandingArchive { await store.expandArchive() }
             else { await store.loadNewer() }
@@ -592,7 +608,10 @@ struct NativeTimelineView: View {
                 else {
                     do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.loadIfNeeded() } catch { }
                 }
-                if !Task.isCancelled { finishLoading() }
+                if !Task.isCancelled {
+                    if store.anchorDay == nil { currentDay = store.railDays.first ?? "" }
+                    finishLoading()
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 if selecting {

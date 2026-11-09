@@ -3,13 +3,14 @@ import SwiftUI
 struct NativeTimelineRail: View {
     let days: [String]
     let current: String
-    var fraction: CGFloat = 0
     var disabled = false
     let hold: (Bool) -> Void
-    let scrub: (String, CGFloat) -> Void
+    let scrub: (String) -> Void
     let select: (String) -> Void
     @State private var dragRatio: CGFloat?
     @State private var moved = false
+    @State private var scale = NativeTimelineScale(days: [])
+    @State private var markers: [String] = []
 
     private var currentIndex: Int { days.firstIndex(of: current) ?? 0 }
 
@@ -18,20 +19,15 @@ struct NativeTimelineRail: View {
             VStack(spacing: 18) {
                 Text(first.prefix(7).replacingOccurrences(of: "-", with: "."))
                 GeometryReader { geometry in
-                    let ratio = dragRatio ?? (CGFloat(currentIndex) + fraction) / CGFloat(days.count)
-                    let index = min(days.count - 1, Int(ratio * CGFloat(days.count)))
-                    let count = min(days.count + 1, max(2, Int(geometry.size.height / 44) + 1))
-                    // Include the end of the oldest day so the full track remains browsable.
-                    let markers = (0..<count).map { tick in
-                        Int((CGFloat(tick) / CGFloat(count - 1) * CGFloat(days.count)).rounded())
-                    }
+                    let ratio = dragRatio ?? scale.ratio(for: current)
+                    let day = scale.nearest(to: ratio) ?? first
                     ZStack(alignment: .topLeading) {
                         Rectangle().fill(.secondary.opacity(0.25))
                             .frame(width: 2, height: geometry.size.height)
                             .position(x: 22, y: geometry.size.height / 2)
-                        ForEach(markers, id: \.self) { tick in
+                        ForEach(markers, id: \.self) { marker in
                             Circle().fill(.tint).opacity(0.65).frame(width: 6, height: 6)
-                                .position(x: 22, y: CGFloat(tick) / CGFloat(days.count) * geometry.size.height)
+                                .position(x: 22, y: scale.ratio(for: marker) * geometry.size.height)
                         }
                         Circle().fill(.tint).opacity(0.16).frame(width: 24, height: 24)
                             .position(x: 22, y: ratio * geometry.size.height)
@@ -41,7 +37,7 @@ struct NativeTimelineRail: View {
                     .frame(width: 44, height: geometry.size.height)
                     .overlay(alignment: .topLeading) {
                         if dragRatio != nil {
-                            Text(days[index]).font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                            Text(day).font(.system(size: 13, weight: .semibold)).monospacedDigit()
                                 .foregroundStyle(.primary).padding(.horizontal, 12).padding(.vertical, 9)
                                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                                 .fixedSize().offset(x: 44, y: ratio * geometry.size.height - 17)
@@ -55,16 +51,13 @@ struct NativeTimelineRail: View {
                             let valueRatio = min(1, max(0, value.location.y / geometry.size.height))
                             dragRatio = valueRatio
                             if abs(value.translation.height) > 6 { moved = true }
-                            if moved {
-                                let index = min(days.count - 1, Int(valueRatio * CGFloat(days.count)))
-                                scrub(days[index], valueRatio * CGFloat(days.count) - CGFloat(index))
-                            }
+                            if moved, let day = scale.nearest(to: valueRatio) { scrub(day) }
                         }
                         .onEnded { value in
                             if !moved {
-                                let index = min(1, max(0, value.location.y / geometry.size.height)) * CGFloat(days.count)
-                                if let nearest = markers.min(by: { abs(CGFloat($0) - index) < abs(CGFloat($1) - index) }) {
-                                    select(days[min(days.count - 1, nearest)])
+                                let ratio = min(1, max(0, value.location.y / geometry.size.height))
+                                if let nearest = markers.min(by: { abs(scale.ratio(for: $0) - ratio) < abs(scale.ratio(for: $1) - ratio) }) {
+                                    select(nearest)
                                 }
                             }
                             hold(false)
@@ -72,6 +65,15 @@ struct NativeTimelineRail: View {
                             moved = false
                         })
                     .allowsHitTesting(!disabled)
+                    .onAppear {
+                        scale = NativeTimelineScale(days: days)
+                        markers = scale.markers(height: geometry.size.height)
+                    }
+                    .onChange(of: days) { days in
+                        scale = NativeTimelineScale(days: days)
+                        markers = scale.markers(height: geometry.size.height)
+                    }
+                    .onChange(of: geometry.size.height) { height in markers = scale.markers(height: height) }
                 }
                 Text(last.prefix(7).replacingOccurrences(of: "-", with: "."))
             }
@@ -91,38 +93,53 @@ struct NativeTimelineRail: View {
     }
 }
 
-struct NativeTimelineDayFrame: Equatable {
-    let visible: CGRect
-    let content: CGRect
+struct NativeTimelineLayout: Equatable {
+    var days: [String: CGRect] = [:]
+    var height: CGFloat = 0
 }
 
 struct NativeTimelineDayPositions: PreferenceKey {
-    static var defaultValue: [String: NativeTimelineDayFrame] = [:]
-    static func reduce(value: inout [String: NativeTimelineDayFrame], nextValue: () -> [String: NativeTimelineDayFrame]) {
-        value.merge(nextValue()) { _, next in next }
+    static var defaultValue = NativeTimelineLayout()
+    static func reduce(value: inout NativeTimelineLayout, nextValue: () -> NativeTimelineLayout) {
+        let next = nextValue()
+        value.days.merge(next.days) { _, next in next }
+        value.height = max(value.height, next.height)
     }
 }
 
 struct NativeTimelineScrollReader: UIViewRepresentable {
     let resolve: (UIScrollView) -> Void
+    let didScroll: (UIScrollView) -> Void
     final class Coordinator {
         weak var scroll: UIScrollView?
-        var observation: NSKeyValueObservation?
+        var layoutObservation: NSKeyValueObservation?
+        var scrollObservation: NSKeyValueObservation?
+        var resolve: (UIScrollView) -> Void
+        var didScroll: (UIScrollView) -> Void
+        init(resolve: @escaping (UIScrollView) -> Void, didScroll: @escaping (UIScrollView) -> Void) {
+            self.resolve = resolve
+            self.didScroll = didScroll
+        }
     }
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(resolve: resolve, didScroll: didScroll) }
     func makeUIView(context: Context) -> UIView { UIView() }
     func updateUIView(_ view: UIView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.resolve = resolve
+        coordinator.didScroll = didScroll
         DispatchQueue.main.async {
             var ancestor = view.superview
             while let parent = ancestor {
                 if let scroll = parent as? UIScrollView {
-                    if context.coordinator.scroll !== scroll {
-                        context.coordinator.scroll = scroll
-                        context.coordinator.observation = scroll.observe(\.contentSize, options: [.new]) { scroll, _ in
-                            DispatchQueue.main.async { resolve(scroll) }
-                        }
+                    guard coordinator.scroll !== scroll else { return }
+                    coordinator.scroll = scroll
+                    coordinator.layoutObservation = scroll.observe(\.contentSize, options: [.new]) { [weak coordinator] scroll, _ in
+                        DispatchQueue.main.async { coordinator?.resolve(scroll) }
                     }
-                    resolve(scroll)
+                    coordinator.scrollObservation = scroll.observe(\.contentOffset, options: [.new]) { [weak coordinator] scroll, _ in
+                        coordinator?.didScroll(scroll)
+                    }
+                    coordinator.resolve(scroll)
                     return
                 }
                 ancestor = parent.superview
