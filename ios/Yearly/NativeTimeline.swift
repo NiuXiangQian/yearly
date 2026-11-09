@@ -128,7 +128,8 @@ struct NativeTimelineView: View {
     @State private var collapsedMonths: [String: Bool] = [:]
     @State private var collapseAllMonths = false
     @State private var collapsedEndVisible = false
-    @State private var expandedDays: Set<String> = []
+    @State private var expandedDays: [String: Bool] = [:]
+    @State private var expandAllDays = false
     @State private var foldedDayEndVisible = false
     @State private var collapsingDay: String?
     @State private var timelineScroll: UIScrollView?
@@ -286,8 +287,26 @@ struct NativeTimelineView: View {
                 HStack(spacing: 12) {
                     Text("按月浏览").font(.caption).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
-                    Button("全部收起") { collapseAllMonths = true; collapsedMonths = [:] }
-                    Button("全部展开") { collapseAllMonths = false; collapsedMonths = [:] }
+                    Button {
+                        scrubDay = nil
+                        pendingRailDay = nil
+                        collapseAllMonths = true
+                        collapsedMonths = [:]
+                        expandAllDays = false
+                        expandedDays = [:]
+                    } label: {
+                        Text("全部收起").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
+                    Button {
+                        scrubDay = nil
+                        pendingRailDay = nil
+                        collapseAllMonths = false
+                        collapsedMonths = [:]
+                        expandAllDays = true
+                        expandedDays = [:]
+                    } label: {
+                        Text("全部展开").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
                 }
                 .font(.caption).frame(minHeight: 44).disabled(selecting)
             }
@@ -334,7 +353,7 @@ struct NativeTimelineView: View {
     }
 
     private func daySection(_ day: String, items dayItems: [NativeTimelineItem]) -> some View {
-        let expanded = selecting || store.isFocused || expandedDays.contains(day)
+        let expanded = selecting || store.isFocused || (expandedDays[day] ?? expandAllDays)
         let visibleItems = expanded ? dayItems : Array(dayItems.prefix(8))
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -456,9 +475,9 @@ struct NativeTimelineView: View {
             if dayItems.count > 8 && !selecting && !store.isFocused {
                 Button {
                     if expanded {
-                        expandedDays.remove(day)
+                        expandedDays[day] = false
                         collapsingDay = day
-                    } else { expandedDays.insert(day) }
+                    } else { expandedDays[day] = true }
                 } label: {
                     Label(expanded ? "收起当天影像" : "展开其余 \(dayItems.count - 8) 项",
                           systemImage: expanded ? "chevron.up" : "chevron.down")
