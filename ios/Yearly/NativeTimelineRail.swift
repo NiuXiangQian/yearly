@@ -37,14 +37,17 @@ struct NativeTimelineRail: View {
                             .position(x: 22, y: ratio * geometry.size.height)
                         Circle().fill(.tint).frame(width: 14, height: 14)
                             .position(x: 22, y: ratio * geometry.size.height)
+                    }
+                    .frame(width: 44, height: geometry.size.height)
+                    .overlay(alignment: .topLeading) {
                         if dragRatio != nil {
                             Text(days[index]).font(.system(size: 13, weight: .semibold)).monospacedDigit()
                                 .foregroundStyle(.primary).padding(.horizontal, 12).padding(.vertical, 9)
                                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                                 .fixedSize().offset(x: 44, y: ratio * geometry.size.height - 17)
+                                .allowsHitTesting(false)
                         }
                     }
-                    .frame(width: 44, height: geometry.size.height)
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0)
                         .onChanged { value in
