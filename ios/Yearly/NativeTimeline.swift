@@ -180,8 +180,7 @@ struct NativeTimelineView: View {
                                     scrollWithinDay()
                                 } else { store.jump(to: day) }
                             }
-                            .frame(height: min(geometry.size.height, min(520, max(180, geometry.size.height * 0.56)) + 70))
-                            .frame(maxHeight: .infinity, alignment: .top)
+                            .frame(height: geometry.size.height)
                         }.frame(width: 44).zIndex(1)
                     }
                 }

@@ -20,10 +20,10 @@ struct NativeTimelineRail: View {
                 GeometryReader { geometry in
                     let ratio = dragRatio ?? (CGFloat(currentIndex) + fraction) / CGFloat(days.count)
                     let index = min(days.count - 1, Int(ratio * CGFloat(days.count)))
-                    let step = max(1, Int(ceil(CGFloat(days.count) * 32 / geometry.size.height)))
-                    let count = (days.count - 1) / step + 1
+                    let count = min(days.count + 1, max(2, Int(geometry.size.height / 44) + 1))
+                    // Include the end of the oldest day so the full track remains browsable.
                     let markers = (0..<count).map { tick in
-                        count == 1 ? 0 : Int((CGFloat(tick) / CGFloat(count - 1) * CGFloat(days.count - 1)).rounded())
+                        Int((CGFloat(tick) / CGFloat(count - 1) * CGFloat(days.count)).rounded())
                     }
                     ZStack(alignment: .topLeading) {
                         Rectangle().fill(.secondary.opacity(0.25))
@@ -62,9 +62,9 @@ struct NativeTimelineRail: View {
                         }
                         .onEnded { value in
                             if !moved {
-                                let index = min(CGFloat(days.count - 1), max(0, value.location.y / geometry.size.height) * CGFloat(days.count))
+                                let index = min(1, max(0, value.location.y / geometry.size.height)) * CGFloat(days.count)
                                 if let nearest = markers.min(by: { abs(CGFloat($0) - index) < abs(CGFloat($1) - index) }) {
-                                    select(days[nearest])
+                                    select(days[min(days.count - 1, nearest)])
                                 }
                             }
                             hold(false)
