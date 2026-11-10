@@ -24,6 +24,7 @@ const fields: Record<string, string> = {
   title: "标题",
   name: "名称",
   username: "用户名",
+  nickname: "昵称",
   role: "账户角色",
   active: "启用账户",
   password: "密码",

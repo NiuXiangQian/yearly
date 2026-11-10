@@ -95,7 +95,12 @@ struct NativeTimelinePage: Decodable {
     let day_sharing: [String: Bool]?
     let dates: [String]?
 }
-struct NativeUploader: Decodable, Identifiable { let id: Int; let username: String }
+struct NativeUploader: Decodable, Identifiable {
+    let id: Int
+    let username: String
+    var nickname: String? = nil
+    var displayName: String { if let nickname, !nickname.isEmpty { return nickname }; return username }
+}
 struct NativeMediaResource: Decodable { let url: String?; let status: String; let message: String? }
 
 // Calendar positions stay independent of pagination and the number of photos in each day.

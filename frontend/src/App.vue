@@ -21,6 +21,7 @@ import {
 } from "lucide-vue-next";
 import { useYearly } from "./stores/yearly";
 import { notify, bytes } from "./lib/api";
+import { accountName } from "./lib/accounts";
 const route = useRoute(),
   router = useRouter(),
   yearly = useYearly();
@@ -120,10 +121,10 @@ async function logout() {
           </div>
           <button class="profile" @click="router.push('/settings')">
             <span class="avatar">{{
-              yearly.user?.username?.slice(0, 1).toUpperCase()
+              accountName(yearly.user).slice(0, 1).toUpperCase()
             }}</span
             ><span
-              >{{ yearly.user?.username
+              >{{ accountName(yearly.user)
               }}<small>{{
                 yearly.isAdmin
                   ? t("家庭管理员")

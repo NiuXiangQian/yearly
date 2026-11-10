@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
-from typing import Literal
-from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Annotated, Literal
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 
 class ChildIn(BaseModel):
@@ -186,6 +186,7 @@ class LoginIn(BaseModel):
 
 class UserIn(BaseModel):
     username: str = Field(min_length=2, max_length=80, pattern=r"^[\w.@-]+$")
+    nickname: Annotated[str, StringConstraints(strip_whitespace=True, max_length=80)] = ""
     password: str = Field(min_length=12, max_length=256)
     role: Literal["admin", "member"] = "member"
 
@@ -209,6 +210,7 @@ class TimelineCursor(BaseModel):
 
 class UserEdit(BaseModel):
     username: str = Field(min_length=2, max_length=80, pattern=r"^[\w.@-]+$")
+    nickname: Annotated[str, StringConstraints(strip_whitespace=True, max_length=80)] = ""
     role: Literal["admin", "member", "viewer"]
     active: bool
     password: str | None = Field(default=None, min_length=12, max_length=256)

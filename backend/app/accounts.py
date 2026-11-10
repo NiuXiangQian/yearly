@@ -49,8 +49,8 @@ def modification_data(row):
     owner = db.get(User, owner_id) if db and owner_id else None
     return {
         "can_edit": can_edit(actor, row),
-        "owner_name": owner.username if owner else None,
-        "updated_by_name": modifier.username if modifier else None,
+        "owner_name": owner.display_name if owner else None,
+        "updated_by_name": modifier.display_name if modifier else None,
     }
 
 
@@ -63,7 +63,7 @@ def record_change(db, row, changes, action="update"):
     db.add(
         AuditLog(
             actor_id=actor.id,
-            actor_name=actor.username,
+            actor_name=actor.display_name,
             resource_type=row.__tablename__,
             resource_id=str(
                 row.timeline_date if isinstance(row, TimelineDay) else row.id

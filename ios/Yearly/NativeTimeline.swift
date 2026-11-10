@@ -569,7 +569,7 @@ struct NativeTimelineView: View {
     }
     private var filterSummary: String {
         var labels: [String] = []
-        if let uploader = store.uploaderID { labels.append(store.uploaders.first { $0.id == uploader }?.username ?? "上传人 #\(uploader)") }
+        if let uploader = store.uploaderID { labels.append(store.uploaders.first { $0.id == uploader }?.displayName ?? "上传人 #\(uploader)") }
         labels += store.profiles.filter { store.selected.contains($0.id) }.map(\.label)
         if !store.mediaType.isEmpty { labels.append(typeLabel) }
         if store.useDateRange { labels.append(NativeDay.string(store.startDate) + " 至 " + NativeDay.string(store.endDate)) }
@@ -586,10 +586,10 @@ struct NativeTimelineView: View {
                     Menu {
                         Picker("上传人", selection: $store.uploaderID) {
                             Text("全部上传人").tag(nil as Int?)
-                            ForEach(store.uploaders) { Text($0.username).tag(Optional($0.id)) }
+                            ForEach(store.uploaders) { Text($0.displayName).tag(Optional($0.id)) }
                         }
                     } label: {
-                        Label(store.uploaders.first { $0.id == store.uploaderID }?.username ?? "上传人", systemImage: "person.crop.circle")
+                        Label(store.uploaders.first { $0.id == store.uploaderID }?.displayName ?? "上传人", systemImage: "person.crop.circle")
                             .lineLimit(1)
                     }.buttonStyle(NativeActionStyle(compact: true)).accessibilityLabel("按上传人筛选")
                 }

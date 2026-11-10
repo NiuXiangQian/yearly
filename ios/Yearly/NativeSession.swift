@@ -229,6 +229,7 @@ struct LoginCaptcha: Decodable {
         expire()
         error = message
     }
+    func updateNickname(_ nickname: String) { account?.nickname = nickname }
     private func expire() {
         if let cacheScope { localCache.clear(scope: cacheScope) }
         cacheRevision += 1

@@ -38,8 +38,8 @@ struct NativeTimelineFilters: View {
                     if store.uploaders.count > 8 {
                         TextField("搜索上传人", text: $uploaderSearch).autocorrectionDisabled()
                     }
-                    ForEach(store.uploaders.filter { uploaderSearch.isEmpty || $0.username.localizedCaseInsensitiveContains(uploaderSearch) }) { uploader in
-                        NativeFilterOption(title: uploader.username + (uploader.id == store.session.account?.id ? "（我）" : ""), selected: uploaderID == uploader.id) { uploaderID = uploader.id }
+                    ForEach(store.uploaders.filter { uploaderSearch.isEmpty || ($0.displayName.localizedCaseInsensitiveContains(uploaderSearch) || $0.username.localizedCaseInsensitiveContains(uploaderSearch)) }) { uploader in
+                        NativeFilterOption(title: uploader.displayName + (uploader.id == store.session.account?.id ? "（我）" : ""), selected: uploaderID == uploader.id) { uploaderID = uploader.id }
                     }
                     if store.uploadersLoading { ProgressView("正在读取上传人…") }
                     if !store.uploadersError.isEmpty {

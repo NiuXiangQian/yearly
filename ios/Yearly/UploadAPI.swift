@@ -40,6 +40,8 @@ struct UploadAccount: Decodable {
     let role: String
     let csrf_token: String
     var username: String? = nil
+    var nickname: String? = nil
+    var displayName: String { if let nickname, !nickname.isEmpty { return nickname }; return username ?? "家庭成员" }
     var roleLabel: String { role == "admin" ? "管理员" : role == "member" ? "普通账户" : "只读访客" }
     func canEdit(ownerID: Int?, allowed: Bool?) -> Bool {
         role == "admin" || (role == "member" && (allowed ?? (ownerID == id)))

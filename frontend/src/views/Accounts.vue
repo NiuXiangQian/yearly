@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { UserPlus, Pencil, ShieldCheck, Users } from "lucide-vue-next";
 import { api, post, put } from "../lib/api";
+import { accountName } from "../lib/accounts";
 import { t } from "../lib/i18n";
 import { useYearly } from "../stores/yearly";
 const yearly = useYearly(),
@@ -14,7 +15,7 @@ const open = ref(false),
   busy = ref(false),
   formError = ref("");
 const editing = ref<number | null>(null);
-const form = ref({ username: "", password: "", role: "member", active: true });
+const form = ref({ username: "", nickname: "", password: "", role: "member", active: true });
 async function load() {
   loading.value = true;
   error.value = "";
@@ -30,6 +31,7 @@ function edit(user?: any) {
   editing.value = user?.id || null;
   form.value = {
     username: user?.username || "",
+    nickname: user?.nickname || "",
     password: "",
     role: user?.role || "member",
     active: user?.active ?? true,
@@ -52,6 +54,7 @@ async function save() {
         await router.push("/login");
         return;
       }
+      if (editing.value === yearly.user?.id) yearly.user = { ...yearly.user, nickname: form.value.nickname.trim() };
     } else await post("/users", form.value);
     open.value = false;
     await load();
@@ -103,9 +106,9 @@ onMounted(load);
       }}</RouterLink>
     </div>
     <div v-for="user in users" :key="user.id" class="member-row account-row">
-      <span class="avatar">{{ user.username.slice(0, 1).toUpperCase() }}</span>
+      <span class="avatar">{{ accountName(user).slice(0, 1).toUpperCase() }}</span>
       <div class="account-identity">
-        <b>{{ user.username }}</b
+        <b>{{ accountName(user) }}</b><small v-if="accountName(user) !== user.username">{{ user.username }}</small
         ><small
           >{{
             user.role === "admin"
@@ -138,6 +141,8 @@ onMounted(load);
       @submit.prevent="save"
       @keydown.enter="$event.isComposing && $event.preventDefault()"
     >
+      <label>{{ t("昵称") }}<input v-model.trim="form.nickname" maxlength="80" autocomplete="nickname" :disabled="busy" /></label>
+      <p class="muted">{{ t("优先显示昵称，留空则显示用户名。昵称不会更改登录用户名。") }}</p>
       <label
         >{{ t("用户名")
         }}<input

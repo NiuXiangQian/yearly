@@ -860,5 +860,6 @@
   "刷新解冻状态": "Refresh restore status",
   "解冻申请失败，请重试": "Restore request failed. Please retry.",
   "原件已深度归档，解冻通常需要48小时，完成后可下载1天。": "The original is in deep archive. Restore usually takes 48 hours, with a one-day download window.",
-  "解冻通常需要48小时，完成后可下载1天。": "Restore usually takes 48 hours, with a one-day download window."
+  "解冻通常需要48小时，完成后可下载1天。": "Restore usually takes 48 hours, with a one-day download window.",
+  "优先显示昵称，留空则显示用户名。昵称不会更改登录用户名。": "The nickname is shown first; leave it blank to use the username. It does not change your login username."
 }

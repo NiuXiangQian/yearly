@@ -30,9 +30,14 @@ class User(Base, Timestamp, ModifiedBy):
     __tablename__ = "sys_user"
     id: Mapped[int] = mapped_column(ID, primary_key=True)
     username: Mapped[str] = mapped_column(String(80), unique=True)
+    nickname: Mapped[str] = mapped_column(String(80), default="", server_default="")
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(16), default="member")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    @property
+    def display_name(self):
+        return self.nickname or self.username
 
 
 class UserSession(Base):

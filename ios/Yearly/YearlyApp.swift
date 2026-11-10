@@ -95,12 +95,12 @@ struct NativeAppShell: View {
                         Form {
                             Section {
                                 HStack(spacing: 18) {
-                                    Text(String((session.account?.username ?? "家").prefix(1)))
+                                    Text(String((session.account?.displayName ?? "家").prefix(1)))
                                         .font(.system(size: 27, weight: .semibold))
                                         .foregroundStyle(NativeTheme.accent).frame(width: 64, height: 64)
                                         .background(NativeTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 22))
                                     VStack(alignment: .leading, spacing: 7) {
-                                        Text(session.account?.username ?? "家庭成员").font(.title2.bold())
+                                        Text(session.account?.displayName ?? "家庭成员").font(.title2.bold())
                                         HStack(spacing: 8) {
                                             Text(session.account?.roleLabel ?? "只读访客")
                                                 .font(.caption.weight(.semibold)).foregroundStyle(NativeTheme.accent)

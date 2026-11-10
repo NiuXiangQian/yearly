@@ -13,6 +13,7 @@ import {
 } from "lucide-vue-next";
 import { api, post, notify, bytes } from "../lib/api";
 import { useYearly } from "../stores/yearly";
+import { accountName } from "../lib/accounts";
 const yearly = useYearly(),
   router = useRouter(),
   config = ref<any>(),
@@ -59,7 +60,7 @@ async function changePassword() {
         ><LanguageSwitch />
       </div>
       <div class="setting-row">
-        <span> {{ t("当前账户") }} </span><b>{{ yearly.user?.username }}</b>
+        <span> {{ t("当前账户") }} </span><b>{{ accountName(yearly.user) }}</b>
       </div>
       <div class="setting-row">
         <span> {{ t("家庭角色") }} </span

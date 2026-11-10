@@ -18,6 +18,7 @@ private final class SessionHTTP: URLProtocol {
     static var usersFail = false
     static var uploadersEmpty = false
     static var writeFailure: String?
+    static var nickname = ""
     static func bodyData(_ request: URLRequest) -> Data {
         if let body = request.httpBody { return body }
         guard let stream = request.httpBodyStream else { return Data() }
@@ -40,12 +41,12 @@ private final class SessionHTTP: URLProtocol {
         switch request.url!.path {
         case "/yearly/api/auth/captcha": body = "{\"id\":\"synthetic-captcha\",\"image\":\"data:image/png;base64,aGVsbG8=\"}"
         case "/yearly/api/auth/login":
-            body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"csrf_token\":\"test-csrf\"}"
+            body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"nickname\":\"\(Self.nickname)\",\"csrf_token\":\"test-csrf\"}"
             headers["Set-Cookie"] = "yearly_session=test-native-session; Max-Age=3600; Path=/yearly/; HttpOnly; SameSite=Strict" + (Self.secureCookie ? "; Secure" : "")
         case "/yearly/api/auth/me":
             status = Self.authorized ? 200 : 401
-            body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"csrf_token\":\"test-csrf\"}"
-        case "/yearly/api/uploaders": body = Self.uploadersEmpty ? "[]" : #"[{"id":1,"username":"synthetic"},{"id":2,"username":"other"}]"#
+            body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"nickname\":\"\(Self.nickname)\",\"csrf_token\":\"test-csrf\"}"
+        case "/yearly/api/uploaders": body = Self.uploadersEmpty ? "[]" : "[{\"id\":1,\"username\":\"synthetic\",\"nickname\":\"\(Self.nickname)\"},{\"id\":2,\"username\":\"other\",\"nickname\":\"明月\"}]"
         case "/yearly/api/users":
             if Self.usersFail { status = 503; body = #"{"detail":"Synthetic failure"}"# }
             else { body = request.httpMethod == "POST" ? #"{"id":3}"# : #"[{"id":1,"username":"synthetic","role":"admin","active":true},{"id":2,"username":"other","role":"member","active":false}]"# }
@@ -97,6 +98,9 @@ private final class SessionHTTP: URLProtocol {
             body = more ? #"{"items":[{"id":7,"kind":"media","media_type":"live_photo"},{"id":8,"kind":"media","media_type":"video","timeline_day":"2026-11-07"}],"total":3,"next_cursor":null}"# : #"{"items":[{"id":7,"kind":"media","media_type":"live_photo","timeline_day":"2026-11-08","media_position":{"index":1,"total":2,"day_index":1,"day_total":1},"child_ids":[1,2],"files":[{"id":10,"file_role":"original","original_filename":"test.heic","mime_type":"image/heic","file_size":8},{"id":11,"file_role":"live_video","original_filename":"test.mov","mime_type":"video/quicktime","file_size":9}]},{"id":7,"kind":"event","content":"synthetic diary"}],"total":3,"next_cursor":"next+cursor/=="}"#
         default: break
         }
+        if request.url?.path == "/yearly/api/users/1", request.httpMethod == "PUT",
+           let payload = try? JSONSerialization.jsonObject(with: Self.bodyData(request)) as? [String: Any],
+           let nickname = payload["nickname"] as? String { Self.nickname = nickname }
         if request.httpMethod != "GET", let failure = Self.writeFailure { status = 422; body = failure }
         if request.url!.path == "/yearly/api/timeline", status == 200,
            request.url!.query?.contains("include_dates=true") == true {
@@ -434,6 +438,17 @@ private final class SessionHTTP: URLProtocol {
         precondition(locked.editable(by: session.account), "administrator can edit all content")
         await accounts.load()
         precondition(accounts.users.count == 2)
+        let displayUser = try JSONDecoder().decode(NativeManagedUser.self, from: Data(#"{"id":4,"username":"family-login","nickname":"小禾爸爸","role":"member","active":true}"#.utf8))
+        precondition(displayUser.displayName == "小禾爸爸" && accounts.users[0].displayName == "synthetic")
+        try await accounts.save(existing: accounts.users[0], username: "synthetic", nickname: "  青禾  ", password: "", role: "admin", active: true)
+        precondition(session.account?.id == 1 && session.account?.displayName == "青禾" && !store.values.isEmpty, "nickname updates the current session without signing out")
+        await timeline.loadUploaders()
+        precondition(timeline.uploaders[0].displayName == "青禾" && timeline.uploaders[1].displayName == "明月", "nickname write invalidates cached uploader names")
+        try await accounts.save(existing: accounts.users[0], username: "synthetic", nickname: "", password: "", role: "admin", active: true)
+        precondition(session.account?.displayName == "synthetic", "clearing nickname falls back to the login username")
+        let cleared = SessionHTTP.requests.last { $0.url?.path == "/yearly/api/users/1" }!
+        let clearedBody = try JSONSerialization.jsonObject(with: SessionHTTP.bodyData(cleared)) as? [String: Any]
+        precondition(clearedBody?["nickname"] as? String == "")
         let other = accounts.users[1]
         try await accounts.save(existing: other, username: "renamed", password: "", role: "member", active: true)
         let accountEdit = SessionHTTP.requests.last { $0.url?.path == "/yearly/api/users/2" }!

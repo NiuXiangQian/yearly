@@ -103,8 +103,13 @@ it("caches uploader choices including empty results and invalidates them after w
   await api("/uploaders");
   expect(network).toHaveBeenCalledTimes(1);
   await api("/users/2", { method: "PUT", body: "{}" });
+  network.mockImplementation(async () => reply([{ id: 2, username: "明月", nickname: "新昵称" }]));
+  expect(await api("/uploaders")).toEqual([{ id: 2, username: "明月", nickname: "新昵称" }]);
+  await api("/uploaders");
+  expect(network).toHaveBeenCalledTimes(3);
+  await api("/users/2", { method: "PUT", body: "{}" });
   network.mockImplementation(async () => reply([]));
   expect(await api("/uploaders")).toEqual([]);
   expect(await api("/uploaders")).toEqual([]);
-  expect(network).toHaveBeenCalledTimes(3);
+  expect(network).toHaveBeenCalledTimes(5);
 });

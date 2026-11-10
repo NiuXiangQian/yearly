@@ -223,6 +223,7 @@ def login(payload: LoginIn, request: Request, response: Response, db=Depends(get
     return {
         "id": user.id,
         "username": user.username,
+        "nickname": user.nickname,
         "role": user.role,
         "csrf_token": csrf,
         "environment": settings().app_env,
@@ -234,6 +235,7 @@ def me(request: Request, user=Depends(current_user)):
     return {
         "id": user.id,
         "username": user.username,
+        "nickname": user.nickname,
         "role": user.role,
         "csrf_token": request.state.session.csrf_token,
         "environment": settings().app_env,
@@ -279,7 +281,7 @@ def uploaders(db=Depends(get_db), user=Depends(current_user)):
         .exists()
     )
     return [
-        {"id": row.id, "username": row.username}
+        {"id": row.id, "username": row.username, "nickname": row.nickname}
         for row in db.scalars(
             select(User).where(has_media).order_by(User.username, User.id)
         )
@@ -292,6 +294,7 @@ def users(db=Depends(get_db), user=Depends(admin)):
         {
             "id": u.id,
             "username": u.username,
+            "nickname": u.nickname,
             "role": u.role,
             "active": u.active,
             "created_at": u.created_at,
@@ -306,6 +309,7 @@ def users(db=Depends(get_db), user=Depends(admin)):
 def create_user(data: UserIn, db=Depends(get_db), user=Depends(admin)):
     row = User(
         username=data.username,
+        nickname=data.nickname,
         password_hash=passwords.hash(data.password),
         role=data.role,
     )
@@ -333,6 +337,8 @@ def update_user(uid: int, data: UserEdit, db=Depends(get_db), user=Depends(admin
         ):
             share.revoked = True
     row.username = data.username
+    if "nickname" in data.model_fields_set:
+        row.nickname = data.nickname
     row.role = data.role
     row.active = data.active
     if data.password is not None:
@@ -396,15 +402,19 @@ def audit_logs(
     if resource_id:
         query = query.where(AuditLog.resource_id == resource_id)
     total = db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = db.scalars(
-        query.order_by(AuditLog.id.desc())
+    rows = db.execute(
+        query.add_columns(User).outerjoin(User, AuditLog.actor_id == User.id)
+        .order_by(AuditLog.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
     return {
         "items": [
-            {c.name: getattr(row, c.name) for c in AuditLog.__table__.columns}
-            for row in rows
+            {
+                **{c.name: getattr(row, c.name) for c in AuditLog.__table__.columns},
+                "actor_name": actor.display_name if actor else row.actor_name,
+            }
+            for row, actor in rows
         ],
         "total": total,
     }

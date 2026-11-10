@@ -7,6 +7,7 @@ import ScrollLoader from "../components/ScrollLoader.vue";
 import TimelineOrder from "../components/TimelineOrder.vue";
 import DateField from "../components/DateField.vue";
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { accountName } from "../lib/accounts";
 import { useRoute, useRouter } from "vue-router";
 import {
   ArrowUpRight,
@@ -127,7 +128,7 @@ const items = ref<any[]>([]),
 const q = ref(""),
   type = ref(""),
   uploader = ref(""),
-  uploaders = ref<{id:number;username:string}[]>([]),
+  uploaders = ref<{id:number;username:string;nickname?:string}[]>([]),
   uploadersError = ref(""),
   year = ref(""),
   month = ref(""),
@@ -911,7 +912,7 @@ function saveStages() {
           </div>
           <select v-model="uploader" class="compact-select" :aria-label="t('上传人')">
             <option value="">{{ t("全部上传人") }}</option>
-            <option v-for="person in uploaders" :key="person.id" :value="String(person.id)">{{ person.username }}</option>
+            <option v-for="person in uploaders" :key="person.id" :value="String(person.id)">{{ accountName(person) }}</option>
           </select>
           <span v-if="uploadersError" role="alert">{{ uploadersError }} <button class="text-button" @click="loadUploaders">{{ t("重试") }}</button></span>
           <select

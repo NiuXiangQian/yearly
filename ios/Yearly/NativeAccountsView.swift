@@ -24,14 +24,15 @@ struct NativeAccountsView: View {
                                 .frame(width: 44, height: 44)
                                 .background(NativeTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
                             VStack(alignment: .leading, spacing: 5) {
-                                Text(user.username).foregroundStyle(.primary)
+                                Text(user.displayName).foregroundStyle(.primary)
+                                if user.displayName != user.username { Text(user.username).font(.caption).foregroundStyle(.secondary) }
                                 Text(user.roleLabel + " · " + (user.active ? "启用" : "已停用") + (user.id == store.session.account?.id ? " · 当前账户" : ""))
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                         }
-                    }.buttonStyle(.plain).padding(.vertical, 4).accessibilityLabel("编辑账户 \(user.username)")
+                    }.buttonStyle(.plain).padding(.vertical, 4).accessibilityLabel("编辑账户 \(user.displayName)")
                 }
                 if store.loading { ProgressView("正在读取账户…") }
                 if !store.error.isEmpty {
@@ -64,6 +65,7 @@ private struct NativeAccountEditor: View {
     let existing: NativeManagedUser?
     @Environment(\.dismiss) private var dismiss
     @State private var username: String
+    @State private var nickname: String
     @State private var password = ""
     @State private var role: String
     @State private var active: Bool
@@ -73,18 +75,23 @@ private struct NativeAccountEditor: View {
     init(store: NativeAccountsStore, existing: NativeManagedUser?) {
         self.store = store; self.existing = existing
         _username = State(initialValue: existing?.username ?? "")
+        _nickname = State(initialValue: existing?.nickname ?? "")
         _role = State(initialValue: existing?.role ?? "member")
         _active = State(initialValue: existing?.active ?? true)
     }
     private var currentAccount: Bool { existing?.id == store.session.account?.id }
     private var valid: Bool {
         NativeAccountValidation.username(username) == nil &&
+        nickname.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count <= 80 &&
         NativeAccountValidation.password(password, optional: existing != nil) == nil
     }
     var body: some View {
         NavigationStack {
             Form {
                 Section("账户信息") {
+                    TextField("昵称（选填）", text: $nickname).textContentType(.nickname)
+                    Text(nickname.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 80 ? "昵称最多 80 个字符。" : "优先显示昵称，留空则显示用户名。昵称不会更改登录用户名。")
+                        .font(.caption).foregroundStyle(nickname.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 80 ? .red : .secondary)
                     TextField("用户名", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
                     Text(NativeAccountValidation.username(username) ?? "用户名可使用文字、数字、下划线、点、@ 和短横线。")
                         .font(.caption)
@@ -124,7 +131,7 @@ private struct NativeAccountEditor: View {
                         busy = true; error = ""
                         Task {
                             do {
-                                try await store.save(existing: existing, username: username, password: password, role: role, active: active)
+                                try await store.save(existing: existing, username: username, nickname: nickname, password: password, role: role, active: active)
                                 password = ""
                                 dismiss()
                             } catch { self.error = friendly(error) }

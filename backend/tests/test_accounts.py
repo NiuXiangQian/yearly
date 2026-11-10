@@ -329,7 +329,7 @@ def test_uploader_filter_keeps_counts_dates_positions_and_deleted_content_scoped
     ).json()["id"]
     assert {row["id"] for row in client.get("/api/uploaders").json()} == {1, 2}
     assert all(
-        set(row) == {"id", "username"} for row in client.get("/api/uploaders").json()
+        set(row) == {"id", "username", "nickname"} for row in client.get("/api/uploaders").json()
     )
     result = client.get(
         "/api/timeline?owner_id=2&include_dates=true&media_positions=true&group_folders=false"
@@ -382,3 +382,66 @@ def test_uploaders_empty_and_authentication(context):
     assert context.client.get("/api/uploaders").json() == []
     context.client.cookies.clear()
     assert context.client.get("/api/uploaders").status_code == 401
+
+
+def test_account_nickname_create_edit_clear_and_old_client_compatibility(context):
+    client = context.client
+    created = client.post("/api/users", json={
+        "username": "family-login", "nickname": "  小禾爸爸  ",
+        "password": "testing-password-123", "role": "member",
+    })
+    assert created.status_code == 200
+    uid = created.json()["id"]
+    row = next(row for row in client.get("/api/users").json() if row["id"] == uid)
+    assert row["username"] == "family-login" and row["nickname"] == "小禾爸爸"
+    payload = {"username": "family-login", "role": "member", "active": True}
+    assert client.put(f"/api/users/{uid}", json=payload).status_code == 200
+    with context.db() as db:
+        assert db.get(User, uid).display_name == "小禾爸爸", "older clients must preserve the nickname"
+    assert client.put(f"/api/users/{uid}", json={**payload, "nickname": "  "}).status_code == 200
+    with context.db() as db:
+        assert db.get(User, uid).nickname == "" and db.get(User, uid).display_name == "family-login"
+    for nickname in ["禾" * 80, "禾" * 81]:
+        response = client.put(f"/api/users/{uid}", json={**payload, "nickname": nickname})
+        assert response.status_code == (200 if len(nickname) == 80 else 422)
+    act(context, "member")
+    assert client.put(f"/api/users/{uid}", json={**payload, "nickname": "越权"}).status_code == 403
+
+
+def test_nickname_display_session_and_audit_use_current_account_name(context):
+    client = context.client
+    mid = upload(context)["media_id"]
+    before = client.get("/api/auth/me").json()
+    response = client.put("/api/users/1", json={
+        "username": "admin", "nickname": "家庭管理员", "role": "admin", "active": True,
+    })
+    assert response.status_code == 200 and response.json()["reauthenticate"] is False
+    after = client.get("/api/auth/me").json()
+    assert after["nickname"] == "家庭管理员" and after["username"] == "admin"
+    assert before["csrf_token"] == after["csrf_token"]
+    assert client.get("/api/uploaders").json() == [{"id": 1, "username": "admin", "nickname": "家庭管理员"}]
+    media = client.get(f"/api/media/{mid}").json()
+    assert media["owner_name"] == "家庭管理员" and media["updated_by_name"] == "家庭管理员"
+    history = client.get(f"/api/audit-logs?resource_type=media&resource_id={mid}").json()
+    assert all(row["actor_name"] == "家庭管理员" for row in history["items"])
+    logs = client.get("/api/audit-logs?resource_type=sys_user&resource_id=1").json()
+    assert any(row["changes"].get("nickname") == {"before": "", "after": "家庭管理员"} for row in logs["items"])
+    assert client.put("/api/users/1", json={"username": "admin", "nickname": "", "role": "admin", "active": True}).status_code == 200
+    assert client.get(f"/api/media/{mid}").json()["owner_name"] == "admin"
+    with context.db() as db:
+        assert db.get(User, 1).username == "admin"
+        assert db.scalar(select(UserSession.id).where(UserSession.user_id == 1))
+
+
+def test_login_returns_nickname_and_keeps_username_as_login_identifier(context):
+    from test_security import challenge
+
+    with context.db() as db:
+        db.get(User, 1).nickname = "小禾爸爸"
+        db.commit()
+    payload = challenge(context)
+    assert context.client.post("/api/auth/login", json={**payload, "username": "小禾爸爸"}).status_code == 401
+    payload = challenge(context)
+    result = context.client.post("/api/auth/login", json=payload)
+    assert result.status_code == 200
+    assert result.json()["username"] == "admin" and result.json()["nickname"] == "小禾爸爸"
