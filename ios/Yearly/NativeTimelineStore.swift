@@ -231,7 +231,7 @@ struct NativeTimelineScale {
         daySharing = [:]
         dates = []
     }
-    func locate(_ item: NativeTimelineItem) {
+    func locate(_ item: NativeTimelineItem, expandingArchive: Bool = false) {
         resetFilters()
         byUpload = false
         ascending = false
@@ -239,6 +239,7 @@ struct NativeTimelineScale {
         anchorMediaID = item.id
         dateAnchor = nil
         resetResults()
+        archiveExpanded = expandingArchive
         loading = true
     }
     func showRecentUploads() {

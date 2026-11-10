@@ -215,7 +215,7 @@ struct NativeTimelineView: View {
                 HStack {
                     Label(store.archiveExpanded ? "完整时间线" : "归档位置", systemImage: "scope").foregroundStyle(.tint)
                     Spacer()
-                    if store.archiveExpanded {
+                    if store.archiveExpanded || store.items.isEmpty {
                         Button("回到最新") { store.focusOnUploads([]) }.font(.subheadline)
                     } else if !store.items.isEmpty {
                         Button("查看完整时间线") { prependNewer(expandingArchive: true) }
@@ -889,6 +889,12 @@ private struct NativeMediaPager: View {
         } else if store.usesUploadOrder {
             uploadTotal -= 1
             uploadDayTotals[store.groupDay(item)]? -= 1
+        }
+        if store.showingUploads {
+            store.focusOnUploads(pages.map(\.id))
+        } else if store.anchorMediaID == item.id {
+            if !pages.isEmpty { store.locate(pages[min(index, pages.count - 1)], expandingArchive: store.archiveExpanded) }
+            else { store.focusOnUploads([]) }
         }
         if pages.isEmpty { dismiss() }
         else { selection = pages[min(index, pages.count - 1)].stableID }
