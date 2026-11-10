@@ -273,6 +273,10 @@ struct SiteSettings: View {
                         .textContentType(.URL).keyboardType(.URL)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityLabel("家庭站点 HTTPS 地址")
+                    if !draft.isEmpty && SiteOrigin(draft) == nil {
+                        Text("请输入有效的 HTTPS 站点地址，并去掉查询参数和页面锚点。")
+                            .font(.caption).foregroundStyle(.red)
+                    }
                     Button("连接家庭站点") {
                         guard let site = SiteOrigin(draft) else { return }
                         onConnect(site.url.absoluteString)

@@ -92,6 +92,8 @@ import Photos
     }
     func confirm(ids: Set<UUID>, childIDs: [Int], batchName: String, archiveDate: String?) {
         guard session?.canEdit == true else { return }
+        let batchName = batchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard batchName.unicodeScalars.count <= 255 else { error = "批次名称最多 255 个字符，请缩短后上传。"; return }
         beginBatchIfNeeded()
         var skipped: [UUID] = []
         for index in items.indices where ids.contains(items[index].id) && items[index].phase == .ready && items[index].ownerID == session?.account?.id && items[index].site == site?.url.absoluteString {
@@ -105,7 +107,7 @@ import Photos
                 continue
             }
             items[index].childIDs = childIDs.sorted()
-            items[index].batchName = String(batchName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(255))
+            items[index].batchName = batchName
             items[index].archiveDate = archiveDate ?? items[index].albumArchiveDay()
             items[index].confirmed = true
             items[index].phase = .queued

@@ -17,6 +17,7 @@ private final class SessionHTTP: URLProtocol {
     static var ignoreSelection = false
     static var usersFail = false
     static var uploadersEmpty = false
+    static var writeFailure: String?
     static func bodyData(_ request: URLRequest) -> Data {
         if let body = request.httpBody { return body }
         guard let stream = request.httpBodyStream else { return Data() }
@@ -96,6 +97,7 @@ private final class SessionHTTP: URLProtocol {
             body = more ? #"{"items":[{"id":7,"kind":"media","media_type":"live_photo"},{"id":8,"kind":"media","media_type":"video","timeline_day":"2026-11-07"}],"total":3,"next_cursor":null}"# : #"{"items":[{"id":7,"kind":"media","media_type":"live_photo","timeline_day":"2026-11-08","media_position":{"index":1,"total":2,"day_index":1,"day_total":1},"child_ids":[1,2],"files":[{"id":10,"file_role":"original","original_filename":"test.heic","mime_type":"image/heic","file_size":8},{"id":11,"file_role":"live_video","original_filename":"test.mov","mime_type":"video/quicktime","file_size":9}]},{"id":7,"kind":"event","content":"synthetic diary"}],"total":3,"next_cursor":"next+cursor/=="}"#
         default: break
         }
+        if request.httpMethod != "GET", let failure = Self.writeFailure { status = 422; body = failure }
         if request.url!.path == "/yearly/api/timeline", status == 200,
            request.url!.query?.contains("include_dates=true") == true {
             body.removeLast()
@@ -109,6 +111,25 @@ private final class SessionHTTP: URLProtocol {
 }
 @main struct NativeSessionTests {
     @MainActor static func main() async throws {
+        for value in ["", "a", "has space", "invalid!", String(repeating: "a", count: 81)] {
+            precondition(NativeAccountValidation.username(value) != nil)
+        }
+        for value in ["家人", "user.name@home-1", String(repeating: "a", count: 80)] {
+            precondition(NativeAccountValidation.username(value) == nil)
+        }
+        for count in [0, 11, 257] { precondition(NativeAccountValidation.password(String(repeating: "a", count: count)) != nil) }
+        for count in [12, 256] { precondition(NativeAccountValidation.password(String(repeating: "a", count: count)) == nil) }
+        precondition(NativeAccountValidation.password("", optional: true) == nil)
+        precondition(NativeAccountValidation.password("short", optional: true) != nil)
+        precondition(NativeAccountValidation.password(String(repeating: "👩🏽", count: 6)) == nil, "length matches the API's Unicode code point count")
+        let passwordFailure = #"{"detail":[{"type":"string_too_short","loc":["body","new_password"],"msg":"String should have at least 12 characters","input":"private-input-must-not-appear","ctx":{"min_length":12}}]}"#
+        precondition(nativeResponseDetail(Data(passwordFailure.utf8)) == "新密码至少需要 12 个字符。")
+        precondition(nativeResponseDetail(Data(#"{"detail":"当前密码不正确"}"#.utf8)) == "当前密码不正确")
+        precondition(nativeResponseDetail(Data(#"{"detail":[{"type":"string_too_long","loc":["body","title"],"ctx":{"max_length":255}},{"type":"less_than_equal","loc":["body","latitude"],"ctx":{"le":90}}]}"#.utf8)) == "标题最多允许 255 个字符。\n纬度不能大于 90。")
+        precondition(nativeResponseDetail(Data(#"{"detail":[{"type":"string_pattern_mismatch","loc":["body","username"]}]}"#.utf8))?.contains("用户名只能包含") == true)
+        precondition(nativeResponseDetail(Data(#"{"detail":[{"type":"unknown","loc":["body","password"],"input":"private-input-must-not-appear"}]}"#.utf8)) == "密码不符合要求，请检查后重试。")
+        precondition(nativeResponseDetail(Data("not json".utf8)) == nil)
+        precondition(nativeResponseDetail(Data(#"{"detail":[]}"#.utf8)) == nil)
         let cacheDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("YearlyCacheTests-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: cacheDirectory) }
         let disk = NativeLocalCache(directory: cacheDirectory)
@@ -330,6 +351,8 @@ private final class SessionHTTP: URLProtocol {
         await sharing.create(title: "Invalid", start: endDate, end: startDate, hours: 24)
         precondition(SessionHTTP.requests.count == beforeInvalid && sharing.created == nil)
         await sharing.create(title: "Invalid", start: startDate, end: endDate, hours: 169)
+        await sharing.create(title: String(repeating: "长", count: 121), start: startDate, end: endDate, hours: 24)
+        precondition(SessionHTTP.requests.count == beforeInvalid && sharing.error == "分享标题最多 120 个字符。")
         precondition(SessionHTTP.requests.count == beforeInvalid)
         await sharing.create(title: "Family", start: startDate, end: endDate, hours: 24)
         precondition(sharing.created?.link(site: site)?.absoluteString == "https://native.invalid/yearly/share/synthetic_share_token")
@@ -422,6 +445,13 @@ private final class SessionHTTP: URLProtocol {
         await accounts.load()
         precondition(!accounts.error.isEmpty && accounts.users.count == 2 && !accounts.loading)
         SessionHTTP.usersFail = false
+        SessionHTTP.writeFailure = passwordFailure
+        do { try await session.changePassword(current: "synthetic-current", new: "synthetic-new-password"); fatalError("validation must fail") }
+        catch { precondition(friendly(error) == "新密码至少需要 12 个字符。" && session.account != nil && !store.values.isEmpty) }
+        SessionHTTP.writeFailure = #"{"detail":[{"type":"string_too_long","loc":["body","title"],"ctx":{"max_length":255}}]}"#
+        do { try await session.write("/media/42", json: ["title": "synthetic"]); fatalError("validation must fail") }
+        catch { precondition(friendly(error) == "标题最多允许 255 个字符。") }
+        SessionHTTP.writeFailure = nil
         try await session.changePassword(current: "not-saved-password", new: "synthetic-new-password")
         precondition(session.account == nil && store.values.isEmpty, "changing password removes local and persisted session")
         try await session.login(username: "synthetic", password: "synthetic-new-password", captcha: captcha, answer: "ABCDE")

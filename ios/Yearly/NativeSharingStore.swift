@@ -70,10 +70,12 @@ struct NativeShare: Decodable, Identifiable {
         guard (mediaIDs != nil || NativeDay.string(start) <= NativeDay.string(end)), (1...168).contains(hours) else {
             error = "请检查起止日期和有效期（1 至 168 小时）。"; return
         }
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.unicodeScalars.count <= 120 else { error = "分享标题最多 120 个字符。"; return }
         busy = true; error = ""
         defer { busy = false }
         do {
-            var payload: [String: Any] = ["title": String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120)), "hours": hours]
+            var payload: [String: Any] = ["title": title, "hours": hours]
             if let mediaIDs { payload["media_ids"] = mediaIDs }
             else { payload["start_date"] = NativeDay.string(start); payload["end_date"] = NativeDay.string(end) }
             let result: NativeShare = try await session.post("/shares", json: payload)

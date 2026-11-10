@@ -243,6 +243,9 @@ struct NativeUploadView: View {
                 } header: { Text("原片导入") }
                 Section {
                     TextField("这批回忆的名字（可留空）", text: $batchName)
+                    if batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255 {
+                        Text("批次名称最多 255 个字符，请缩短后上传。").font(.caption).foregroundStyle(.red)
+                    }
                     Toggle("设置本批归档日期", isOn: $useArchiveDate)
                     if useArchiveDate { DatePicker("归档日期", selection: $archiveDate, displayedComponents: .date) }
                     Text("优先按原件拍摄日期归档，读不到时用 iPhone 相册日期。可为本批指定其他归档日期。未选择人物时保留为家庭时光。")
@@ -348,7 +351,8 @@ struct NativeUploadView: View {
                             confirmingIDs = Set(ready.map(\.id)); confirming = true
                         } label: {
                             Text("上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
-                        }.buttonStyle(NativeActionStyle(kind: .primary)).disabled(account == nil)
+                        }.buttonStyle(NativeActionStyle(kind: .primary))
+                            .disabled(account == nil || batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255)
                     } else if !preparing.isEmpty {
                         ProgressView("正在准备原件…").frame(maxWidth: .infinity)
                     } else if let result = batchResult, !result.ids.isEmpty {

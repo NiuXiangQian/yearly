@@ -7,6 +7,7 @@ private final class MockHTTP: URLProtocol {
     static var role = "member"
     static var authenticated = true
     static var capable = true
+    static var invalidUpload = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -23,6 +24,9 @@ private final class MockHTTP: URLProtocol {
             if request.httpMethod == "GET" {
                 body = "[]"
                 if capable { headers["X-Yearly-Upload-Protocol"] = "idempotent-v1" }
+            } else if Self.invalidUpload {
+                status = 422
+                body = #"{"detail":[{"type":"string_too_long","loc":["body","batch_name"],"ctx":{"max_length":255},"input":"private-input-must-not-appear"}]}"#
             } else { body = "{\"media_id\":42,\"duplicate\":true,\"tasks\":[]}" }
         case "/expired-part": status = 403
         default: break
@@ -65,6 +69,10 @@ private final class MockHTTP: URLProtocol {
         precondition(create.value(forHTTPHeaderField: "X-CSRF-Token") == "synthetic-csrf")
         precondition(create.value(forHTTPHeaderField: "Idempotency-Key") == key.uuidString.lowercased())
         let payload = Data("synthetic-original".utf8)
+        MockHTTP.invalidUpload = true
+        do { _ = try await api.create(body: Data("{}".utf8), key: UUID()); fatalError("invalid upload accepted") }
+        catch let error as UploadHTTPError { precondition(error.status == 422 && error.localizedDescription == "批次名称最多允许 255 个字符。") }
+        MockHTTP.invalidUpload = false
         var sent: Int64 = 0
         api.onPartProgress = { bytes, speed in
             precondition(bytes <= payload.count && speed > 0)

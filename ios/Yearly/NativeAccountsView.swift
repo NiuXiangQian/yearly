@@ -78,16 +78,22 @@ private struct NativeAccountEditor: View {
     }
     private var currentAccount: Bool { existing?.id == store.session.account?.id }
     private var valid: Bool {
-        (2...80).contains(username.count) &&
-        ((existing != nil && password.isEmpty) || (12...256).contains(password.count))
+        NativeAccountValidation.username(username) == nil &&
+        NativeAccountValidation.password(password, optional: existing != nil) == nil
     }
     var body: some View {
         NavigationStack {
             Form {
                 Section("账户信息") {
                     TextField("用户名", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Text(NativeAccountValidation.username(username) ?? "用户名可使用文字、数字、下划线、点、@ 和短横线。")
+                        .font(.caption)
+                        .foregroundStyle(!username.isEmpty && NativeAccountValidation.username(username) != nil ? .red : .secondary)
                     SecureField(existing == nil ? "初始密码，至少 12 个字符" : "新密码，留空保持当前密码", text: $password)
                         .textContentType(.newPassword)
+                    Text(NativeAccountValidation.password(password, optional: existing != nil) ?? (existing == nil ? "密码须为 12 至 256 个字符。" : "新密码须为 12 至 256 个字符；留空保持当前密码。"))
+                        .font(.caption)
+                        .foregroundStyle(!password.isEmpty && NativeAccountValidation.password(password, optional: existing != nil) != nil ? .red : .secondary)
                     Picker("角色", selection: $role) {
                         Text("普通账户").tag("member")
                         Text("管理员").tag("admin")
@@ -144,9 +150,14 @@ struct NativePasswordView: View {
         Form {
             Section("修改密码") {
                 SecureField("当前密码", text: $current).textContentType(.password)
+                if current.isEmpty { Text("请输入当前密码以验证身份。").font(.caption).foregroundStyle(.secondary) }
                 SecureField("新密码，至少 12 个字符", text: $new).textContentType(.newPassword)
+                Text(NativeAccountValidation.password(new) ?? "新密码须为 12 至 256 个字符。")
+                    .font(.caption)
+                    .foregroundStyle(!new.isEmpty && NativeAccountValidation.password(new) != nil ? .red : .secondary)
                 SecureField("再次输入新密码", text: $confirmation).textContentType(.newPassword)
-                if !confirmation.isEmpty && confirmation != new { Text("两次输入的新密码不一致。 ").font(.caption).foregroundStyle(.red) }
+                if confirmation.isEmpty { Text("请再次输入新密码。").font(.caption).foregroundStyle(.secondary) }
+                else if confirmation != new { Text("两次输入的新密码不一致。").font(.caption).foregroundStyle(.red) }
                 Button("更新密码并重新登录") {
                     busy = true; error = ""
                     Task {
@@ -158,7 +169,7 @@ struct NativePasswordView: View {
                         busy = false
                     }
                 }.buttonStyle(NativeActionStyle(kind: .primary))
-                .disabled(current.isEmpty || !(12...256).contains(new.count) || confirmation != new)
+                .disabled(current.isEmpty || NativeAccountValidation.password(new) != nil || confirmation != new)
             }
             Section { Text("保存后，此账户的所有登录会话都会失效。 ").font(.footnote).foregroundStyle(.secondary) }
             if busy { ProgressView("正在更新密码…") }

@@ -15,6 +15,7 @@ struct UploadHTTPError: LocalizedError {
         switch status {
         case 401: return "登录已失效，请在 App 重新登录后继续。"
         case 403: return "没有上传权限、登录账号已变化或安全校验失败，请重新登录。"
+        case 400, 422: return detail ?? "上传信息不符合要求，请检查后重试。"
         case 409: return detail ?? "服务端状态或完整性校验冲突（409），未标记成功。请核查后重试。"
         case 410: return "上传任务已超过服务端 7 天有效期，请取消后重新选择原件。"
         default: return "家庭站点请求失败（\(status)），请稍后重试。"

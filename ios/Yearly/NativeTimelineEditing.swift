@@ -55,7 +55,10 @@ struct NativeDiaryEditor: View {
                     Group {
                     Section("日记内容") {
                         TextField("标题", text: $title)
+                        Text(title.unicodeScalars.count > 255 ? "日记标题最多 255 个字符。" : "日记标题必填，最多 255 个字符。")
+                            .font(.caption).foregroundStyle(title.unicodeScalars.count > 255 || (!title.isEmpty && title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ? .red : .secondary)
                         TextField("记录这段回忆", text: $content, axis: .vertical).lineLimit(4...12)
+                        if content.unicodeScalars.count > 50_000 { Text("日记内容最多 50,000 个字符。").font(.caption).foregroundStyle(.red) }
                         Toggle("允许分享日记", isOn: $allowed)
                     }
                     Section("时间") {
@@ -63,6 +66,7 @@ struct NativeDiaryEditor: View {
                         if useStart { DatePicker("开始时间", selection: $start).environment(\.timeZone, NativeLocalDateTime.zone) }
                         Toggle("设置结束时间", isOn: $useEnd)
                         if useEnd { DatePicker("结束时间", selection: $end).environment(\.timeZone, NativeLocalDateTime.zone) }
+                        if useStart && useEnd && end < start { Text("结束时间不能早于开始时间。").font(.caption).foregroundStyle(.red) }
                     }
                     Section("人物与宠物") {
                         ForEach(profiles) { profile in
@@ -113,7 +117,7 @@ struct NativeDiaryEditor: View {
                     Button("保存") { Task { await save() } }
                         .buttonStyle(NativeActionStyle(kind: .primary, compact: true))
                         .disabled(!permitted || !ready || busy || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                                  title.count > 255 || content.count > 50_000 || (useStart && useEnd && end < start))
+                                  title.unicodeScalars.count > 255 || content.unicodeScalars.count > 50_000 || (useStart && useEnd && end < start))
                 }
             }
             .interactiveDismissDisabled(busy)
@@ -287,6 +291,8 @@ private struct NativeFolderEditor: View {
         NavigationStack {
             Form {
                 TextField("文件夹名称", text: $name).disabled(!editable)
+                Text(name.unicodeScalars.count > 255 ? "文件夹名称最多 255 个字符。" : "文件夹名称必填，最多 255 个字符。")
+                    .font(.caption).foregroundStyle(name.unicodeScalars.count > 255 || (!name.isEmpty && name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ? .red : .secondary)
                 if folder != nil {
                     Toggle("允许分享文件夹及其内容", isOn: $allowed).disabled(!editable)
                     if editable { Button("删除文件夹", role: .destructive) { deleting = true } }
@@ -305,7 +311,7 @@ private struct NativeFolderEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(busy ? "保存中…" : "保存") { Task { await save() } }
-                        .disabled(!editable || busy || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 255)
+                        .disabled(!editable || busy || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.unicodeScalars.count > 255)
                 }
             }
             .onAppear { name = folder?.name ?? ""; allowed = folder?.share_allowed ?? true }
@@ -417,7 +423,11 @@ struct NativeBatchMediaEditor: View {
             Form {
                 Section("归档与批次") {
                     Toggle("修改批次名称", isOn: $editBatch)
-                    if editBatch { TextField("批次名称（留空可清除）", text: $batch) }
+                    if editBatch {
+                        TextField("批次名称（留空可清除）", text: $batch)
+                        Text("批次名称最多 255 个字符，留空可清除。")
+                            .font(.caption).foregroundStyle(batch.unicodeScalars.count > 255 ? .red : .secondary)
+                    }
                     Toggle("修改归档日期", isOn: $editArchive)
                     if editArchive {
                         Toggle("清除指定归档日期", isOn: $clearArchive)
@@ -425,7 +435,8 @@ struct NativeBatchMediaEditor: View {
                     }
                     Button("保存归档与批次") { Task { await organize() } }
                         .buttonStyle(NativeActionStyle(kind: .primary))
-                        .disabled((!editBatch && !editArchive) || (editBatch && batch.count > 255))
+                        .disabled((!editBatch && !editArchive) || (editBatch && batch.unicodeScalars.count > 255))
+                    if !editBatch && !editArchive { Text("请先选择要修改的批次名称或归档日期。").font(.caption).foregroundStyle(.secondary) }
                 }
                 Section("人物与宠物") {
                     Picker("关联方式", selection: $mode) {
@@ -437,6 +448,7 @@ struct NativeBatchMediaEditor: View {
                         }))
                     }
                     Button("保存关联") { confirmingPeople = true }.buttonStyle(NativeActionStyle(kind: .primary)).disabled(people.isEmpty && mode != .replace)
+                    if people.isEmpty && mode != .replace { Text("请选择要\(mode.label)的人物或宠物。").font(.caption).foregroundStyle(.secondary) }
                 }
                 Section("文件夹") { Button("移动到文件夹", systemImage: "folder") { moving = true } }
                 if busy { ProgressView("正在保存…") }

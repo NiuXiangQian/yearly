@@ -123,8 +123,7 @@ struct LoginCaptcha: Decodable {
             if http.statusCode == 401 && authenticated && credential?.value == usedCredential?.value {
                 expire()
             }
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let detail = (json?["detail"] as? String).map { String($0.prefix(300)) }
+            let detail = nativeResponseDetail(data)
             throw NativeAPIError(status: http.statusCode, message: detail ?? "家庭站点请求失败（\(http.statusCode)）。")
         }
         return (data, http)

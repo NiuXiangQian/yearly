@@ -1,6 +1,21 @@
 import Foundation
 import Combine
 
+enum NativeAccountValidation {
+    static func username(_ value: String) -> String? {
+        guard (2...80).contains(value.unicodeScalars.count) else { return "用户名须为 2 至 80 个字符。" }
+        guard value.range(of: #"\A[\p{L}\p{N}_.@-]+\z"#, options: .regularExpression) != nil else {
+            return "用户名只能包含文字、数字、下划线、点、@ 和短横线，不能包含空格。"
+        }
+        return nil
+    }
+
+    static func password(_ value: String, optional: Bool = false) -> String? {
+        if optional && value.isEmpty { return nil }
+        return (12...256).contains(value.unicodeScalars.count) ? nil : "密码须为 12 至 256 个字符。"
+    }
+}
+
 struct NativeManagedUser: Decodable, Identifiable {
     let id: Int
     let username: String

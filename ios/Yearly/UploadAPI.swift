@@ -1,5 +1,40 @@
 import Foundation
 
+// FastAPI uses a string for business errors and an array for field validation errors.
+func nativeResponseDetail(_ data: Data) -> String? {
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+    if let detail = json["detail"] as? String, !detail.isEmpty { return String(detail.prefix(300)) }
+    guard let issues = json["detail"] as? [[String: Any]], !issues.isEmpty else { return nil }
+    let fields = ["username": "用户名", "password": "密码", "new_password": "新密码", "old_password": "当前密码",
+                  "title": "标题", "name": "名称", "content": "日记内容", "remark": "备注", "batch_name": "批次名称",
+                  "location_name": "地点名称", "latitude": "纬度", "longitude": "经度", "tags": "标签",
+                  "corrected_offset_minutes": "时区偏移", "child_ids": "人物与宠物", "media_ids": "影像",
+                  "description": "档案介绍", "nickname": "昵称", "captcha": "验证码", "hours": "有效期"]
+    let messages = issues.prefix(3).map { issue -> String in
+        let key = (issue["loc"] as? [Any])?.compactMap { $0 as? String }.last ?? ""
+        let field = fields[key] ?? "输入内容"
+        let context = issue["ctx"] as? [String: Any] ?? [:]
+        switch issue["type"] as? String {
+        case "string_too_short": return "\(field)至少需要 \(context["min_length"] ?? "指定数量") 个字符。"
+        case "string_too_long": return "\(field)最多允许 \(context["max_length"] ?? "指定数量") 个字符。"
+        case "too_short": return "\(field)至少需要 \(context["min_length"] ?? "指定数量") 项。"
+        case "too_long": return "\(field)最多允许 \(context["max_length"] ?? "指定数量") 项。"
+        case "missing": return "请填写\(field)。"
+        case "string_pattern_mismatch" where key == "username": return "用户名只能包含文字、数字、下划线、点、@ 和短横线。"
+        case "greater_than_equal": return "\(field)不能小于 \(context["ge"] ?? "规定下限")。"
+        case "less_than_equal": return "\(field)不能大于 \(context["le"] ?? "规定上限")。"
+        case "int_parsing", "int_type": return "\(field)须为整数。"
+        case "float_parsing", "float_type", "finite_number": return "\(field)须为有效数字。"
+        case "value_error":
+            let message = (issue["msg"] as? String ?? "").replacingOccurrences(of: "Value error, ", with: "")
+            if message.range(of: #"\p{Han}"#, options: .regularExpression) != nil { return "\(field)：\(message)" }
+            fallthrough
+        default: return "\(field)不符合要求，请检查后重试。"
+        }
+    }
+    return String(messages.joined(separator: "\n").prefix(300))
+}
+
 struct UploadAccount: Decodable {
     let id: Int
     let role: String
@@ -108,8 +143,7 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 { unauthorized?(cookie) }
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            throw UploadHTTPError(status: status, isOSS: false, detail: (json?["detail"] as? String).map { String($0.prefix(300)) })
+            throw UploadHTTPError(status: status, isOSS: false, detail: nativeResponseDetail(data))
         }
         if requireIdempotency && http.value(forHTTPHeaderField: "X-Yearly-Upload-Protocol") != "idempotent-v1" {
             throw UploadFailure(message: "家庭服务尚未支持可靠的原生任务恢复，请先更新本分支的上传接口。未创建上传任务。")

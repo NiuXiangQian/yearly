@@ -23,7 +23,8 @@ struct NativeSharingView: View {
     @State private var startMode: StartMode
     @State private var earliest: Date?
     @State private var latest: Date?
-    @State private var hours = 24
+    @State private var hoursText = "24"
+    private var hours: Int { Int(hoursText) ?? 0 }
     @State private var confirming = false
     @State private var revoking: NativeShare?
     @State private var copying: NativeShare?
@@ -49,7 +50,8 @@ struct NativeSharingView: View {
     }
 
     private var valid: Bool {
-        guard (1...168).contains(hours), !store.busy, store.session.canEdit else { return false }
+        guard (1...168).contains(hours), title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count <= 120,
+              !store.busy, store.session.canEdit else { return false }
         if let selectedItems { return (1...200).contains(selectedItems.count) }
         return resolvedStart.map { NativeDay.string($0) <= NativeDay.string(end) } == true
     }
@@ -58,6 +60,9 @@ struct NativeSharingView: View {
             Form {
                 Section("分享家庭时光") {
                     TextField("分享标题（可留空）", text: $title)
+                    if title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 120 {
+                        Text("分享标题最多 120 个字符。").font(.caption).foregroundStyle(.red)
+                    }
                     if !selectionMode {
                         Picker("开始范围", selection: $startMode) {
                             ForEach(StartMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
@@ -80,19 +85,24 @@ struct NativeSharingView: View {
                         if let resolvedStart, NativeDay.string(resolvedStart) > NativeDay.string(end) {
                             Text("结束日期不能早于开始日期。").font(.footnote).foregroundStyle(.red)
                         }
-                    } else { Label("仅分享所选 \(selectedItems?.count ?? 0) 项影像", systemImage: "checkmark.circle") }
+                    } else {
+                        Label("仅分享所选 \(selectedItems?.count ?? 0) 项影像", systemImage: "checkmark.circle")
+                        if !(1...200).contains(selectedItems?.count ?? 0) {
+                            Text("请选择 1 至 200 项影像。").font(.caption).foregroundStyle(.red)
+                        }
+                    }
                     LabeledContent("有效期（小时）") {
-                        TextField("1 至 168", value: $hours, format: .number)
+                        TextField("1 至 168", text: $hoursText)
                             .keyboardType(.numberPad).multilineTextAlignment(.trailing)
                     }
                     HStack {
                         ForEach([1, 24, 72, 168], id: \.self) { value in
-                            Button(value < 24 ? "1 小时" : "\(value / 24) 天") { hours = value }
+                            Button(value < 24 ? "1 小时" : "\(value / 24) 天") { hoursText = String(value) }
                                 .buttonStyle(NativeActionStyle(kind: hours == value ? .primary : .secondary, compact: true))
                         }
                     }.buttonStyle(.borderless)
                     if !(1...168).contains(hours) {
-                        Text("有效期须为 1 至 168 小时。").font(.footnote).foregroundStyle(.red)
+                        Text("有效期须为 1 至 168 的整数小时。").font(.footnote).foregroundStyle(.red)
                     }
                     Text(selectionMode ? "链接仅包含下方确认的影像。同一天、同一文件夹的其他内容及以后新增的照片不会加入。Live Photo 作为一项完整分享。" : store.session.isAdmin ? "链接包含所选日期内允许分享的全部家庭回忆，不受人物、上传人、搜索和类型筛选影响。" : "链接仅包含所选日期内自己添加且允许分享的回忆，该日期内以后新增的本人内容也会出现。")
                         .font(.footnote).foregroundStyle(.secondary)
