@@ -13,6 +13,16 @@
         "acs:oss:*:*:your-private-bucket/originals/*",
         "acs:oss:*:*:your-private-bucket/previews/*"
       ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetObjectTagging", "oss:PutObjectTagging", "oss:RestoreObject"],
+      "Resource": ["acs:oss:*:*:your-private-bucket/originals/*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetBucketLifecycle", "oss:PutBucketLifecycle"],
+      "Resource": ["acs:oss:*:*:your-private-bucket"]
     }
   ]
 }

@@ -26,6 +26,8 @@ struct NativeDiaryEditor: View {
     @State private var linkedIDs: [Int] = []
     @State private var cover: Int?
     @State private var allowed = true
+    @State private var permitted = false
+    @State private var modifier: String?
     @State private var ready = false
     @State private var busy = false
     @State private var deleting = false
@@ -41,12 +43,16 @@ struct NativeDiaryEditor: View {
         let media_ids: [Int]
         let media: [NativeTimelineItem]
         let share_allowed: Bool
+        let can_edit: Bool?
+        let created_by: Int?
+        let updated_by_name: String?
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 if ready {
+                    Group {
                     Section("日记内容") {
                         TextField("标题", text: $title)
                         TextField("记录这段回忆", text: $content, axis: .vertical).lineLimit(4...12)
@@ -84,8 +90,16 @@ struct NativeDiaryEditor: View {
                             }
                         }
                     }
-                    if existing != nil {
+                    if existing != nil && permitted {
                         Button("移到回收站", role: .destructive) { deleting = true }
+                    }
+                    }.disabled(!permitted)
+                    if let existing {
+                        Section("修改记录") {
+                            if !permitted { Label("已锁定，只能编辑自己添加的日记", systemImage: "lock.fill") }
+                            LabeledContent("修改人", value: modifier ?? "暂无记录")
+                            NavigationLink("修改日志") { NativeAuditView(session: session, resourceType: "timeline_event", resourceID: String(existing.id)) }
+                        }
                     }
                 } else if !busy { Button("重新加载日记") { Task { await load() } } }
                 if busy { ProgressView("正在处理…") }
@@ -97,7 +111,8 @@ struct NativeDiaryEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") { Task { await save() } }
-                        .disabled(!ready || busy || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        .buttonStyle(NativeActionStyle(kind: .primary, compact: true))
+                        .disabled(!permitted || !ready || busy || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                                   title.count > 255 || content.count > 50_000 || (useStart && useEnd && end < start))
                 }
             }
@@ -116,12 +131,15 @@ struct NativeDiaryEditor: View {
         do {
             if let existing {
                 let diary: Diary = try await session.get("/events/\(existing.id)")
+                permitted = session.account?.canEdit(ownerID: diary.created_by, allowed: diary.can_edit) ?? false
+                modifier = diary.updated_by_name
                 title = diary.title; content = diary.content; people = Set(diary.child_ids)
                 linked = diary.media; linkedIDs = diary.media_ids; cover = diary.cover_media_id; allowed = diary.share_allowed
                 originalStart = diary.start_at; originalEnd = diary.end_at
                 if let value = NativeLocalDateTime.date(diary.start_at) { start = value; useStart = true }
                 if let value = NativeLocalDateTime.date(diary.end_at) { end = value; useEnd = true }
             } else {
+                permitted = session.canEdit
                 linked = request?.items ?? []
                 linkedIDs = linked.map(\.id)
                 if let day = request?.day, let date = NativeLocalDateTime.date(day + "T00:00:00") {
@@ -133,7 +151,7 @@ struct NativeDiaryEditor: View {
     }
 
     private func save(remove: Bool = false) async {
-        guard !busy else { return }
+        guard permitted, !busy else { return }
         busy = true; failure = ""
         defer { busy = false }
         do {
@@ -161,6 +179,11 @@ private struct NativeFolder: Decodable, Identifiable {
     let name: String
     let media_count: Int
     let share_allowed: Bool
+    let can_edit: Bool?
+    let owner_id: Int?
+    let owner_name: String?
+    let updated_by_name: String?
+    func editable(by account: UploadAccount?) -> Bool { account?.canEdit(ownerID: owner_id, allowed: can_edit) ?? false }
 }
 
 struct NativeDaySettings: View {
@@ -183,12 +206,13 @@ struct NativeDaySettings: View {
                     Section {
                         Toggle("允许分享当天", isOn: Binding(get: { store.daySharing[day] ?? true }, set: { allowed in
                             Task { await perform("当天分享设置已保存") { try await store.setDaySharing(day, allowed: allowed) } }
-                        }))
-                    } footer: { Text("关闭后，这一天的内容会从现有及新建分享中隐藏。") }
+                        })).disabled(!store.session.isAdmin)
+                        NavigationLink("当天设置修改日志") { NativeAuditView(session: store.session, resourceType: "timeline_day", resourceID: day) }
+                    } footer: { Text("管理员可设置当天的分享权限。关闭后，这一天的内容会从现有及新建分享中隐藏。") }
                     Section("当天文件夹") {
                         ForEach(folders) { folder in
                             Button { editingFolder = folder } label: {
-                                LabeledContent(folder.name, value: "\(folder.media_count) 项")
+                                LabeledContent(folder.name, value: "\(folder.media_count) 项" + (folder.editable(by: store.session.account) ? "" : " · 已锁定"))
                             }
                         }
                         Button("新建文件夹", systemImage: "folder.badge.plus") { creatingFolder = true }
@@ -196,6 +220,7 @@ struct NativeDaySettings: View {
                 }
                 Section("排序") {
                     Button("恢复当天默认排序", systemImage: "arrow.counterclockwise") { reset = true }
+                        .disabled(store.items.contains { $0.day == day && !$0.editable(by: store.session.account) })
                 }
                 if busy { ProgressView("正在处理…") }
                 if !failure.isEmpty {
@@ -257,13 +282,20 @@ private struct NativeFolderEditor: View {
     @State private var failure = ""
     @State private var deleting = false
 
+    private var editable: Bool { folder.map { $0.editable(by: session.account) } ?? session.canEdit }
     var body: some View {
         NavigationStack {
             Form {
-                TextField("文件夹名称", text: $name)
+                TextField("文件夹名称", text: $name).disabled(!editable)
                 if folder != nil {
-                    Toggle("允许分享文件夹及其内容", isOn: $allowed)
-                    Button("删除文件夹", role: .destructive) { deleting = true }
+                    Toggle("允许分享文件夹及其内容", isOn: $allowed).disabled(!editable)
+                    if editable { Button("删除文件夹", role: .destructive) { deleting = true } }
+                    if let folder {
+                        if !editable { Label("已锁定", systemImage: "lock.fill") }
+                        LabeledContent("创建人", value: folder.owner_name ?? "历史记录")
+                        LabeledContent("修改人", value: folder.updated_by_name ?? "暂无记录")
+                        NavigationLink("修改日志") { NativeAuditView(session: session, resourceType: "timeline_folder", resourceID: String(folder.id)) }
+                    }
                 }
                 if !failure.isEmpty { Text(failure).foregroundStyle(.red) }
             }
@@ -273,7 +305,7 @@ private struct NativeFolderEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(busy ? "保存中…" : "保存") { Task { await save() } }
-                        .disabled(busy || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 255)
+                        .disabled(!editable || busy || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 255)
                 }
             }
             .onAppear { name = folder?.name ?? ""; allowed = folder?.share_allowed ?? true }
@@ -285,7 +317,7 @@ private struct NativeFolderEditor: View {
     }
 
     private func save(remove: Bool = false) async {
-        guard !busy else { return }
+        guard editable, !busy else { return }
         busy = true; failure = ""
         defer { busy = false }
         do {
@@ -322,7 +354,7 @@ struct NativeFolderMove: View {
                 }
                 ForEach(folders) { folder in
                     Button(folder.name, systemImage: "folder") { Task { await move(to: folder.id) } }
-                        .disabled(items.allSatisfy { $0.folder_id == folder.id })
+                        .disabled(!folder.editable(by: session.account) || items.allSatisfy { $0.folder_id == folder.id })
                 }
                 if busy { ProgressView("正在处理…") }
                 else if day == nil { Text("选择同一天的影像，即可移入当天文件夹。") }
@@ -392,6 +424,7 @@ struct NativeBatchMediaEditor: View {
                         if !clearArchive { DatePicker("归档日期", selection: $date, displayedComponents: .date) }
                     }
                     Button("保存归档与批次") { Task { await organize() } }
+                        .buttonStyle(NativeActionStyle(kind: .primary))
                         .disabled((!editBatch && !editArchive) || (editBatch && batch.count > 255))
                 }
                 Section("人物与宠物") {
@@ -403,7 +436,7 @@ struct NativeBatchMediaEditor: View {
                             if $0 { people.insert(profile.id) } else { people.remove(profile.id) }
                         }))
                     }
-                    Button("保存关联") { confirmingPeople = true }.disabled(people.isEmpty && mode != .replace)
+                    Button("保存关联") { confirmingPeople = true }.buttonStyle(NativeActionStyle(kind: .primary)).disabled(people.isEmpty && mode != .replace)
                 }
                 Section("文件夹") { Button("移动到文件夹", systemImage: "folder") { moving = true } }
                 if busy { ProgressView("正在保存…") }
@@ -443,7 +476,7 @@ struct NativeBatchMediaEditor: View {
     }
 
     private func save(_ path: String, changes: [String: Any]) async {
-        guard !busy, !items.isEmpty else { return }
+        guard !busy, !items.isEmpty, items.allSatisfy({ $0.editable(by: store.session.account) }) else { return }
         busy = true; failure = ""
         defer { busy = false }
         var payload = changes

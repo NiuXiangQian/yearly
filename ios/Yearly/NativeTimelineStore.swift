@@ -32,6 +32,15 @@ struct NativeMediaPosition: Decodable {
 }
 struct NativeTimelineItem: Decodable, Identifiable {
     let id: Int
+    var can_edit: Bool?
+    var owner_id: Int?
+    var created_by: Int?
+    var owner_name: String?
+    var updated_by_name: String?
+    var updated_at: String?
+    func editable(by account: UploadAccount?) -> Bool {
+        account?.canEdit(ownerID: owner_id ?? created_by, allowed: can_edit) ?? false
+    }
     var kind: String?
     var title: String?
     var batch_name: String?
@@ -86,7 +95,56 @@ struct NativeTimelinePage: Decodable {
     let day_sharing: [String: Bool]?
     let dates: [String]?
 }
-struct NativeMediaResource: Decodable { let url: String?; let status: String }
+struct NativeUploader: Decodable, Identifiable { let id: Int; let username: String }
+struct NativeMediaResource: Decodable { let url: String?; let status: String; let message: String? }
+
+// Calendar positions stay independent of pagination and the number of photos in each day.
+struct NativeTimelineScale {
+    let days: [String]
+    private let positions: [Double]
+
+    init(days: [String]) {
+        let datedDays = days.compactMap { day in
+            (try? Date.ISO8601FormatStyle().parse(day + "T00:00:00Z")).map { (day, $0.timeIntervalSinceReferenceDate) }
+        }
+        self.days = datedDays.map { $0.0 }
+        let start = datedDays.first?.1 ?? 0
+        let span = (datedDays.last?.1 ?? start) - start
+        positions = datedDays.map { span == 0 ? 0 : ($0.1 - start) / span }
+    }
+
+    func ratio(for day: String) -> Double {
+        days.firstIndex(of: day).map { positions[$0] } ?? 0
+    }
+
+    func nearest(to ratio: Double) -> String? {
+        guard !days.isEmpty else { return nil }
+        var lower = 0
+        var upper = days.count - 1
+        while lower < upper {
+            let middle = (lower + upper) / 2
+            if positions[middle] < ratio { lower = middle + 1 }
+            else { upper = middle }
+        }
+        if lower > 0 && abs(positions[lower - 1] - ratio) <= abs(positions[lower] - ratio) { lower -= 1 }
+        return days[lower]
+    }
+
+    func markers(height: Double) -> [String] {
+        let count = min(days.count, max(2, Int(height / 44) + 1))
+        guard count > 1 else { return days }
+        let sampled = Set((0..<count).compactMap { nearest(to: Double($0) / Double(count - 1)) })
+        var markers = [days[0]]
+        for day in days.dropFirst().dropLast() where sampled.contains(day) {
+            let position = ratio(for: day)
+            if (position - ratio(for: markers.last!)) * height >= 44 && (1 - position) * height >= 44 {
+                markers.append(day)
+            }
+        }
+        markers.append(days.last!)
+        return markers
+    }
+}
 
 @MainActor final class NativeTimelineStore: ObservableObject {
     private enum Page { case first, older, newer }
@@ -94,6 +152,10 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     @Published var profiles: [UploadProfile] = []
     @Published private(set) var profilesLoading = false
     @Published private(set) var profilesError = ""
+    @Published var uploaders: [NativeUploader] = []
+    @Published var uploaderID: Int?
+    @Published private(set) var uploadersError = ""
+    @Published private(set) var uploadersLoading = false
     @Published var selected: Set<Int> = []
     @Published var search = ""
     @Published var mediaType = ""
@@ -133,11 +195,11 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     }
     private var filterKey: String {
         if showingUploads { return "uploads|\(uploadedMediaIDs)" }
-        return "\(selected.sorted())|\(search)|\(mediaType)|\(ascending)|\(byUpload)|\(anchorMediaID ?? 0)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
+        return "\(uploaderID ?? 0)|\(selected.sorted())|\(search)|\(mediaType)|\(ascending)|\(byUpload)|\(anchorMediaID ?? 0)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
     }
     var queryKey: String { filterKey + "|" + (anchorDay ?? "") }
-    var hasFilters: Bool { !selected.isEmpty || !search.isEmpty || !mediaType.isEmpty || useDateRange }
-    func resetFilters() { selected = []; search = ""; mediaType = ""; useDateRange = false }
+    var hasFilters: Bool { uploaderID != nil || !selected.isEmpty || !search.isEmpty || !mediaType.isEmpty || useDateRange }
+    func resetFilters() { uploaderID = nil; selected = []; search = ""; mediaType = ""; useDateRange = false }
 
     @Published var loading = false
     @Published var error = ""
@@ -198,6 +260,8 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     func resetForAccountChange() {
         resetResults()
         profiles = []
+        uploaders = []
+        uploadersError = ""
         profilesError = ""
         uploadedMediaIDs = []
         anchorMediaID = nil
@@ -243,6 +307,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         let queryText = String(search.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
         if !queryText.isEmpty { params.append(URLQueryItem(name: "q", value: queryText)) }
         if ["photo", "video", "live_photo"].contains(mediaType) { params.append(URLQueryItem(name: "media_type", value: mediaType)) }
+        if let uploaderID { params.append(URLQueryItem(name: "owner_id", value: String(uploaderID))) }
         params += selected.sorted().map { URLQueryItem(name: "child_id", value: String($0)) }
         return params
     }
@@ -339,6 +404,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
     }
 
     func setDaySharing(_ day: String, allowed: Bool) async throws {
+        guard session.isAdmin else { throw NativeAPIError(status: 403, message: "只有管理员可以修改当天分享设置。") }
         try await session.write("/timeline/days/\(day)/sharing", json: ["share_allowed": allowed])
         daySharing[day] = allowed
     }
@@ -356,9 +422,23 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String }
         }
     }
 
+    func loadUploaders(refresh: Bool = false) async {
+        guard !uploadersLoading, let owner = session.account?.id else { return }
+        uploadersLoading = true
+        uploadersError = ""
+        defer { uploadersLoading = false }
+        do {
+            let current: [NativeUploader] = try await session.get("/uploaders", refresh: refresh)
+            guard !Task.isCancelled, session.account?.id == owner else { return }
+            uploaders = current
+        } catch {
+            if !Task.isCancelled && session.account?.id == owner { uploadersError = friendly(error) }
+        }
+    }
+
     func reorder(_ source: NativeTimelineItem, relativeTo target: NativeTimelineItem) async {
         guard !usesUploadOrder, !isFocused, source.kind == "media", target.kind == "media", source.day == target.day,
-              source.folder_id == target.folder_id, !loading, session.canEdit,
+              source.folder_id == target.folder_id, !loading, source.editable(by: session.account), target.editable(by: session.account),
               let from = items.firstIndex(where: { $0.stableID == source.stableID }),
               let to = items.firstIndex(where: { $0.stableID == target.stableID }), from != to else { return }
         loading = true

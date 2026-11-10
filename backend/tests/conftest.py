@@ -66,6 +66,17 @@ class FakeStorage:
     def download_url(self, file, attachment=False):
         return "https://private.invalid/signed-original"
 
+    def original_status(self, file):
+        return "ready"
+
+    def restore_original(self, file):
+        return "restoring"
+
+    def display_url(self, preview, purpose, expires=300):
+        self.last_expiry = expires
+        key = preview.thumbnail_key if purpose == "thumbnail" else preview.image_key
+        return "https://private.invalid/" + key
+
     def image_url(self, file, purpose, expires=300):
         self.last_expiry = expires
         return "https://private.invalid/" + purpose

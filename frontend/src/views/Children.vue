@@ -308,7 +308,7 @@ function browse(id: number) {
           {{ t(hasGrowthTimeline(c) ? "翻开成长时间线" : "查看相关影像") }}
           <ArrowUpRight :size="16" /></button
         ><button
-          v-if="yearly.canEdit"
+          v-if="yearly.canEdit && c.can_edit !== false"
           class="icon-button"
           :aria-label="
             t(c.profile_type === 'pet' ? '编辑宠物档案' : '编辑人物档案')

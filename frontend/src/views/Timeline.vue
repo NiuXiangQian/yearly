@@ -6,7 +6,7 @@ import TimelineMonths from "../components/TimelineMonths.vue";
 import ScrollLoader from "../components/ScrollLoader.vue";
 import TimelineOrder from "../components/TimelineOrder.vue";
 import DateField from "../components/DateField.vue";
-import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   ArrowUpRight,
@@ -126,6 +126,9 @@ const items = ref<any[]>([]),
   eventDate = ref("");
 const q = ref(""),
   type = ref(""),
+  uploader = ref(""),
+  uploaders = ref<{id:number;username:string}[]>([]),
+  uploadersError = ref(""),
   year = ref(""),
   month = ref(""),
   day = ref(typeof route.query.day === "string" ? route.query.day : ""),
@@ -236,6 +239,14 @@ watch(
   },
   { flush: "sync" },
 );
+const expandedDays = ref<Record<string, boolean>>({});
+async function toggleDay(date: string) {
+  expandedDays.value[date] = !expandedDays.value[date];
+  if (!expandedDays.value[date]) {
+    await nextTick();
+    document.getElementById(`timeline-day-${date}`)?.scrollIntoView({ block: "start" });
+  }
+}
 const groups = computed(() => {
   const map = new Map<string, any[]>();
   for (const item of items.value) {
@@ -304,6 +315,7 @@ async function load(reset = true, preserveLoaded = false) {
         view.value === "calendar" && !trash.value ? "true" : "false",
     });
     yearly.selected.forEach((id) => params.append("child_id", String(id)));
+    if (uploader.value) params.set("owner_id", uploader.value);
     if (type.value) params.set("media_type", type.value);
     if (view.value === "age") params.set("date_basis", "capture");
     Object.entries(range()).forEach(([k, v]) => params.set(k, v!));
@@ -343,6 +355,7 @@ watch(
     month,
     day,
     type,
+    uploader,
     match,
     view,
     timelineOrder,
@@ -372,6 +385,11 @@ async function loadMarkers() {
     }
   } else markers.value = [];
 }
+async function loadUploaders() {
+  uploadersError.value = "";
+  try { uploaders.value = await api("/uploaders"); }
+  catch (error) { uploadersError.value = error instanceof Error ? error.message : t("加载失败"); }
+}
 onMounted(() => {
   try {
     const saved = localStorage.getItem("yearly-age-stages");
@@ -379,6 +397,7 @@ onMounted(() => {
   } catch {}
   load();
   loadMarkers();
+  loadUploaders();
   window.addEventListener("pointerup", endDrag);
 });
 onBeforeUnmount(() => {
@@ -386,13 +405,14 @@ onBeforeUnmount(() => {
   window.removeEventListener("pointerup", endDrag);
 });
 function toggle(m: any, shift = false) {
+  if (m.can_edit === false) return;
   const index = items.value.findIndex(
     (x) => x.kind === "media" && x.id === m.id,
   );
   if (shift) {
     const ids = items.value
       .slice(Math.min(anchor.value, index), Math.max(anchor.value, index) + 1)
-      .filter((x) => x.kind === "media")
+      .filter((x) => x.kind === "media" && x.can_edit !== false)
       .map((x) => x.id);
     selected.value = [...new Set([...selected.value, ...ids])];
   } else
@@ -402,6 +422,7 @@ function toggle(m: any, shift = false) {
   anchor.value = index;
 }
 function longpress(m: any) {
+  if (m.can_edit === false) return;
   selection.value = true;
   if (!selected.value.includes(m.id)) selected.value.push(m.id);
 }
@@ -436,7 +457,10 @@ function moveDrag(e: PointerEvent) {
         b.bottom > r.top &&
         b.top < r.top + r.height
       )
-        ids.push(Number((el as HTMLElement).dataset.mediaId));
+        {
+          const id = Number((el as HTMLElement).dataset.mediaId);
+          if (items.value.some(m => m.kind === "media" && m.id === id && m.can_edit !== false)) ids.push(id);
+        }
     });
   selected.value = [...new Set([...dragStart.base, ...ids])];
 }
@@ -459,7 +483,7 @@ function appendToDate(date: string) {
 function selectDay(group: any) {
   selection.value = true;
   const ids = group.media
-    .filter((m: any) => m.kind === "media")
+    .filter((m: any) => m.kind === "media" && m.can_edit !== false)
     .map((m: any) => m.id);
   if (ids.every((id: number) => selected.value.includes(id)))
     selected.value = selected.value.filter((id) => !ids.includes(id));
@@ -513,6 +537,7 @@ function endOrderDrag() {
 function startOrderDrag(event: DragEvent, media: any, group: any) {
   if (
     !yearly.canEdit ||
+    media.can_edit === false ||
     trash.value ||
     view.value !== "calendar" ||
     orderSaving.value ||
@@ -543,7 +568,7 @@ function dragOver(event: DragEvent, media: any, group: any) {
   if (
     orderSaving.value ||
     dragDay.value !== group.date ||
-    media.kind === "event"
+    media.kind === "event" || media.can_edit === false
   ) {
     dropFolder.value = null;
     dropTarget.value = null;
@@ -884,6 +909,11 @@ function saveStages() {
               :aria-label="t('搜索回忆')"
             />
           </div>
+          <select v-model="uploader" class="compact-select" :aria-label="t('上传人')">
+            <option value="">{{ t("全部上传人") }}</option>
+            <option v-for="person in uploaders" :key="person.id" :value="String(person.id)">{{ person.username }}</option>
+          </select>
+          <span v-if="uploadersError" role="alert">{{ uploadersError }} <button class="text-button" @click="loadUploaders">{{ t("重试") }}</button></span>
           <select
             v-model="type"
             class="compact-select"
@@ -1008,7 +1038,7 @@ function saveStages() {
       ><button
         class="text-button"
         @click="
-          selected = items.filter((m) => m.kind === 'media').map((m) => m.id)
+          selected = items.filter((m) => m.kind === 'media' && m.can_edit !== false).map((m) => m.id)
         "
       >
         {{ t("选择已加载影像") }}</button
@@ -1084,7 +1114,7 @@ function saveStages() {
         "
         v-slot="{ day: group }"
       >
-        <div class="day-group">
+        <div class="day-group" :id="`timeline-day-${group.date}`">
           <div class="date-heading">
             <span class="date-dot"></span>
             <h2>
@@ -1098,7 +1128,7 @@ function saveStages() {
             <div class="date-rule"></div>
             <div v-if="yearly.canEdit && !trash" class="day-actions">
               <label
-                v-if="group.date !== 'unknown' && view === 'calendar'"
+                v-if="yearly.isAdmin && group.date !== 'unknown' && view === 'calendar'"
                 class="checkbox-label day-share-option"
                 :title="t('关闭后，这一天的全部内容不会出现在任何分享链接中。')"
                 ><input
@@ -1133,7 +1163,7 @@ function saveStages() {
               <button
                 class="text-button"
                 :disabled="
-                  orderSaving || (!group.files.length && !group.folders.length)
+                  orderSaving || group.orderable.some((item: any) => item.can_edit === false) || (!group.files.length && !group.folders.length)
                 "
                 @click="startSort(group.date)"
               >
@@ -1154,7 +1184,7 @@ function saveStages() {
                 ><template #reference
                   ><button
                     class="text-button"
-                    :disabled="orderSaving"
+                    :disabled="orderSaving || group.orderable.some((item: any) => item.can_edit === false)"
                     :title="t('恢复本日全部影像的拍摄时间排序')"
                   >
                     <RotateCcw :size="14" /> {{ t("恢复默认排序") }}
@@ -1187,7 +1217,7 @@ function saveStages() {
             :class="{ 'order-preview': dragDay === group.date && dropTarget }"
           >
             <div
-              v-for="m in group.media"
+              v-for="m in selection || sortDate === group.date || expandedDays[group.date] ? group.media : group.media.slice(0, 8)"
               :key="m.kind + '-' + m.id"
               class="timeline-entry"
               :class="{
@@ -1196,7 +1226,7 @@ function saveStages() {
                     ? folderDrag === m.id
                     : m.kind === 'media' && draggedIds.includes(m.id),
                 'sortable-entry':
-                  yearly.canEdit &&
+                  yearly.canEdit && m.can_edit !== false &&
                   !trash &&
                   view === 'calendar' &&
                   !dragEnabled &&
@@ -1212,7 +1242,7 @@ function saveStages() {
                   dropTarget?.placement === 'after',
               }"
               :draggable="
-                yearly.canEdit &&
+                yearly.canEdit && m.can_edit !== false &&
                 !trash &&
                 view === 'calendar' &&
                 !dragEnabled &&
@@ -1237,7 +1267,7 @@ function saveStages() {
               @dragend="endOrderDrag"
             >
               <div
-                v-if="sortDate === group.date && m.kind !== 'event'"
+                v-if="sortDate === group.date && m.kind !== 'event' && m.can_edit !== false"
                 class="sort-entry-tools"
               >
                 <GripVertical :size="16" /><button
@@ -1281,9 +1311,9 @@ function saveStages() {
               >
                 <div class="folder-card-body media-visual">
                   <div class="folder-card-heading">
-                    <Folder :size="23" /><b>{{ m.name }}</b>
+                    <Folder :size="23" /><b>{{ m.name }}</b><span v-if="m.can_edit === false" class="chip">{{ t("已锁定") }}</span>
                     <span
-                      v-if="yearly.canEdit"
+                      v-if="yearly.canEdit && m.can_edit !== false"
                       class="folder-drag-handle"
                       :title="t('拖动文件夹，可放在照片、视频之间')"
                       ><GripVertical :size="15"
@@ -1294,7 +1324,7 @@ function saveStages() {
                       v-for="preview in m.previews"
                       :key="preview.id"
                       :draggable="
-                        yearly.canEdit && !orderSaving && !dragEnabled
+                        yearly.canEdit && preview.can_edit !== false && !orderSaving && !dragEnabled
                       "
                       :aria-label="
                         t('拖动影像 {p0}', { p0: preview.title || preview.id })
@@ -1354,7 +1384,7 @@ function saveStages() {
                 @select="toggle"
                 @longpress="longpress"
               /><button
-                v-if="trash && yearly.canEdit"
+                v-if="trash && yearly.canEdit && m.can_edit !== false"
                 class="button small restore-button"
                 @click="restore(m.id, m.kind)"
               >
@@ -1362,6 +1392,10 @@ function saveStages() {
               </button>
             </div>
           </TransitionGroup>
+          <button v-if="group.media.length > 8 && !selection && sortDate !== group.date"
+            class="button day-toggle" :aria-expanded="!!expandedDays[group.date]" @click="toggleDay(group.date)">
+            {{ expandedDays[group.date] ? t("收起当天影像") : t("展开其余 {p0} 项", { p0: group.media.length - 8 }) }}
+          </button>
         </div>
       </TimelineMonths>
       <div v-if="loading" class="media-grid loading-grid">
@@ -1374,7 +1408,7 @@ function saveStages() {
         :title="
           trash
             ? t('回收站空空的')
-            : q || yearly.selected.length || year || day || type
+            : q || yearly.selected.length || year || day || type || uploader
               ? t('还没有符合条件的回忆')
               : undefined
         "
@@ -1385,7 +1419,7 @@ function saveStages() {
               ? t(
                   '这个档案还没有关联影像。可在“全部人物与宠物”中多选已有影像后关联，也可以直接上传。',
                 )
-              : q || yearly.selected.length || year || day || type
+              : q || yearly.selected.length || year || day || type || uploader
                 ? t('换个筛选条件，或为这个档案上传新的成长影像。')
                 : undefined
         "
@@ -1444,6 +1478,7 @@ function saveStages() {
     />
     <FolderPanel
       :id="folderId"
+      :owner-id="uploader ? Number(uploader) : undefined"
       :match="match"
       @close="folderId = null"
       @changed="load(true, true)"
@@ -1721,6 +1756,7 @@ function saveStages() {
   margin-bottom: 0;
   min-width: 0;
 }
+.day-toggle { width: 100%; min-height: 44px; margin-top: 12px; }
 .day-group {
   margin-bottom: 34px;
 }

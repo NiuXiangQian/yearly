@@ -4,6 +4,16 @@
 	classes = {};
 	objectVersion = 56;
 	objects = {
+        A00000000000000000000022 /* NativeTimelineFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineFilters.swift; sourceTree = "<group>"; };
+        B00000000000000000000022 /* NativeTimelineFilters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022; };
+        A00000000000000000000021 /* NativeDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDesign.swift; sourceTree = "<group>"; };
+        B00000000000000000000021 /* NativeDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021; };
+        A00000000000000000000020 /* NativeAuditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuditView.swift; sourceTree = "<group>"; };
+        B00000000000000000000020 /* NativeAuditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000020; };
+        A00000000000000000000019 /* NativeAccountsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountsView.swift; sourceTree = "<group>"; };
+        B00000000000000000000019 /* NativeAccountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000019; };
+        A00000000000000000000018 /* NativeAccountsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountsStore.swift; sourceTree = "<group>"; };
+        B00000000000000000000018 /* NativeAccountsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000018; };
         A00000000000000000000017 /* NativeTimelineRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineRail.swift; sourceTree = "<group>"; };
         B00000000000000000000017 /* NativeTimelineRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000017; };
         A00000000000000000000016 /* NativeFamilyAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFamilyAvatar.swift; sourceTree = "<group>"; };
@@ -59,6 +69,11 @@
 		F00000000000000000000021 /* Yearly */ = {
 			isa = PBXGroup;
 			children = (
+                A00000000000000000000022 /* NativeTimelineFilters.swift */,
+                A00000000000000000000021 /* NativeDesign.swift */,
+                A00000000000000000000020 /* NativeAuditView.swift */,
+                A00000000000000000000019 /* NativeAccountsView.swift */,
+                A00000000000000000000018 /* NativeAccountsStore.swift */,
                 A00000000000000000000017 /* NativeTimelineRail.swift */,
                 A00000000000000000000012 /* NativePhotoExport.swift */,
                 A00000000000000000000014 /* NativeFamilyView.swift */,
@@ -95,7 +110,12 @@
 		F00000000000000000000030 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (B00000000000000000000017, B00000000000000000000016, B00000000000000000000015, B00000000000000000000014, B00000000000000000000013, B00000000000000000000012, B00000000000000000000011, B00000000000000000000010, B00000000000000000000009, B00000000000000000000008, B00000000000000000000007, B00000000000000000000006, B00000000000000000000000, B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000005, F00000000000000000000001 /* YearlyApp.swift in Sources */, F00000000000000000000004 /* SiteOrigin.swift in Sources */);
+			files = (
+                B00000000000000000000022 /* NativeTimelineFilters.swift in Sources */,
+                B00000000000000000000021 /* NativeDesign.swift in Sources */,
+                B00000000000000000000020 /* NativeAuditView.swift in Sources */,
+                B00000000000000000000019 /* NativeAccountsView.swift in Sources */,
+                B00000000000000000000018 /* NativeAccountsStore.swift in Sources */,B00000000000000000000017, B00000000000000000000016, B00000000000000000000015, B00000000000000000000014, B00000000000000000000013, B00000000000000000000012, B00000000000000000000011, B00000000000000000000010, B00000000000000000000009, B00000000000000000000008, B00000000000000000000007, B00000000000000000000006, B00000000000000000000000, B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000005, F00000000000000000000001 /* YearlyApp.swift in Sources */, F00000000000000000000004 /* SiteOrigin.swift in Sources */);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F00000000000000000000031 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };

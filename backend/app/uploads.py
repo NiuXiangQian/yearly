@@ -11,6 +11,7 @@ from .db import get_db, now
 from .models import Media, MediaFile, MediaMetadata, UploadTask, User
 from .schemas import UploadIn
 from .security import editor
+from .accounts import require_editable, can_edit
 from .services import require_row, set_children, apply_time, validate_children
 from .models import MediaChild
 from .storage import get_storage, verify_object
@@ -55,7 +56,7 @@ def task_data(task, file):
 
 def owned_task(db, tid, user):
     task = require_row(db, UploadTask, tid)
-    if task.owner_id != user.id:
+    if task.owner_id != user.id and user.role != "admin":
         raise HTTPException(403, "只能管理自己的上传任务")
     if task.expires_at < now() and task.status != "complete":
         raise HTTPException(410, "上传任务已过期")
@@ -130,7 +131,7 @@ def create_upload(
     if data.folder_id:
         from .folders import active_folder
 
-        folder = active_folder(db, data.folder_id)
+        folder = require_editable(user, active_folder(db, data.folder_id))
         if data.timeline_date and data.timeline_date != folder.timeline_date:
             raise HTTPException(422, "文件夹与归档日期不一致")
         data.timeline_date = folder.timeline_date
@@ -202,6 +203,13 @@ def create_upload(
             continue
         if any(f.upload_status != "complete" for f in existing_files if f.file_role != "preview"):
             continue
+        if not can_edit(user, existing):
+            return {
+                "media_id": existing.id,
+                "timeline_day": existing.timeline_date or (existing.taken_at_local.date() if existing.taken_at_local else None),
+                "tasks": [], "duplicate": True,
+                "notice": "相同原件已存在且已锁定，已跳过重复上传",
+            }
         existing_child_ids = db.scalars(select(MediaChild.child_id).where(
             MediaChild.media_id == existing.id
         ).with_for_update()).all()

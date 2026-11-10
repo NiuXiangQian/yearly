@@ -239,6 +239,7 @@ async function copyRecord(item: any) {
             >{{ t("到期时间") }}:
             {{ new Date(item.expires_at).toLocaleString(locale) }}</small
           >
+          <small class="share-counts">{{ t("访问 {count} 次", { count: item.visit_count ?? 0 }) }} · {{ t("访客 {count} 人", { count: item.visitor_count ?? 0 }) }}</small>
         </div>
         <div class="share-link-actions">
           <span v-if="item.revoked || item.expired" class="muted">{{ item.revoked ? t("已撤销") : t("已过期") }}</span>
@@ -255,6 +256,7 @@ async function copyRecord(item: any) {
             @click="copyRecord(item)">{{ t("按原范围创建新链接") }}</button>
         </div>
       </div>
+      <p class="muted share-footnote">{{ t("访客按浏览器客户端去重，清除 Cookie 或更换浏览器会计为新访客。统计从功能启用后开始，预览也计入访问。") }}</p>
     </details>
     <p class="muted share-footnote">
       {{
@@ -314,6 +316,9 @@ async function copyRecord(item: any) {
   display: block;
   margin-top: 5px;
   color: var(--muted);
+}
+.share-counts {
+  font-variant-numeric: tabular-nums;
 }
 .share-footnote {
   font-size: 11px;

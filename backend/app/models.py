@@ -17,12 +17,16 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base, ID, DT, now
 
 
+class ModifiedBy:
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+
+
 class Timestamp:
     created_at: Mapped[datetime] = mapped_column(DT, default=now)
     updated_at: Mapped[datetime] = mapped_column(DT, default=now, onupdate=now)
 
 
-class User(Base, Timestamp):
+class User(Base, Timestamp, ModifiedBy):
     __tablename__ = "sys_user"
     id: Mapped[int] = mapped_column(ID, primary_key=True)
     username: Mapped[str] = mapped_column(String(80), unique=True)
@@ -47,7 +51,8 @@ class LoginGuard(Base):
     reset_at: Mapped[datetime] = mapped_column(DT, index=True)
 
 
-class Child(Base, Timestamp):
+class Child(Base, Timestamp, ModifiedBy):
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
     __tablename__ = "child"
     id: Mapped[int] = mapped_column(ID, primary_key=True)
     name: Mapped[str] = mapped_column(String(80))
@@ -85,7 +90,8 @@ class MediaChild(Base):
     created_at: Mapped[datetime] = mapped_column(DT, default=now)
 
 
-class TimelineFolder(Base, Timestamp):
+class TimelineFolder(Base, Timestamp, ModifiedBy):
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
     share_allowed: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="1"
     )
@@ -97,7 +103,7 @@ class TimelineFolder(Base, Timestamp):
     status: Mapped[str] = mapped_column(String(16), default="active")
 
 
-class Media(Base, Timestamp):
+class Media(Base, Timestamp, ModifiedBy):
     share_allowed: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="1"
     )
@@ -164,6 +170,18 @@ class MediaFile(Base):
     crc64: Mapped[str] = mapped_column(String(20))
     upload_status: Mapped[str] = mapped_column(String(16), default="pending")
     created_at: Mapped[datetime] = mapped_column(DT, default=now)
+    archive_tagged_at: Mapped[datetime | None] = mapped_column(DT)
+
+
+class DisplayPreview(Base, Timestamp):
+    __tablename__ = "display_preview"
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), default="processing")
+    thumbnail_key: Mapped[str] = mapped_column(String(191), default="")
+    thumbnail_size: Mapped[int] = mapped_column(ID, default=0)
+    image_key: Mapped[str] = mapped_column(String(191), default="")
+    image_size: Mapped[int] = mapped_column(ID, default=0)
+    error: Mapped[str] = mapped_column(String(255), default="")
 
 
 class VideoPreview(Base, Timestamp):
@@ -186,7 +204,7 @@ class MediaMetadata(Base):
     updated_at: Mapped[datetime] = mapped_column(DT, default=now, onupdate=now)
 
 
-class Event(Base, Timestamp):
+class Event(Base, Timestamp, ModifiedBy):
     share_allowed: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="1"
     )
@@ -249,6 +267,8 @@ class Captcha(Base):
 
 
 class TimelineDay(Base):
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+    updated_at: Mapped[datetime] = mapped_column(DT, default=now, onupdate=now)
     __tablename__ = "timeline_day"
     timeline_date: Mapped[date] = mapped_column(Date, primary_key=True)
     share_allowed: Mapped[bool] = mapped_column(
@@ -257,6 +277,9 @@ class TimelineDay(Base):
 
 
 class TimelineShare(Base):
+    owner_scope_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+    updated_at: Mapped[datetime] = mapped_column(DT, default=now, onupdate=now)
     __tablename__ = "timeline_share"
     id: Mapped[int] = mapped_column(ID, primary_key=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
@@ -268,6 +291,25 @@ class TimelineShare(Base):
     expires_at: Mapped[datetime] = mapped_column(DT)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DT, default=now)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    id: Mapped[int] = mapped_column(ID, primary_key=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"), index=True)
+    actor_name: Mapped[str] = mapped_column(String(80))
+    resource_type: Mapped[str] = mapped_column(String(80), index=True)
+    resource_id: Mapped[str] = mapped_column(String(80), index=True)
+    action: Mapped[str] = mapped_column(String(24))
+    changes: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DT, default=now, index=True)
+
+
+class ShareVisit(Base):
+    __tablename__ = "share_visit"
+    share_id: Mapped[int] = mapped_column(ForeignKey("timeline_share.id"), primary_key=True)
+    client_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    visit_count: Mapped[int] = mapped_column(ID, default=1, server_default="1")
 
 
 for table in Base.metadata.tables.values():

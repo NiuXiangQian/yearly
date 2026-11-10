@@ -15,6 +15,8 @@ private final class SessionHTTP: URLProtocol {
     static var sharesFail = false
     static var lastShareBody: [String: Any] = [:]
     static var ignoreSelection = false
+    static var usersFail = false
+    static var uploadersEmpty = false
     static func bodyData(_ request: URLRequest) -> Data {
         if let body = request.httpBody { return body }
         guard let stream = request.httpBodyStream else { return Data() }
@@ -42,6 +44,12 @@ private final class SessionHTTP: URLProtocol {
         case "/yearly/api/auth/me":
             status = Self.authorized ? 200 : 401
             body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"csrf_token\":\"test-csrf\"}"
+        case "/yearly/api/uploaders": body = Self.uploadersEmpty ? "[]" : #"[{"id":1,"username":"synthetic"},{"id":2,"username":"other"}]"#
+        case "/yearly/api/users":
+            if Self.usersFail { status = 503; body = #"{"detail":"Synthetic failure"}"# }
+            else { body = request.httpMethod == "POST" ? #"{"id":3}"# : #"[{"id":1,"username":"synthetic","role":"admin","active":true},{"id":2,"username":"other","role":"member","active":false}]"# }
+        case "/yearly/api/users/1", "/yearly/api/users/2": body = #"{"ok":true}"#
+        case "/yearly/api/audit-logs": body = #"{"items":[{"id":1,"actor_name":"synthetic","resource_type":"media","resource_id":"42","action":"update","created_at":"2026-11-09T07:00:00.123","changes":{"title":{"before":"old","after":"new"},"password":{"changed":true},"tags":{"before":[],"after":["family"]}}}],"total":1}"#
         case "/yearly/api/children": body = "[]"
         case "/yearly/api/children/1":
             body = #"{"id":1,"name":"家庭成员","nickname":"新昵称","profile_type":"person","birthday":"2020-01-03","avatar_media_id":42,"status":"archived"}"#
@@ -137,13 +145,40 @@ private final class SessionHTTP: URLProtocol {
         precondition(write.httpMethod == "PUT")
         precondition(write.value(forHTTPHeaderField: "X-CSRF-Token") == "test-csrf")
         precondition(write.value(forHTTPHeaderField: "Cookie") == "yearly_session=test-native-session")
+        let calendarScale = NativeTimelineScale(days: ["2026-11-09", "2026-11-08", "2026-10-10"])
+        precondition(calendarScale.ratio(for: "2026-11-09") == 0)
+        precondition(calendarScale.ratio(for: "2026-10-10") == 1)
+        precondition(abs(calendarScale.ratio(for: "2026-11-08") - 1.0 / 30) < 0.000001)
+        precondition(calendarScale.nearest(to: 0.5) == "2026-11-08", "calendar gaps keep their elapsed-time span")
+        precondition(calendarScale.nearest(to: -1) == "2026-11-09" && calendarScale.nearest(to: 2) == "2026-10-10")
+        precondition(calendarScale.markers(height: 440) == ["2026-11-09", "2026-10-10"], "nearby dates stay reachable without overlapping markers")
+        let ascendingScale = NativeTimelineScale(days: Array(calendarScale.days.reversed()))
+        precondition(ascendingScale.ratio(for: "2026-10-10") == 0 && ascendingScale.ratio(for: "2026-11-09") == 1)
+        precondition(ascendingScale.nearest(to: 0.98) == "2026-11-08")
+        let dailyDates = (1...30).map { String(format: "2026-10-%02d", $0) }
+        let dailyScale = NativeTimelineScale(days: dailyDates)
+        precondition(dailyScale.markers(height: 440).count <= 11)
+        precondition(dailyScale.markers(height: 176).count < dailyScale.markers(height: 440).count)
+        precondition(dailyScale.markers(height: 440).first == dailyDates.first && dailyScale.markers(height: 440).last == dailyDates.last)
+        precondition(dailyScale.nearest(to: dailyScale.ratio(for: "2026-10-15")) == "2026-10-15", "dragging reaches dates between visible markers")
+        let oneDayScale = NativeTimelineScale(days: ["2026-11-09"])
+        precondition(oneDayScale.markers(height: 440) == ["2026-11-09"] && oneDayScale.nearest(to: 1) == "2026-11-09")
+        precondition(NativeTimelineScale(days: []).nearest(to: 0) == nil)
+        precondition(NativeTimelineScale(days: ["日期未知"]).days.isEmpty)
         let timeline = NativeTimelineStore(session: session)
+        let beforeDeniedDay = SessionHTTP.requests.count
+        do { try await timeline.setDaySharing("2026-11-08", allowed: false); fatalError("member changed global day permissions") }
+        catch { precondition(SessionHTTP.requests.count == beforeDeniedDay) }
+        SessionHTTP.role = "admin"
+        await session.restore()
         try await timeline.setDaySharing("2026-11-08", allowed: false)
         precondition(timeline.daySharing["2026-11-08"] == false)
         let dayUpdate = SessionHTTP.requests.last!
         precondition(dayUpdate.httpMethod == "PUT" && dayUpdate.url?.path == "/yearly/api/timeline/days/2026-11-08/sharing")
         let dayPayload = try JSONSerialization.jsonObject(with: SessionHTTP.bodyData(dayUpdate)) as? [String: Bool]
         precondition(dayPayload == ["share_allowed": false])
+        SessionHTTP.role = "member"
+        await session.restore()
         timeline.selected = [1, 2]
         await timeline.load()
         precondition(timeline.items.count == 2 && !timeline.loading && timeline.total == 3)
@@ -230,7 +265,7 @@ private final class SessionHTTP: URLProtocol {
         precondition(timeline.railDays.first == "2026-11-08")
         timeline.resetFilters()
         let reorderPair = try JSONDecoder().decode([NativeTimelineItem].self, from: Data(
-            #"[{"id":10,"kind":"media","timeline_day":"2026-11-08"},{"id":11,"kind":"media","timeline_day":"2026-11-08"}]"#.utf8
+            #"[{"id":10,"kind":"media","owner_id":1,"can_edit":true,"timeline_day":"2026-11-08"},{"id":11,"kind":"media","owner_id":1,"can_edit":true,"timeline_day":"2026-11-08"}]"#.utf8
         ))
         timeline.items = reorderPair
         var otherDay = reorderPair[1]
@@ -330,6 +365,71 @@ private final class SessionHTTP: URLProtocol {
         precondition(sharing.created?.link(site: site)?.absoluteString == "https://native.invalid/yearly/share/copy_share_token")
         let expiredLink = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2020-01-01T00:00:00Z","expired":false,"revoked":false,"token":"synthetic_expired"}"#.utf8))
         precondition(expiredLink.link(site: site) == nil && !expiredLink.usable)
+        let own = try JSONDecoder().decode(NativeTimelineItem.self, from: Data(#"{"id":9,"owner_id":1,"can_edit":true}"#.utf8))
+        let locked = try JSONDecoder().decode(NativeTimelineItem.self, from: Data(#"{"id":10,"owner_id":2,"can_edit":false}"#.utf8))
+        precondition(own.editable(by: session.account) && !locked.editable(by: session.account))
+        precondition(!locked.editable(by: nil))
+        let beforeLockedReorder = SessionHTTP.requests.count
+        await timeline.reorder(own, relativeTo: locked)
+        precondition(SessionHTTP.requests.count == beforeLockedReorder)
+        await timeline.loadUploaders()
+        precondition(timeline.uploaders.map(\.id) == [1, 2])
+        let uploadersCached = SessionHTTP.requests.count
+        await timeline.loadUploaders()
+        precondition(SessionHTTP.requests.count == uploadersCached, "uploader cache hit")
+        try await session.write("/media/42", json: ["title": "cache invalidation"])
+        await timeline.loadUploaders()
+        precondition(SessionHTTP.requests.count == uploadersCached + 2, "write invalidates uploader list")
+        SessionHTTP.uploadersEmpty = true
+        await timeline.loadUploaders(refresh: true)
+        precondition(timeline.uploaders.isEmpty)
+        let emptyUploaderCached = SessionHTTP.requests.count
+        await timeline.loadUploaders()
+        precondition(SessionHTTP.requests.count == emptyUploaderCached, "empty uploader result is cached")
+        SessionHTTP.uploadersEmpty = false
+        await timeline.loadUploaders(refresh: true)
+        timeline.focusOnUploads([])
+        timeline.resetFilters()
+        timeline.uploaderID = 2
+        precondition(timeline.hasFilters)
+        await timeline.load(refresh: true)
+        precondition(SessionHTTP.requests.last?.url?.query?.contains("owner_id=2") == true)
+        precondition(SessionHTTP.requests.last?.url?.query?.contains("cursor=") == false)
+        timeline.resetFilters()
+        precondition(timeline.uploaderID == nil && !timeline.hasFilters)
+        let logs: NativeAuditPage = try await session.get("/audit-logs?resource_type=media&resource_id=42")
+        precondition(logs.items[0].changes["title"]?.before?.display == "old")
+        precondition(logs.items[0].changes["password"]?.changed == true)
+        precondition(logs.items[0].changes["tags"]?.after?.display == "[family]")
+        precondition(!NativeAuditLabels.time(logs.items[0].created_at).isEmpty)
+        let accounts = NativeAccountsStore(session: session)
+        let beforeAccounts = SessionHTTP.requests.count
+        do { try await accounts.save(existing: nil, username: "new", password: "synthetic-password", role: "admin", active: true); fatalError("member created account") }
+        catch { precondition(SessionHTTP.requests.count == beforeAccounts) }
+        SessionHTTP.role = "admin"
+        await session.restore()
+        precondition(locked.editable(by: session.account), "administrator can edit all content")
+        await accounts.load()
+        precondition(accounts.users.count == 2)
+        let other = accounts.users[1]
+        try await accounts.save(existing: other, username: "renamed", password: "", role: "member", active: true)
+        let accountEdit = SessionHTTP.requests.last { $0.url?.path == "/yearly/api/users/2" }!
+        let accountEditBody = try JSONSerialization.jsonObject(with: SessionHTTP.bodyData(accountEdit)) as! [String: Any]
+        precondition(accountEditBody["password"] is NSNull && accountEditBody["active"] as? Bool == true)
+        try await accounts.save(existing: nil, username: "new", password: "synthetic-password", role: "member", active: true)
+        precondition(SessionHTTP.requests.contains { $0.url?.path == "/yearly/api/users" && $0.httpMethod == "POST" })
+        SessionHTTP.usersFail = true
+        await accounts.load()
+        precondition(!accounts.error.isEmpty && accounts.users.count == 2 && !accounts.loading)
+        SessionHTTP.usersFail = false
+        try await session.changePassword(current: "not-saved-password", new: "synthetic-new-password")
+        precondition(session.account == nil && store.values.isEmpty, "changing password removes local and persisted session")
+        try await session.login(username: "synthetic", password: "synthetic-new-password", captcha: captcha, answer: "ABCDE")
+        let selfAccount = accounts.users[0]
+        try await accounts.save(existing: selfAccount, username: "renamed-admin", password: "", role: "admin", active: true)
+        precondition(session.account == nil && store.values.isEmpty, "editing current credentials requires login")
+        SessionHTTP.role = "member"
+        try await session.login(username: "synthetic", password: "synthetic-new-password", captcha: captcha, answer: "ABCDE")
         let restored = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory)
         await restored.restore()
         precondition(restored.account?.id == 1)
@@ -358,6 +458,6 @@ private final class SessionHTTP: URLProtocol {
         SessionHTTP.secureCookie = false
         do { try await expired.login(username: "synthetic", password: "not-saved-password", captcha: captcha, answer: "ABCDE"); fatalError("insecure cookie accepted") }
         catch { precondition(expired.account == nil && store.values.isEmpty) }
-        print("Native session mocks passed: captcha, login, Keychain boundary, app-path isolation, CSRF, role, expiry, logout, native timeline search/date/type/order, share create/revoke/scope/role/expiry, HTTPS Cookie requirements; no live network.")
+        print("Native session mocks passed: captcha, login, Keychain boundary, app-path isolation, CSRF, role, expiry, logout, native timeline search/date/type/order, account management/session invalidation, ownership, audit values, uploader filter/cache, share create/revoke/scope/role/expiry, HTTPS Cookie requirements; no live network.")
     }
 }

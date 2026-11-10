@@ -103,3 +103,20 @@ it("forwards a desktop shift selection without opening media", () => {
   );
   expect(open).not.toHaveBeenCalled();
 });
+
+it("opens locked media for viewing without selecting or long-press editing", async () => {
+  vi.useFakeTimers();
+  const select = vi.fn(), open = vi.fn(), longpress = vi.fn();
+  const card = render({
+    media: { id: 9, title: "Other member's photo", files: [], children: [], media_type: "photo", can_edit: false },
+    selection: true, onSelect: select, onOpen: open, onLongpress: longpress,
+  });
+  expect(card.textContent).toContain("已锁定");
+  expect(card.querySelector(".media-check")).toBeNull();
+  card.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+  await vi.advanceTimersByTimeAsync(600);
+  card.click();
+  expect(longpress).not.toHaveBeenCalled();
+  expect(select).not.toHaveBeenCalled();
+  expect(open).toHaveBeenCalledOnce();
+});

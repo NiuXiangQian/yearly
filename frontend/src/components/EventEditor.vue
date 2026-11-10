@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { t } from "../lib/i18n";
+import AuditHistory from "./AuditHistory.vue";
 import DateField from "./DateField.vue";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { ArrowUp, ArrowDown, X, Image, BookHeart } from "lucide-vue-next";
 import { api, post, put, del, notify } from "../lib/api";
 import { useYearly } from "../stores/yearly";
 import ChildPicker from "./ChildPicker.vue";
 import MediaDetail from "./MediaDetail.vue";
+const historyOpen = ref(false);
 const props = defineProps<{
     open: boolean;
     eventId?: number | null;
@@ -37,6 +39,7 @@ const yearly = useYearly(),
   media = ref<any[]>([]),
   busy = ref(false),
   previewId = ref<number | null>(null);
+const editable = computed(() => yearly.canEdit && (!props.eventId || form.value.can_edit !== false));
 watch(
   () => props.open,
   async (open) => {
@@ -134,14 +137,14 @@ async function trash() {
           v-model="form.title"
           required
           maxlength="255"
-          :disabled="!yearly.canEdit"
+          :disabled="!editable"
           :placeholder="t('第一次、一起、又长大了一点…')" /></label
       ><label>
         {{ t("我们的故事") }}
         <textarea
           v-model="form.content"
           rows="5"
-          :disabled="!yearly.canEdit"
+          :disabled="!editable"
           :placeholder="
             t('把照片之外的心情也记下来。没有照片，也能写下难忘的一天。')
           "
@@ -153,26 +156,26 @@ async function trash() {
           <DateField
             type="datetime"
             v-model="form.start_at"
-            :disabled="!yearly.canEdit" /></label
+            :disabled="!editable" /></label
         ><label>
           {{ t("结束时间") }}
           <DateField
             type="datetime"
             v-model="form.end_at"
-            :disabled="!yearly.canEdit"
+            :disabled="!editable"
         /></label>
       </div>
       <label class="checkbox-label"
         ><input
           v-model="form.share_allowed"
           type="checkbox"
-          :disabled="!yearly.canEdit"
+          :disabled="!editable"
         />{{ t("允许分享") }}</label
       >
       <p class="muted">{{ t("关闭后，此日记不会出现在任何分享链接中。") }}</p>
       <div class="field-group">
         <span> {{ t("一起经历的人物与宠物") }} </span
-        ><ChildPicker v-model="form.child_ids" :disabled="!yearly.canEdit" />
+        ><ChildPicker v-model="form.child_ids" :disabled="!editable" />
       </div>
       <div class="section-heading">
         <h3>
@@ -192,7 +195,7 @@ async function trash() {
           {{
             media.find((m) => m.id === id)?.title || t("影像 #") + id
           }}</button
-        ><span v-if="yearly.canEdit" class="event-order"
+        ><span v-if="editable" class="event-order"
           ><button
             type="button"
             class="icon-button"
@@ -218,7 +221,7 @@ async function trash() {
             <X :size="16" /></button
         ></span>
       </div>
-      <label v-if="yearly.canEdit">
+      <label v-if="editable">
         {{ t("添加已有影像") }}
         <ElSelect
           v-model="candidate"
@@ -235,7 +238,7 @@ async function trash() {
             :label="m.title || t('影像 #') + m.id" /></ElSelect></label
       ><label v-if="form.media_ids.length">
         {{ t("日记封面") }}
-        <select v-model="form.cover_media_id" :disabled="!yearly.canEdit">
+        <select v-model="form.cover_media_id" :disabled="!editable">
           <option :value="null">{{ t("无封面") }}</option>
           <option v-for="id in form.media_ids" :key="id" :value="id">
             {{ media.find((m) => m.id === id)?.title || t("影像 #") + id }}
@@ -244,7 +247,7 @@ async function trash() {
       >
       <div class="dialog-actions">
         <ElPopconfirm
-          v-if="eventId && yearly.canEdit"
+          v-if="eventId && editable"
           :title="t('删除这篇日记？关联原件会继续保留。')"
           @confirm="trash"
           ><template #reference
@@ -253,8 +256,8 @@ async function trash() {
             </button></template
           ></ElPopconfirm
         ><button type="button" class="button" @click="emit('close')">
-          {{ yearly.canEdit ? t("取消") : t("关闭") }}</button
-        ><button v-if="yearly.canEdit" class="button primary" :disabled="busy">
+          {{ editable ? t("取消") : t("关闭") }}</button
+        ><button v-if="editable" class="button primary" :disabled="busy">
           <BookHeart :size="16" />{{
             busy ? t("正在保存…") : t("珍藏这篇日记")
           }}

@@ -37,6 +37,7 @@ def current_user(request: Request, db=Depends(get_db)):
             request.headers.get("x-csrf-token", ""), session.csrf_token
         ):
             raise HTTPException(403, "CSRF 校验失败")
+    db.info["actor"] = user
     request.state.session = session
     return user
 

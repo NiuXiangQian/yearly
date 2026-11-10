@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Layered playback and press-to-play adapted from WebLivePhoto (MIT).
 // See frontend/THIRD_PARTY_NOTICES.md for attribution and pinned source blobs.
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { LoaderCircle, RotateCcw, Volume2, VolumeX } from "lucide-vue-next";
 import { t } from "../lib/i18n";
 import type { MediaResource } from "../lib/media-resource";
@@ -9,6 +9,7 @@ import LivePhotoIcon from "./LivePhotoIcon.vue";
 const props = defineProps<{
   src: string;
   alt?: string;
+  autoplay?: boolean;
   loadMotion: (refresh?: boolean) => Promise<MediaResource>;
 }>();
 const emit = defineEmits(["error"]);
@@ -22,6 +23,7 @@ const label = computed(() => error.value ? t("重试实况") : pending.value
   : playing.value ? t("重新播放实况") : t("播放实况"));
 let suppressClick = false;
 let disposed = false, wanted = false, revealed = false, epoch = 0;
+let automaticPlayback = false;
 let ready: Promise<void> | undefined;
 let pressTimer: ReturnType<typeof setTimeout> | undefined;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
@@ -37,13 +39,18 @@ async function prepare(refresh = false) {
       pending.value = value.status === "pending" || value.status === "processing";
       if (pending.value) {
         clearTimeout(pollTimer);
-        pollTimer = setTimeout(() => void prepare(true), 15_000);
+        pollTimer = setTimeout(() => {
+          const ticket = epoch;
+          void prepare(true).then(() => {
+            if (automaticPlayback && wanted && !pending.value) playReady(ticket);
+          });
+        }, 15_000);
         return;
       }
       if (!value.url || value.status === "failed") throw new Error("preview unavailable");
       clearTimeout(pollTimer);
       motion.value = value.url;
-      // Keep the URL off the video until interaction: Safari may ignore preload=none.
+      // Keep the URL off the video until playback is requested.
     } catch {
       if (!disposed) fail();
     }
@@ -53,6 +60,7 @@ async function prepare(refresh = false) {
 }
 function stop() {
   wanted = false;
+  automaticPlayback = false;
   revealed = false;
   epoch++;
   clearTimeout(pressTimer);
@@ -95,22 +103,33 @@ function playReady(ticket: number) {
     video.value.currentTime = 0;
     const result = video.value.play();
     result?.catch((reason) => {
-      if (!disposed && wanted && ticket === epoch) fail(reason);
+      if (disposed || !wanted || ticket !== epoch) return;
+      if (automaticPlayback && reason?.name === "NotAllowedError" && !muted.value) {
+        muted.value = true;
+        playReady(ticket);
+      } else fail(reason);
     });
   } catch (reason) { fail(reason); }
 }
-function start(reveal = true, refresh = false) {
+function start(reveal = true, refresh = false, automatic = false) {
   stop();
   error.value = "";
   gestureRequired.value = false;
   wanted = true;
+  automaticPlayback = automatic;
   revealed = reveal;
   const ticket = epoch;
   // When the signed URL is ready, play synchronously during pointerdown/click.
   if (motion.value && !refresh) playReady(ticket);
   else {
     buffer();
-    void prepare(refresh).then(() => playReady(ticket));
+    void prepare(refresh).then(() => {
+      if (disposed || !wanted || ticket !== epoch) return;
+      if (automaticPlayback && pending.value) {
+        loading.value = false;
+        clearTimeout(timeout);
+      } else playReady(ticket);
+    });
   }
 }
 function replay() { start(true, !!error.value && !gestureRequired.value); }
@@ -137,15 +156,20 @@ function move(event: PointerEvent) {
 }
 function release() { pointer = undefined; stop(); }
 function leave(event: PointerEvent) {
-  if (event.pointerType === "mouse" || pointer) release();
+  if ((event.pointerType === "mouse" && !automaticPlayback) || pointer) release();
 }
 function visibility() { if (document.hidden) release(); }
 onMounted(() => {
-  void prepare(); // Resolve only the preview URL. Video bytes wait for interaction.
+  if (props.autoplay) start(true, false, true);
+  else void prepare();
   document.addEventListener("visibilitychange", visibility);
   window.addEventListener("blur", release);
   window.addEventListener("pointerup", releasePointer);
   window.addEventListener("pointercancel", releasePointer);
+});
+watch(() => props.autoplay, (value) => {
+  if (value) start(true, false, true);
+  else stop();
 });
 function releasePointer() { if (pointer) release(); }
 onBeforeUnmount(() => {
@@ -164,7 +188,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="live-photo-viewer">
     <div class="live-photo" :class="{ 'is-playing': playing }"
-      @pointerenter="$event.pointerType === 'mouse' && !error && start()"
+      @pointerenter="$event.pointerType === 'mouse' && !error && !wanted && start()"
       @pointerleave="leave" @pointerdown="down" @pointermove="move"
       @pointerup="releasePointer" @pointercancel="suppressClick = true; release()" @click="clickPhoto" @contextmenu.prevent>
       <video ref="video" class="live-photo-video" :muted="muted" playsinline

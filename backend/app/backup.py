@@ -22,6 +22,8 @@ from .models import (
     EventChild,
     TimelineFolder,
     TimelineDay,
+    DisplayPreview,
+    VideoPreview,
 )
 
 # Share links, upload authorizations, sessions, captcha and password hashes never enter portable exports.
@@ -31,6 +33,8 @@ TABLES = [
     TimelineDay,
     Media,
     MediaFile,
+    DisplayPreview,
+    VideoPreview,
     MediaMetadata,
     MediaChild,
     Event,
@@ -123,6 +127,7 @@ def backup_objects(directory, storage):
             output.write(chunk)
     (directory / "objects").mkdir(exist_ok=True)
     count = 0
+    waiting_for_restore = 0
     with SessionLocal() as db:
         for file in db.scalars(
             select(MediaFile)
@@ -132,6 +137,12 @@ def backup_objects(directory, storage):
             verify_object(file, storage.head(file))
             target = directory / "objects" / str(file.id)
             if not target.exists() or hash_file(target) != file.sha256:
+                status = storage.original_status(file)
+                if status != "ready":
+                    if status == "archived":
+                        storage.restore_original(file)
+                    waiting_for_restore += 1
+                    continue
                 temporary = target.with_suffix(".partial")
                 storage.bucket.get_object_to_file(file.oss_object_key, str(temporary))
                 if (
@@ -141,6 +152,8 @@ def backup_objects(directory, storage):
                     raise ValueError(f"原件校验失败 file_id={file.id}")
                 temporary.replace(target)
             count += 1
+    if waiting_for_restore:
+        raise ValueError(f"{waiting_for_restore} 份归档原件正在解冻，通常48小时后重新运行备份；已备份文件可继续复用")
     return count
 
 
@@ -166,7 +179,7 @@ def restore_manifest(path, owner_id, storage=None, object_directory=None):
             if prefix == "tables" and event == "map_key"
         }
     expected = {m.__tablename__ for m in TABLES}
-    if not expected - {"timeline_folder", "timeline_day"} <= names <= expected:
+    if not expected - {"timeline_folder", "timeline_day", "display_preview", "video_preview"} <= names <= expected:
         raise ValueError("清单表不完整")
     from sqlalchemy import Date, DateTime, Time
 
@@ -223,12 +236,19 @@ def restore_manifest(path, owner_id, storage=None, object_directory=None):
                     verify_object(file, storage.head(file))
         avatars = []
         for model in TABLES:
+            if storage and object_directory and model in {DisplayPreview, VideoPreview}:
+                continue
             for original in rows(model.__tablename__):
                 row = dict(original)
                 if model is MediaFile and storage and object_directory:
                     row["oss_bucket"] = storage.bucket.bucket_name
-                if model is Media:
+                if model is MediaFile:
+                    # Eligibility belongs to the target bucket and its newly generated derivatives.
+                    row["archive_tagged_at"] = None
+                if model in (Media, Child, TimelineFolder):
                     row["owner_id"] = owner_id
+                if "updated_by" in row:
+                    row["updated_by"] = None
                 if model is Event:
                     row["created_by"] = owner_id
                 if model is Child and "growth_enabled" not in row:

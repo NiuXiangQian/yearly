@@ -25,6 +25,7 @@ struct NativeFamilyView: View {
     let showTimeline: (UploadProfile) -> Void
     let onProfileUpdated: () -> Void
     @State private var editing: UploadProfile?
+    @State private var auditing: UploadProfile?
     @State private var saved = false
 
     var body: some View {
@@ -44,9 +45,9 @@ struct NativeFamilyView: View {
                     Text("还没有家人或宠物资料。").foregroundStyle(.secondary)
                 }
                 ForEach(store.profiles) { profile in
-                    HStack {
+                    VStack(alignment: .leading, spacing: 14) {
                         Button { showTimeline(profile) } label: {
-                            HStack(spacing: 12) {
+                            HStack(spacing: 14) {
                                 NativeFamilyAvatar(session: store.session, mediaID: profile.avatar_media_id,
                                                    name: profile.nickname.isEmpty ? profile.name : profile.nickname,
                                                    pet: profile.profile_type == "pet", color: ProfileColor.color(profile.theme_color))
@@ -58,19 +59,36 @@ struct NativeFamilyView: View {
                                         Text("出生日期 \(birthday)").font(.caption2).foregroundStyle(.secondary)
                                     }
                                 }
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                             }.frame(maxWidth: .infinity, alignment: .leading)
-                        }.buttonStyle(.borderless)
-                        if store.session.canEdit {
-                            Button("编辑") { saved = false; editing = profile }
-                                .buttonStyle(.borderless)
+                        }.buttonStyle(.plain).accessibilityHint("查看此成员的时间线")
+                        HStack(spacing: 8) {
+                            if profile.editable(by: store.session.account) {
+                                Button { saved = false; editing = profile } label: {
+                                    Label("编辑资料", systemImage: "square.and.pencil")
+                                }
+                                .buttonStyle(NativeActionStyle(compact: true))
                                 .accessibilityLabel("编辑\(profile.name)的资料")
+                            }
+                            Button { auditing = profile } label: {
+                                Label("修改记录", systemImage: "clock.arrow.circlepath")
+                            }.buttonStyle(NativeActionStyle(compact: true))
+                                .accessibilityLabel("查看\(profile.name)的修改日志")
                         }
-                    }
+                    }.padding(.vertical, 10)
                 }
             }
+            .scrollContentBackground(.hidden).background(NativeTheme.background)
             .navigationTitle("家人与宠物")
             .refreshable { await store.loadProfiles() }
             .task { await store.loadProfiles() }
+            .sheet(item: $auditing) { profile in
+                NavigationStack {
+                    NativeAuditView(session: store.session, resourceType: "child", resourceID: String(profile.id))
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { auditing = nil } } }
+                }
+            }
             .sheet(item: $editing) { profile in
                 NativeFamilyEditor(session: store.session, profile: profile) { updated in
                     if let index = store.profiles.firstIndex(where: { $0.id == updated.id }) {
@@ -256,13 +274,15 @@ private struct NativeFamilyEditor: View {
             .disabled(saving || preparingAvatar)
             .scrollDismissesKeyboard(.interactively)
             .interactiveDismissDisabled(saving)
+            .scrollContentBackground(.hidden).background(NativeTheme.background)
             .navigationTitle("编辑家人资料")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(saving) }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "保存中…" : "保存") { Task { await save() } }
-                        .disabled(saving || preparingAvatar || !session.canEdit || validation != nil)
+                        .buttonStyle(NativeActionStyle(kind: .primary, compact: true))
+                        .disabled(saving || preparingAvatar || !profile.editable(by: session.account) || validation != nil)
                 }
             }
             .sheet(isPresented: $choosingExisting) {
@@ -347,7 +367,7 @@ private struct NativeFamilyEditor: View {
     }
 
     private func save() async {
-        guard session.canEdit, !saving, !preparingAvatar, validation == nil, let displayOrder, let owner = session.account?.id else { return }
+        guard profile.editable(by: session.account), !saving, !preparingAvatar, validation == nil, let displayOrder, let owner = session.account?.id else { return }
         saving = true
         error = ""
         defer { saving = false; avatarProgress = nil }

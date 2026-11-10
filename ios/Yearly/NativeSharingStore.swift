@@ -33,6 +33,8 @@ struct NativeShare: Decodable, Identifiable {
     let selected_count: Int?
     let link_available: Bool?
     let can_copy: Bool?
+    let visit_count: Int?
+    let visitor_count: Int?
     var expiration: Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

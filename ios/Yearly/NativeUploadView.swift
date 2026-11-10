@@ -205,8 +205,20 @@ struct NativeUploadView: View {
                                 Button("知道了", role: .cancel) { }
                             } message: { Text(queue.duplicateNotice) }
                     }
-                    Button { Task { await choosePhotos() } } label: { Label("从系统相册选择照片与视频", systemImage: "photo.on.rectangle.angled") }
-                        .disabled(account == nil || openingPicker)
+                    VStack(alignment: .leading, spacing: 18) {
+                        Image(systemName: "photo.stack.fill").font(.system(size: 28))
+                            .foregroundStyle(NativeTheme.accent).frame(width: 60, height: 60)
+                            .background(NativeTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 18))
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("导入照片与视频").font(.title2.bold())
+                            Text("保留原片与完整实况照片，按拍摄日期整理。")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Button { Task { await choosePhotos() } } label: {
+                            Label("选择照片与视频", systemImage: "plus").frame(maxWidth: .infinity)
+                        }.buttonStyle(NativeActionStyle(kind: .primary))
+                            .disabled(account == nil || openingPicker)
+                    }.padding(.vertical, 10)
                     if loadingAccount || openingPicker { ProgressView(openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
                     preparationSummary
                     uploadSummary
@@ -228,7 +240,7 @@ struct NativeUploadView: View {
                     if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.red) }
                     if !queue.error.isEmpty { Text(queue.error).font(.caption).foregroundStyle(.red) }
                     if account == nil { Button("刷新登录状态") { Task { await loadAccount() } } }
-                } header: { Text("原生无损导入") }
+                } header: { Text("原片导入") }
                 Section {
                     TextField("这批回忆的名字（可留空）", text: $batchName)
                     Toggle("设置本批归档日期", isOn: $useArchiveDate)
@@ -247,7 +259,7 @@ struct NativeUploadView: View {
                         }
                     }.disabled(!hasLoaded || account == nil)
 
-                } header: { Text("上传确认 · 人物、孩子与宠物可多选") }
+                } header: { Text("本批整理") }
                 if items.isEmpty {
                     Section("上传任务") {
                         Text("还没有任务。选择照片或视频后，会在这里显示处理进度。")
@@ -263,7 +275,7 @@ struct NativeUploadView: View {
                                 if canPause { Button("全部暂停") { queue.pauseAll() } }
                                 Spacer()
                                 if hasPaused { Button("继续暂停任务") { queue.resumeAll() }.disabled(account == nil) }
-                            }.buttonStyle(.borderless)
+                            }.buttonStyle(NativeActionStyle(compact: true))
                         }
                         if pending.count > 3 {
                             Button(showAllPending ? "收起任务列表" : "展开全部 \(pending.count) 项任务") { showAllPending.toggle() }
@@ -315,7 +327,7 @@ struct NativeUploadView: View {
                                 }
                                 Spacer()
                                 Button("取消", role: .destructive) { cancelling = item }
-                            }.buttonStyle(.borderless)
+                            }.buttonStyle(NativeActionStyle(compact: true))
                         }
                     }
                 }
@@ -323,18 +335,20 @@ struct NativeUploadView: View {
                     Button("查看家庭时间线") { onTimeline(.timeline) }
                 }
             }
-            .navigationTitle("珍藏原片")
+            .navigationTitle("上传")
+            .scrollContentBackground(.hidden).background(NativeTheme.background)
             .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom) {
+                if !items.isEmpty {
                 HStack(spacing: 12) {
-                    Button { Task { await choosePhotos() } } label: { Label("选照片", systemImage: "plus") }
-                        .buttonStyle(.bordered).disabled(account == nil || openingPicker)
+                    Button { Task { await choosePhotos() } } label: { Label("继续选片", systemImage: "plus") }
+                        .buttonStyle(NativeActionStyle()).disabled(account == nil || openingPicker)
                     if !ready.isEmpty {
                         Button {
                             confirmingIDs = Set(ready.map(\.id)); confirming = true
                         } label: {
                             Text("上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
-                        }.buttonStyle(.borderedProminent).disabled(account == nil)
+                        }.buttonStyle(NativeActionStyle(kind: .primary)).disabled(account == nil)
                     } else if !preparing.isEmpty {
                         ProgressView("正在准备原件…").frame(maxWidth: .infinity)
                     } else if let result = batchResult, !result.ids.isEmpty {
@@ -348,6 +362,7 @@ struct NativeUploadView: View {
                         Spacer()
                     }
                 }.padding().background(.regularMaterial)
+                }
             }
             .refreshable { await loadAccount() }
             .sheet(isPresented: $showingPeople) {

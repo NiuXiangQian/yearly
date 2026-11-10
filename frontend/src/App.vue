@@ -35,6 +35,8 @@ const titles = computed<Record<string, string>>(() => ({
   "/children": t("人物与宠物"),
   "/upload": t("珍藏新回忆"),
   "/settings": t("我的家庭"),
+  "/accounts": t("账户管理"),
+  "/activity": t("修改日志"),
   "/backup": t("备份与导出"),
   "/trash": t("回收站"),
 }));
@@ -106,7 +108,7 @@ async function logout() {
             <Heart class="faint" :size="28" />
           </div>
           <nav>
-            <RouterLink to="/backup"
+            <RouterLink v-if="yearly.isAdmin" to="/accounts"><Users :size="18" />{{ t("账户管理") }}</RouterLink><RouterLink to="/activity"><Archive :size="18" />{{ t("修改日志") }}</RouterLink><RouterLink v-if="yearly.isAdmin" to="/backup"
               ><Archive :size="18" /> {{ t("备份与导出") }} </RouterLink
             ><RouterLink to="/settings"
               ><Settings :size="18" /> {{ t("家庭与设置") }}
@@ -126,7 +128,7 @@ async function logout() {
                 yearly.isAdmin
                   ? t("家庭管理员")
                   : yearly.canEdit
-                    ? t("家庭成员")
+                    ? t("普通账户")
                     : t("只读访客")
               }}</small></span
             ><Settings :size="16" />

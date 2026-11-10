@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     oss_access_key_id: str = ""
     oss_access_key_secret: str = ""
     oss_custom_domain: str = ""
+    oss_internal_endpoint: str = ""
+    oss_archive_originals: bool = False
     upload_part_size: int = 16 * 1024 * 1024
     max_file_size: int = 50 * 1024**3
     session_hours: int = 168

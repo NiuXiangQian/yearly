@@ -64,8 +64,9 @@ async function save() {
           v-for="folder in folders.filter((f) => f.id !== currentFolder)"
           :key="folder.id"
           :value="String(folder.id)"
+          :disabled="folder.can_edit === false"
         >
-          {{ folder.name }}
+          {{ folder.name }} {{ folder.can_edit === false ? t("已锁定") : "" }}
         </option>
       </select></label
     >

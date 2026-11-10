@@ -46,6 +46,7 @@ struct NativeMediaInfo: View {
     @State private var saving = false
     @State private var moving = false
     private var current: NativeTimelineItem { draft ?? item }
+    private var editable: Bool { current.editable(by: session.account) }
 
     var body: some View {
         NavigationStack {
@@ -63,7 +64,16 @@ struct NativeMediaInfo: View {
                         LabeledContent("原件大小", value: ByteCountFormatter.string(fromByteCount: primary.file_size + (current.motion?.file_size ?? 0), countStyle: .file))
                     }
                 }
-                if item.kind != "event" && session.canEdit {
+                Section("归属与修改") {
+                    if !editable { Label("已锁定，只能编辑自己添加的内容", systemImage: "lock.fill") }
+                    LabeledContent("上传人", value: current.owner_name ?? "历史记录")
+                    LabeledContent("修改人", value: current.updated_by_name ?? "暂无记录")
+                    if let date = current.updated_at { LabeledContent("修改时间", value: NativeAuditLabels.time(date)) }
+                    NavigationLink("修改日志") {
+                        NativeAuditView(session: session, resourceType: item.kind == "event" ? "timeline_event" : "media", resourceID: String(item.id))
+                    }
+                }
+                if item.kind != "event" && editable {
                     if draft != nil {
                         Section("整理回忆") {
                             TextField("标题", text: field(\.title))
@@ -116,8 +126,8 @@ struct NativeMediaInfo: View {
                     } else if message.isEmpty { ProgressView("正在读取完整信息…") }
                     else { Button("重新加载") { Task { await load() } } }
                 } else {
-                    if let remark = item.remark, !remark.isEmpty { Text(remark) }
-                    if let place = item.location_name, !place.isEmpty { Text(place) }
+                    if let remark = current.remark, !remark.isEmpty { Text(remark) }
+                    if let place = current.location_name, !place.isEmpty { Text(place) }
                 }
                 if let files = current.files, !files.isEmpty {
                     Section("文件完整性") {
@@ -140,18 +150,19 @@ struct NativeMediaInfo: View {
             }
             .disabled(saving)
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle(draft == nil ? "影像信息" : "编辑影像")
+            .scrollContentBackground(.hidden).background(NativeTheme.background)
+            .navigationTitle(editable ? "编辑影像" : "影像信息")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(saving) }
-                if draft != nil {
+                if draft != nil && editable {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(saving ? "保存中…" : "保存") { Task { await save() } }.disabled(saving)
+                        Button(saving ? "保存中…" : "保存") { Task { await save() } }.buttonStyle(NativeActionStyle(kind: .primary, compact: true)).disabled(saving)
                     }
                 }
             }
             .interactiveDismissDisabled(saving)
-            .task { if item.kind != "event" && session.canEdit { await load() } }
+            .task { if item.kind != "event" { await load() } }
             .sheet(isPresented: $moving) {
                 NativeFolderMove(session: session, items: [current]) { onSaved() }
             }
@@ -181,7 +192,7 @@ struct NativeMediaInfo: View {
     }
 
     private func save() async {
-        guard let draft, !saving else { return }
+        guard let draft, editable, !saving else { return }
         saving = true
         message = ""
         defer { saving = false }
@@ -243,7 +254,9 @@ struct NativeMediaTrash: View {
                     HStack {
                         Text(item.primary?.original_filename ?? item.label)
                         Spacer()
-                        Button("恢复") { Task { await restore(item) } }.disabled(busy)
+                        if item.editable(by: store.session.account) {
+                            Button("恢复") { Task { await restore(item) } }.disabled(busy)
+                        } else { Label("已锁定", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary) }
                     }
                 }
                 if busy { ProgressView() }
@@ -269,6 +282,7 @@ struct NativeMediaTrash: View {
                 URLQueryItem(name: "page_size", value: "40"),
                 URLQueryItem(name: "group_folders", value: "false"),
             ]
+            if let uploader = store.uploaderID { query.queryItems?.append(URLQueryItem(name: "owner_id", value: String(uploader))) }
             if more, let cursor { query.queryItems?.append(URLQueryItem(name: "cursor", value: cursor)) }
             let page: NativeTimelinePage = try await store.session.get("/timeline?" + (query.percentEncodedQuery ?? ""))
             if more { items += page.items } else { items = page.items }

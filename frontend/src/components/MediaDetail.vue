@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { t, ageLabel } from "../lib/i18n";
+import AuditHistory from "./AuditHistory.vue";
 import DateField from "./DateField.vue";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   Download,
   MapPin,
@@ -9,16 +10,21 @@ import {
   ShieldCheck,
   ImageOff,
 } from "lucide-vue-next";
-import { api, put, del, notify, bytes, localDate } from "../lib/api";
+import { api, post, put, del, notify, bytes, localDate } from "../lib/api";
+import type { MediaResource } from "../lib/media-resource";
 import { useYearly } from "../stores/yearly";
 import ChildPicker from "./ChildPicker.vue";
 import MediaViewer from "./MediaViewer.vue";
+const historyOpen = ref(false);
 const props = defineProps<{ id: number | null }>(),
   emit = defineEmits(["close", "saved"]);
 const yearly = useYearly(),
   media = ref<any>(),
   form = ref<any>({}),
   busy = ref(false);
+const editable = computed(() => yearly.canEdit && media.value?.can_edit !== false);
+const downloadStates = ref<Record<number, MediaResource>>({});
+const restoringFile = ref<number | null>(null);
 watch(
   () => props.id,
   async (id, _, onCleanup) => {
@@ -27,6 +33,7 @@ watch(
       active = false;
     });
     media.value = null;
+    downloadStates.value = {};
     if (!id) return;
     try {
       const value = await api(`/media/${id}`);
@@ -74,15 +81,30 @@ async function save() {
 }
 async function download(file: any) {
   try {
-    const { url } = await api(
+    const result = await api<MediaResource>(
       `/media/${props.id}/files/${file.id}/url?download=true`,
     );
+    downloadStates.value[file.id] = result;
+    if (!result.url) return;
     const a = document.createElement("a");
-    a.href = url;
+    a.href = result.url;
     a.rel = "noreferrer";
     a.click();
   } catch (e) {
     notify(e);
+  }
+}
+async function restoreOriginal(file: any) {
+  restoringFile.value = file.id;
+  try {
+    const result = await post<{ status: MediaResource["status"]; message: string }>(
+      `/media/${props.id}/files/${file.id}/restore`,
+    );
+    downloadStates.value[file.id] = { ...result, url: null };
+  } catch (e) {
+    notify(e);
+  } finally {
+    restoringFile.value = null;
   }
 }
 async function trash() {
@@ -109,6 +131,8 @@ async function trash() {
       </div>
       <div class="detail-info">
         <span class="eyebrow">A MOMENT TO KEEP</span>
+        <p v-if="!editable" class="notice">{{ t("已锁定，只能编辑自己添加的内容。") }}</p>
+        <p class="muted">{{ t("上传人") }} · {{ media.owner_name || t("历史记录") }}<br />{{ t("修改人") }} · {{ media.updated_by_name || t("暂无记录") }}</p>
         <h2>{{ media.title || media.batch_name || t("珍藏的瞬间") }}</h2>
         <p class="muted">
           {{ localDate(media.taken_at_local) }} ·
@@ -124,12 +148,13 @@ async function trash() {
             }}<template v-if="c.age"> · {{ ageLabel(c.age) }}</template></span
           >
         </div>
+        <details @toggle="historyOpen = ($event.target as HTMLDetailsElement).open"><summary>{{ t("修改日志") }}</summary><AuditHistory v-if="historyOpen" resource-type="media" :resource-id="media.id" /></details>
         <form @submit.prevent="save">
           <label class="checkbox-label"
             ><input
               v-model="form.share_allowed"
               type="checkbox"
-              :disabled="!yearly.canEdit"
+              :disabled="!editable"
             />{{ t("允许分享") }}</label
           >
           <p class="muted">
@@ -140,28 +165,28 @@ async function trash() {
               {{ t("批次名称") }}
               <input
                 v-model="form.batch_name"
-                :disabled="!yearly.canEdit"
+                :disabled="!editable"
                 maxlength="255" /></label
             ><label>
               {{ t("归档日期") }}
               <DateField
                 v-model="form.timeline_date"
                 type="date"
-                :disabled="!yearly.canEdit"
+                :disabled="!editable"
             /></label>
           </div>
           <label>
             {{ t("标题") }}
             <input
               v-model="form.title"
-              :disabled="!yearly.canEdit"
+              :disabled="!editable"
               maxlength="255"
               :placeholder="t('给这个瞬间起个名字')" /></label
           ><label>
             {{ t("时光小记") }}
             <textarea
               v-model="form.remark"
-              :disabled="!yearly.canEdit"
+              :disabled="!editable"
               rows="3"
               :placeholder="t('记下照片之外的故事…')"
             />
@@ -170,7 +195,7 @@ async function trash() {
             <span> {{ t("里面都有谁（可多选）") }} </span
             ><ChildPicker
               v-model="form.child_ids"
-              :disabled="!yearly.canEdit"
+              :disabled="!editable"
             />
           </div>
           <div class="form-row">
@@ -179,13 +204,13 @@ async function trash() {
               <DateField
                 type="datetime"
                 v-model="form.corrected_taken_at_local"
-                :disabled="!yearly.canEdit" /></label
+                :disabled="!editable" /></label
             ><label>
               {{ t("时区偏移（分钟）") }}
               <input
                 type="number"
                 v-model="form.corrected_offset_minutes"
-                :disabled="!yearly.canEdit"
+                :disabled="!editable"
                 min="-840"
                 max="840"
                 :placeholder="t('未知留空')"
@@ -197,12 +222,12 @@ async function trash() {
             ><input
               type="checkbox"
               v-model="form.time_unknown"
-              :disabled="!yearly.canEdit"
+              :disabled="!editable"
             />
             {{ t("明确标记拍摄时间未知") }} </label
           ><label>
             {{ t("地点名称") }}
-            <input v-model="form.location_name" :disabled="!yearly.canEdit"
+            <input v-model="form.location_name" :disabled="!editable"
           /></label>
           <div class="form-row">
             <label>
@@ -213,7 +238,7 @@ async function trash() {
                 step="any"
                 min="-90"
                 max="90"
-                :disabled="!yearly.canEdit" /></label
+                :disabled="!editable" /></label
             ><label>
               {{ t("经度") }}
               <input
@@ -222,7 +247,7 @@ async function trash() {
                 step="any"
                 min="-180"
                 max="180"
-                :disabled="!yearly.canEdit"
+                :disabled="!editable"
             /></label>
           </div>
           <label>
@@ -233,10 +258,10 @@ async function trash() {
               filterable
               allow-create
               default-first-option
-              :disabled="!yearly.canEdit"
+              :disabled="!editable"
               :placeholder="t('输入标签并回车')" /></label
           ><button
-            v-if="yearly.canEdit"
+            v-if="editable"
             class="button primary"
             :disabled="busy"
           >
@@ -253,10 +278,16 @@ async function trash() {
               <Download :size="14" /> {{ t("下载") }}
               {{ f.file_role === "preview" ? t("预览") : t("原件") }}
             </button>
+            <p v-if="downloadStates[f.id]?.status === 'archived' || downloadStates[f.id]?.status === 'restoring'" class="notice" role="status">
+              {{ t(downloadStates[f.id]?.message || "原件正在解冻") }}
+              <button v-if="downloadStates[f.id]?.status === 'archived'" class="button small" :disabled="restoringFile === f.id" @click="restoreOriginal(f)">
+                {{ t("申请解冻原件 · 通常48小时") }}
+              </button>
+            </p>
           </div>
           <pre>{{ JSON.stringify(media.metadata, null, 2) }}</pre>
         </details>
-        <div v-if="yearly.canEdit" class="detail-danger">
+        <div v-if="editable" class="detail-danger">
           <ElPopconfirm
             :title="t('移入回收站？原件会继续保留。')"
             @confirm="trash"

@@ -1,6 +1,15 @@
 import Foundation
 
-struct UploadAccount: Decodable { let id: Int; let role: String; let csrf_token: String; var username: String? = nil }
+struct UploadAccount: Decodable {
+    let id: Int
+    let role: String
+    let csrf_token: String
+    var username: String? = nil
+    var roleLabel: String { role == "admin" ? "管理员" : role == "member" ? "普通账户" : "只读访客" }
+    func canEdit(ownerID: Int?, allowed: Bool?) -> Bool {
+        role == "admin" || (role == "member" && (allowed ?? (ownerID == id)))
+    }
+}
 struct UploadProfile: Decodable, Identifiable {
     let id: Int
     let name: String
@@ -18,6 +27,12 @@ struct UploadProfile: Decodable, Identifiable {
     let sort_order: Int?
     let status: String?
     let avatar_media_id: Int?
+    var can_edit: Bool?
+    var owner_id: Int?
+    var owner_name: String?
+    var updated_by_name: String?
+    var updated_at: String?
+    func editable(by account: UploadAccount?) -> Bool { account?.canEdit(ownerID: owner_id, allowed: can_edit) ?? false }
     var label: String { (nickname.isEmpty ? name : nickname) + (profile_type == "pet" ? " · 宠物" : profile_type == "child" ? " · 孩子" : " · 人物") }
 }
 

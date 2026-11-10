@@ -1,6 +1,6 @@
 import { sha256 } from "hash-wasm";
 
-const prefix = `yearly-cache-v1:${import.meta.env.BASE_URL}:`;
+const prefix = `yearly-cache-v2:${import.meta.env.BASE_URL}:`;
 const listLifetime = 5 * 60_000;
 const imageLifetime = 7 * 24 * 60 * 60_000;
 let account: number | null = null;

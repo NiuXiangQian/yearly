@@ -77,6 +77,7 @@ struct LoginCaptcha: Decodable {
     private(set) var cacheRevision = 0
     let localCache: NativeLocalCache
     var cacheScope: String? { account.map { "\(site.url.absoluteString)|\($0.id)" } }
+    var isAdmin: Bool { account?.role == "admin" }
     var canEdit: Bool { ["admin", "member"].contains(account?.role ?? "") }
 
     init(site: SiteOrigin, store: SessionCredentialStore = KeychainSessionStore(), transport: URLSession? = nil, cacheDirectory: URL? = nil) {
@@ -183,14 +184,15 @@ struct LoginCaptcha: Decodable {
         }
         let scope = cacheScope
         let revision = cacheRevision
-        let cacheable = path.range(of: #"^/(timeline|media|events|children|folders|stats)([/?]|$)"#, options: .regularExpression) != nil && !path.contains("/url?")
+        let cacheKey = "accounts-v2|" + path
+        let cacheable = path.range(of: #"^/(timeline|media|events|children|folders|stats|uploaders)([/?]|$)"#, options: .regularExpression) != nil && !path.contains("/url?")
         if cacheable, !refresh, let scope,
-           let data = localCache.data(scope: scope, key: path, category: "lists"),
+           let data = localCache.data(scope: scope, key: cacheKey, category: "lists"),
            let value = try? JSONDecoder().decode(T.self, from: data) { return value }
         let (data, _) = try await send(path)
         let value = try JSONDecoder().decode(T.self, from: data)
         if cacheable, let scope, scope == cacheScope, revision == cacheRevision {
-            localCache.insert(data, scope: scope, key: path, category: "lists", lifetime: 300)
+            localCache.insert(data, scope: scope, key: cacheKey, category: "lists", lifetime: 300)
         }
         return value
     }
@@ -209,11 +211,24 @@ struct LoginCaptcha: Decodable {
         invalidateCachedLists()
         return try JSONDecoder().decode(T.self, from: data)
     }
+    func restoreOriginal(mediaID: Int, fileID: Int) async throws {
+        _ = try await send("/media/\(mediaID)/files/\(fileID)/restore", method: "POST", body: Data("{}".utf8))
+    }
     func updateProfile(id: Int, json: [String: Any]) async throws -> UploadProfile {
         guard canEdit else { throw NativeAPIError(status: 403, message: "此账号为只读账号。") }
         let (data, _) = try await send("/children/\(id)", method: "PUT", body: JSONSerialization.data(withJSONObject: json))
         invalidateCachedLists()
         return try JSONDecoder().decode(UploadProfile.self, from: data)
+    }
+    func changePassword(current: String, new: String) async throws {
+        _ = try await send("/auth/password", method: "POST", body: JSONSerialization.data(withJSONObject: [
+            "old_password": current, "new_password": new,
+        ]))
+        requireLogin(message: "密码已更新，请重新登录。")
+    }
+    func requireLogin(message: String) {
+        expire()
+        error = message
     }
     private func expire() {
         if let cacheScope { localCache.clear(scope: cacheScope) }

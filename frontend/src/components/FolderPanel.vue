@@ -16,10 +16,12 @@ import {
 import { api, post, put, del, notify } from "../lib/api";
 import { getDragPosition, reorderItems } from "../lib/reorder";
 import { useYearly } from "../stores/yearly";
+import AuditHistory from "./AuditHistory.vue";
 import MediaCard from "./MediaCard.vue";
 import MediaDetail from "./MediaDetail.vue";
 import FolderMoveDialog from "./FolderMoveDialog.vue";
-const props = defineProps<{ id: number | null; match?: string }>(),
+const historyOpen = ref(false);
+const props = defineProps<{ id: number | null; match?: string; ownerId?: number }>(),
   emit = defineEmits(["close", "changed"]);
 const yearly = useYearly(),
   router = useRouter();
@@ -40,6 +42,8 @@ const folder = ref<any>(),
   renaming = ref(false),
   name = ref(""),
   shareAllowed = ref(true);
+const editable = computed(() => yearly.canEdit && folder.value?.can_edit !== false);
+const canSort = computed(() => editable.value && items.value.every(m => m.can_edit !== false));
 let orderBeforeDrag: any[] | null = null;
 const dropTarget = ref<{
   id: number;
@@ -138,6 +142,7 @@ async function load(reset = true) {
       page: String(reset ? 1 : page.value + 1),
       page_size: "40",
     });
+    if (props.ownerId) params.set("owner_id", String(props.ownerId));
     yearly.selected.forEach((cid) => params.append("child_id", String(cid)));
     const [f, data] = await Promise.all([
       api(`/folders/${id}`),
@@ -172,6 +177,7 @@ watch(
   { immediate: true },
 );
 function toggle(m: any) {
+  if (m.can_edit === false) return;
   selected.value = selected.value.includes(m.id)
     ? selected.value.filter((id) => id !== m.id)
     : [...selected.value, m.id];
@@ -262,6 +268,7 @@ async function changed() {
         </div>
       </div></template
     >
+    <template v-if="folder"><p v-if="!editable" class="notice">{{ t("已锁定，只能编辑自己添加的内容。") }}</p><p class="muted">{{ t("创建人") }} · {{ folder.owner_name || t("历史记录") }} · {{ t("修改人") }} · {{ folder.updated_by_name || t("暂无记录") }}</p><details @toggle="historyOpen = ($event.target as HTMLDetailsElement).open"><summary>{{ t("修改日志") }}</summary><AuditHistory v-if="historyOpen" resource-type="timeline_folder" :resource-id="folder.id" /></details></template>
     <div v-if="folder" class="folder-panel-actions">
       <button
         class="button small"
@@ -272,7 +279,7 @@ async function changed() {
       >
         {{ selection ? t("退出多选") : t("多选") }}
       </button>
-      <template v-if="yearly.canEdit"
+      <template v-if="editable"
         ><button
           class="button small"
           @click="
@@ -293,7 +300,7 @@ async function changed() {
           "
         >
           <Pencil :size="14" /> {{ t("编辑文件夹") }}</button
-        ><button class="text-button" @click="sorting = !sorting">
+        ><button class="text-button" v-if="canSort" @click="sorting = !sorting">
           <GripVertical :size="14" />{{
             sorting ? t("完成排序") : t("排序")
           }}</button
@@ -302,7 +309,7 @@ async function changed() {
           :title="t('仅将此文件夹内的全部影像恢复为拍摄时间从新到旧排列？')"
           :confirm-button-text="t('恢复排序')"
           :cancel-button-text="t('取消')"
-          @confirm="resetOrder"
+          v-if="canSort" @confirm="resetOrder"
           ><template #reference
             ><button class="text-button" :disabled="busy || !total">
               <RotateCcw :size="14" /> {{ t("恢复默认排序") }}
@@ -322,11 +329,11 @@ async function changed() {
       >
     </div>
     <div v-if="selection" class="folder-panel-actions">
-      <button class="text-button" @click="selected = items.map((m) => m.id)">
+      <button class="text-button" @click="selected = items.filter((m) => m.can_edit !== false).map((m) => m.id)">
         {{ t("选中已加载") }} {{ items.length }} {{ t("项") }}</button
       ><span> {{ t("已选") }} {{ selected.length }} {{ t("项") }} </span
       ><button
-        v-if="yearly.canEdit"
+        v-if="editable"
         class="button small"
         :disabled="!selected.length"
         @click="moving = true"
@@ -334,11 +341,11 @@ async function changed() {
         <FolderInput :size="14" /> {{ t("移入 / 移出文件夹") }}
       </button>
     </div>
-    <p v-if="yearly.canEdit" class="muted">
+    <p v-if="editable" class="muted">
       {{ t("可直接拖动排序，拖到上方区域移回当天；多选后可一起移动。") }}
     </p>
     <div
-      v-if="yearly.canEdit"
+      v-if="editable"
       class="folder-drop-out"
       :class="{ active: movingOut }"
       @dragover.prevent="movingOut = true"
@@ -374,7 +381,7 @@ async function changed() {
           'drop-after':
             dropTarget?.id === media.id && dropTarget?.placement === 'after',
         }"
-        :draggable="yearly.canEdit && !busy"
+        :draggable="canSort && media.can_edit !== false && !busy"
         @dragstart="startDrag($event, media)"
         @dragenter="dragOver($event, media)"
         @dragover="dragOver($event, media)"

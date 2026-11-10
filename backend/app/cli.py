@@ -7,7 +7,7 @@ from sqlalchemy import select, delete
 from .db import SessionLocal, now
 from .models import User, UploadTask, MediaFile, Media, UserSession, LoginGuard, Captcha
 from .security import passwords
-from .storage import get_storage, verify_object
+from .storage import get_storage, verify_object, OSSStorage
 from .backup import backup_objects, restore_manifest
 
 
@@ -18,6 +18,7 @@ def main():
     user.add_argument("username")
     sub.add_parser("cleanup")
     sub.add_parser("verify-oss")
+    sub.add_parser("configure-archive")
     previews = sub.add_parser("generate-previews")
     previews.add_argument("--watch", action="store_true")
     previews.add_argument("--retry-failed", action="store_true")
@@ -41,9 +42,12 @@ def main():
 
         signal.signal(signal.SIGTERM, stop_worker)
         try:
-            generate_previews(get_storage(), args.watch, args.retry_failed)
+            generate_previews(OSSStorage(internal=True), args.watch, args.retry_failed)
         except KeyboardInterrupt:
             pass
+    elif args.command == "configure-archive":
+        get_storage().configure_archive()
+        print("已配置深度冷归档生命周期，仅匹配预览就绪标记的 originals/ 对象，上传满1天后转换")
     elif args.command == "create-admin":
         password = getpass.getpass("新管理员密码（至少12位）: ")
         if len(password) < 12 or password != getpass.getpass("再次输入密码: "):

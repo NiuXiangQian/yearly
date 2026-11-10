@@ -23,7 +23,7 @@ struct YearlyRootView: View {
                 SiteSettings(address: address, canCancel: false) { address = $0 }
             }
         }
-        .tint(Color(red: 0.40, green: 0.48, blue: 0.36))
+        .tint(NativeTheme.accent)
         .onChange(of: scenePhase) { phase in
             if phase == .background { uploads.enteredBackground() }
             if phase == .active { uploads.enteredForeground() }
@@ -93,34 +93,73 @@ struct NativeAppShell: View {
                     .tabItem { Label("家人", systemImage: "person.2") }.tag(2)
                     NavigationStack {
                         Form {
-                            Section("家庭账号") {
-                                LabeledContent("账号", value: session.account?.username ?? "家庭成员")
-                                LabeledContent("权限", value: session.canEdit ? "家庭编辑" : "只读浏览")
-                                Button("退出登录", role: .destructive) { loggingOut = true }
+                            Section {
+                                HStack(spacing: 18) {
+                                    Text(String((session.account?.username ?? "家").prefix(1)))
+                                        .font(.system(size: 27, weight: .semibold))
+                                        .foregroundStyle(NativeTheme.accent).frame(width: 64, height: 64)
+                                        .background(NativeTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 22))
+                                    VStack(alignment: .leading, spacing: 7) {
+                                        Text(session.account?.username ?? "家庭成员").font(.title2.bold())
+                                        HStack(spacing: 8) {
+                                            Text(session.account?.roleLabel ?? "只读访客")
+                                                .font(.caption.weight(.semibold)).foregroundStyle(NativeTheme.accent)
+                                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                                .background(NativeTheme.accent.opacity(0.08), in: Capsule())
+                                            if let account = session.account {
+                                                Text("ID \(account.id)").font(.caption).foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
+                                }.padding(.vertical, 10)
                             }
-                            Section("家庭站点") {
-                                Text(session.site.url.absoluteString).font(.caption).textSelection(.enabled)
-                                Button("站点与关于") { queue.pauseAll(); editSite() }
-                            }
-                            if session.canEdit {
-                                Section("分享") {
-                                    Button { showingShares = true } label: { Label("创建分享与管理链接", systemImage: "square.and.arrow.up") }
+                            Section("管理与记录") {
+                                if session.isAdmin {
+                                    NavigationLink { NativeAccountsView(session: session) } label: {
+                                        NativeSettingsLabel(title: "账号管理", symbol: "person.2.badge.gearshape", detail: "家庭成员、角色与账号状态")
+                                    }
+                                }
+                                NavigationLink { NativeAuditView(session: session) } label: {
+                                    NativeSettingsLabel(title: "修改记录", symbol: "clock.arrow.circlepath", detail: "查看文件与设置的变更")
+                                }
+                                if session.canEdit {
+                                    Button { showingShares = true } label: {
+                                        HStack {
+                                            NativeSettingsLabel(title: "分享管理", symbol: "link", detail: "创建链接、查看访问与撤销分享")
+                                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                        }
+                                    }.buttonStyle(.plain)
                                 }
                             }
-                            Section("原生 App") {
-                                Label("原生相册、时间线和播放器", systemImage: "iphone")
-                                Text("登录会话保存在 Keychain，密码不保存。进入后台时上传暂停，返回前台可续传。")
-                                    .font(.footnote).foregroundStyle(.secondary)
+                            Section {
+                                NavigationLink { NativePasswordView(session: session) } label: {
+                                    NativeSettingsLabel(title: "修改密码", symbol: "lock.shield")
+                                }
+                                Button { queue.pauseAll(); editSite() } label: {
+                                    HStack {
+                                        NativeSettingsLabel(title: "站点与关于", symbol: "globe", detail: session.site.url.host)
+                                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                    }
+                                }.buttonStyle(.plain)
+                            } header: { Text("安全与设置") } footer: {
+                                Text("会话安全保存在 Keychain，密码不会保存到本机。")
                             }
+                            Section {
+                                Button { loggingOut = true } label: {
+                                    Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right").frame(maxWidth: .infinity)
+                                }.buttonStyle(NativeActionStyle(kind: .destructive))
+                            }.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
                             if !message.isEmpty { Text(message).foregroundStyle(.red) }
-                        }.navigationTitle("我的")
+                        }.scrollContentBackground(.hidden).background(NativeTheme.background)
+                            .navigationTitle("账号")
                             .confirmationDialog("退出后上传将安全暂停", isPresented: $loggingOut, titleVisibility: .visible) {
                                 Button("退出登录", role: .destructive) {
                                     queue.pauseAll()
                                     Task { do { try await session.logout() } catch { session.error = friendly(error) } }
                                 }
                             }
-                    }.tabItem { Label("我的", systemImage: "person.crop.circle") }.tag(3)
+                    }.tabItem { Label("账号", systemImage: "person.crop.circle") }.tag(3)
                 }
             }
         }
@@ -183,7 +222,9 @@ struct NativeLoginView: View {
                         }
                     } label: {
                         HStack { Text("登录"); if loading { ProgressView() } }
-                    }.disabled(loading || captcha == nil || username.isEmpty || password.isEmpty || answer.isEmpty)
+                    }.buttonStyle(NativeActionStyle(kind: .primary))
+                    .frame(maxWidth: .infinity)
+                    .disabled(loading || captcha == nil || username.isEmpty || password.isEmpty || answer.isEmpty)
                     if !message.isEmpty { Text(message).foregroundStyle(.red).font(.caption) }
                     if !session.error.isEmpty { Text(session.error).foregroundStyle(.secondary).font(.caption) }
                 }

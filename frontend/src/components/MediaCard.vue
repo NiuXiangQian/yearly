@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { t } from "../lib/i18n";
 import { ref, onMounted, onBeforeUnmount } from "vue";
-import { Check, Play, ImageOff, Layers } from "lucide-vue-next";
+import { Check, Play, ImageOff, Layers, LockKeyhole } from "lucide-vue-next";
 import { mediaResource, releaseMediaResource } from "../lib/media-resource";
 const props = defineProps<{
   media: any;
@@ -47,6 +47,7 @@ onBeforeUnmount(() => {
   clearTimeout(timer);
 });
 function press(e: PointerEvent) {
+  if (props.media.can_edit === false) return;
   if (e.pointerType === "touch") {
     long = false;
     touchStart = { x: e.clientX, y: e.clientY };
@@ -68,7 +69,7 @@ function click(e: MouseEvent) {
     long = false;
     return;
   }
-  props.selection
+  props.selection && props.media.can_edit !== false
     ? emit("select", props.media, e.shiftKey)
     : emit("open", props.media);
 }
@@ -91,6 +92,7 @@ function click(e: MouseEvent) {
     @contextmenu.prevent
   >
     <div class="media-visual">
+      <span v-if="media.can_edit === false" class="content-lock" :title="t('已锁定，只能编辑自己添加的内容。')"><LockKeyhole :size="13" />{{ t("已锁定") }}</span>
       <div v-if="!loaded && !failed" class="skeleton"></div>
       <img
         :draggable="false"
@@ -108,7 +110,7 @@ function click(e: MouseEvent) {
         ><span> {{ t("点击查看与下载") }} </span>
       </div>
       <span
-        v-if="selection || selected"
+        v-if="(selection || selected) && media.can_edit !== false"
         class="media-check"
         :class="{ checked: selected }"
         ><Check v-if="selected" :size="15" /></span

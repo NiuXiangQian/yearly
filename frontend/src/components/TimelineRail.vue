@@ -1,44 +1,70 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { t } from "../lib/i18n";
 
 const props = defineProps<{
   dates: string[];
   current: string;
   disabled?: boolean;
+  fraction?: number;
 }>();
-const emit = defineEmits<{ select: [date: string] }>();
+const emit = defineEmits<{ select: [date: string]; scrub: [date: string, fraction: number]; hold: [active: boolean] }>();
 const track = ref<HTMLElement>();
 const dragging = ref<number | null>(null);
 const focused = ref(false);
-const index = computed(
-  () => dragging.value ?? Math.max(0, props.dates.indexOf(props.current)),
-);
-const position = computed(() =>
-  props.dates.length > 1 ? (index.value / (props.dates.length - 1)) * 100 : 0,
-);
+const height = ref(400);
+let startY = 0;
+let moved = false;
+let observer: ResizeObserver | undefined;
+watch(track, element => {
+  observer?.disconnect();
+  if (!element) return;
+  observer = new ResizeObserver(([entry]) => {
+    if (dragging.value === null && entry.contentRect.height > 0) height.value = entry.contentRect.height;
+  });
+  observer.observe(element);
+}, { flush: "post" });
+onBeforeUnmount(() => observer?.disconnect());
+const ratio = computed(() => dragging.value ??
+  (Math.max(0, props.dates.indexOf(props.current)) + (props.fraction || 0)) / props.dates.length);
+const index = computed(() => Math.min(props.dates.length - 1, Math.floor(ratio.value * props.dates.length)));
+const position = computed(() => ratio.value * 100);
+const markers = computed(() => {
+  const step = Math.max(1, Math.ceil(props.dates.length * 32 / height.value));
+  const count = Math.floor((props.dates.length - 1) / step) + 1;
+  return Array.from({ length: count }, (_, i) => count === 1 ? 0 : Math.round(i / (count - 1) * (props.dates.length - 1)));
+});
 function move(event: PointerEvent) {
   if (dragging.value === null) return;
   const rect = track.value!.getBoundingClientRect();
-  dragging.value = Math.round(
-    Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) *
-      (props.dates.length - 1),
-  );
+  dragging.value = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+  if (Math.abs(event.clientY - startY) > 6) moved = true;
+  if (moved) emit("scrub", props.dates[index.value], dragging.value * props.dates.length - index.value);
 }
 function start(event: PointerEvent) {
   if (props.disabled || !event.isPrimary || event.button !== 0) return;
   track.value!.setPointerCapture(event.pointerId);
-  dragging.value = index.value;
+  height.value = track.value!.getBoundingClientRect().height;
+  startY = event.clientY;
+  moved = false;
+  emit("hold", true);
+  dragging.value = ratio.value;
   move(event);
+}
+function cancel() {
+  dragging.value = null;
+  emit("hold", false);
 }
 function finish(event: PointerEvent) {
   if (dragging.value === null) return;
   move(event);
-  const date = props.dates[dragging.value];
-  dragging.value = null;
-  if (track.value?.hasPointerCapture(event.pointerId))
-    track.value.releasePointerCapture(event.pointerId);
-  if (date) emit("select", date);
+  if (!moved) {
+    const offset = dragging.value * props.dates.length;
+    const nearest = markers.value.reduce((best, value) => Math.abs(value - offset) < Math.abs(best - offset) ? value : best);
+    emit("select", props.dates[nearest]);
+  }
+  cancel();
+  if (track.value?.hasPointerCapture(event.pointerId)) track.value.releasePointerCapture(event.pointerId);
 }
 function keydown(event: KeyboardEvent) {
   if (props.disabled) return;
@@ -77,19 +103,19 @@ function keydown(event: KeyboardEvent) {
       @pointerdown.prevent="start"
       @pointermove="move"
       @pointerup="finish"
-      @pointercancel="dragging = null"
-      @lostpointercapture="dragging = null"
+      @pointercancel="cancel"
+      @lostpointercapture="dragging !== null && cancel()"
       @keydown="keydown"
       @focus="focused = true"
       @blur="focused = false"
     >
       <span class="rail-line" aria-hidden="true"></span>
       <span
-        v-for="(date, i) in dates"
-        :key="date"
+        v-for="i in markers"
+        :key="dates[i]"
         class="rail-dot"
         :style="{
-          top: `${dates.length > 1 ? (i / (dates.length - 1)) * 100 : 0}%`,
+          top: `${dates.length > 1 ? (i / dates.length) * 100 : 0}%`,
         }"
         aria-hidden="true"
       ></span>
@@ -169,6 +195,7 @@ function keydown(event: KeyboardEvent) {
   opacity: 0.65;
 }
 .rail-thumb {
+  transition: none;
   width: 14px;
   height: 14px;
   box-shadow: 0 0 0 5px var(--sage-light);

@@ -49,7 +49,7 @@ export PYTHONPATH="$PWD/backend"
 .venv/bin/python -m app.cli create-admin your-admin-name
 ```
 
-Alternatively, import `deploy/schema-mysql57.sql` manually and then run `alembic -c backend/alembic.ini stamp 0011`. Choose one initialization method. For an existing database, run `./scripts/manage.sh production migrate` to upgrade to `0011` before starting the new backend. Tables use InnoDB / utf8mb4, BIGINT IDs, DATETIME(3) timestamps, DECIMAL coordinates, and JSON metadata. The models do not rely on MySQL 8-only SQL.
+Alternatively, import `deploy/schema-mysql57.sql` manually and then run `alembic -c backend/alembic.ini stamp 0013`. Then run `./scripts/manage.sh production migrate` to apply subsequent migrations. Choose one initialization method. For an existing database, run the migration command before starting the new backend. Account ownership and change history are introduced in `0013`. Administrators manage legacy folders and profiles without a known creator. Change history starts after the upgrade. Tables use InnoDB / utf8mb4, BIGINT IDs, DATETIME(3) timestamps, DECIMAL coordinates, and JSON metadata. The models do not rely on MySQL 8-only SQL.
 
 ## 3. Configure private OSS
 

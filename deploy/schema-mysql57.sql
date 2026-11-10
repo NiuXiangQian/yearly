@@ -1,6 +1,6 @@
 -- MySQL 5.7.8+ / InnoDB / utf8mb4. Select the target database first.
 
--- Alternative to Alembic. After importing, stamp revision 0006.
+-- Alternative to Alembic. After importing, stamp revision 0013, then run Alembic upgrade head.
 
 SET NAMES utf8mb4;
 
@@ -281,6 +281,7 @@ CREATE TABLE video_preview (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+
 CREATE TABLE timeline_folder (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -319,4 +320,44 @@ ALTER TABLE timeline_event ADD COLUMN share_allowed BOOLEAN NOT NULL DEFAULT 1;
 CREATE TABLE timeline_day (
   timeline_date DATE NOT NULL PRIMARY KEY,
   share_allowed BOOLEAN NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Account ownership and modification history (0013).
+ALTER TABLE sys_user ADD COLUMN updated_by BIGINT NULL,
+  ADD CONSTRAINT fk_sys_user_modifier FOREIGN KEY (updated_by) REFERENCES sys_user (id);
+ALTER TABLE child ADD COLUMN updated_by BIGINT NULL,
+  ADD CONSTRAINT fk_child_modifier FOREIGN KEY (updated_by) REFERENCES sys_user (id);
+ALTER TABLE timeline_folder ADD COLUMN updated_by BIGINT NULL,
+  ADD CONSTRAINT fk_timeline_folder_modifier FOREIGN KEY (updated_by) REFERENCES sys_user (id);
+ALTER TABLE media ADD COLUMN updated_by BIGINT NULL,
+  ADD CONSTRAINT fk_media_modifier FOREIGN KEY (updated_by) REFERENCES sys_user (id);
+ALTER TABLE timeline_event ADD COLUMN updated_by BIGINT NULL,
+  ADD CONSTRAINT fk_timeline_event_modifier FOREIGN KEY (updated_by) REFERENCES sys_user (id);
+ALTER TABLE timeline_day ADD COLUMN updated_by BIGINT NULL,
+  ADD CONSTRAINT fk_timeline_day_modifier FOREIGN KEY (updated_by) REFERENCES sys_user (id);
+ALTER TABLE timeline_share ADD COLUMN updated_by BIGINT NULL,
+  ADD CONSTRAINT fk_timeline_share_modifier FOREIGN KEY (updated_by) REFERENCES sys_user (id);
+ALTER TABLE child ADD COLUMN owner_id BIGINT NULL,
+  ADD CONSTRAINT fk_child_owner FOREIGN KEY (owner_id) REFERENCES sys_user (id);
+ALTER TABLE timeline_folder ADD COLUMN owner_id BIGINT NULL,
+  ADD CONSTRAINT fk_timeline_folder_owner FOREIGN KEY (owner_id) REFERENCES sys_user (id);
+ALTER TABLE timeline_day ADD COLUMN updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3);
+ALTER TABLE timeline_share ADD COLUMN updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3);
+ALTER TABLE timeline_share ADD COLUMN owner_scope_id BIGINT NULL,
+  ADD CONSTRAINT fk_timeline_share_scope_owner FOREIGN KEY (owner_scope_id) REFERENCES sys_user (id);
+
+CREATE TABLE audit_log (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  actor_id BIGINT NOT NULL,
+  actor_name VARCHAR(80) NOT NULL,
+  resource_type VARCHAR(80) NOT NULL,
+  resource_id VARCHAR(80) NOT NULL,
+  action VARCHAR(24) NOT NULL,
+  changes JSON NOT NULL,
+  created_at DATETIME(3) NOT NULL,
+  INDEX ix_audit_log_actor_id (actor_id),
+  INDEX ix_audit_log_resource_type (resource_type),
+  INDEX ix_audit_log_resource_id (resource_id),
+  INDEX ix_audit_log_created_at (created_at),
+  FOREIGN KEY (actor_id) REFERENCES sys_user (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

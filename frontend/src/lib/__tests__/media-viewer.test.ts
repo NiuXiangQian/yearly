@@ -6,6 +6,8 @@ import ImageViewer from "../../components/ImageViewer.vue";
 import VideoPlayer from "../../components/VideoPlayer.vue";
 import { mediaResource } from "../media-resource";
 import { heicPreview } from "../heic";
+import { post } from "../api";
+vi.mock("../api", async (importOriginal) => ({ ...await importOriginal<typeof import("../api")>(), post: vi.fn() }));
 vi.mock("../media-resource", () => ({ mediaResource: vi.fn(), releaseMediaResource: vi.fn() }));
 vi.mock("../heic", () => ({ heicPreview: vi.fn() }));
 const applications: ReturnType<typeof createApp>[] = [];
@@ -37,6 +39,25 @@ const photo = {
     },
   ],
 };
+it("shows archived originals and requests restoration before refreshing their status", async () => {
+  let requested = false;
+  vi.mocked(mediaResource).mockImplementation(async (_mid, _fid, purpose) =>
+    purpose === "original"
+      ? { url: null, status: requested ? "restoring" : "archived", message: "解冻通常需要48小时" }
+      : { url: "/preview.webp", status: "ready" },
+  );
+  vi.mocked(post).mockImplementation(async () => { requested = true; return { status: "restoring" }; });
+  const host = render(MediaViewer, { media: photo });
+  await vi.waitFor(() => expect(host.querySelector("img")).not.toBeNull());
+  (host.querySelector(".viewer-toolbar button") as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(host.textContent).toContain("原件已深度归档"));
+  const restore = [...host.querySelectorAll("button")].find(b => b.textContent?.includes("申请解冻"))!;
+  restore.click();
+  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/media/1/files/2/restore"));
+  await vi.waitFor(() => expect(host.textContent).toContain("原件正在解冻"));
+  expect(host.textContent).toContain("刷新解冻状态");
+  expect(host.querySelector("img")).toBeNull();
+});
 it("plays the paired motion preview from LIVE and returns to the still photo", async () => {
   vi.mocked(mediaResource).mockImplementation(async (_mid, fid, purpose) => ({
     url: fid === 3 && purpose === "preview" ? "/motion.mp4" : "/still.jpg",
@@ -160,4 +181,23 @@ it("enables sound for original-motion autoplay as well as ordinary video", async
   const host = render(VideoPlayer, { loadSource: async () => "/original.mov", autoplay: true });
   await vi.waitFor(() => expect(host.querySelector("video")?.getAttribute("src")).toBe("/original.mov"));
   expect(host.querySelector("video")?.muted).toBe(false);
+});
+
+it("autoplays a Live Photo once on fullscreen entry", async () => {
+  vi.mocked(mediaResource).mockImplementation(async (_mid, fid) => ({
+    url: fid === 3 ? "/motion.mp4" : "/still.jpg", status: "ready",
+  }));
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  render(MediaViewer, { media: {
+    ...photo, media_type: "live_photo",
+    files: [...photo.files, { id: 3, file_role: "live_video", mime_type: "video/quicktime", file_size: 5000 }],
+  } });
+  await vi.waitFor(() => expect(document.querySelector(".live-photo-img")).not.toBeNull());
+  expect(play).not.toHaveBeenCalled();
+  (document.querySelector('[aria-label="全屏预览"]') as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+  document.querySelector("video")!.dispatchEvent(new Event("ended"));
+  await nextTick();
+  expect(document.querySelector(".live-photo.is-playing")).toBeNull();
+  expect(play).toHaveBeenCalledOnce();
 });

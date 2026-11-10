@@ -123,6 +123,8 @@ it("reveals an active record and creates a new link with the scope of an old rec
     end_date: "2024-01-02",
     expires_at: "2099-01-01T00:00:00Z",
     can_copy: true,
+    visit_count: 12,
+    visitor_count: 3,
   };
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === "/shares/bounds") return { earliest: "2024-01-01" };
@@ -143,6 +145,7 @@ it("reveals an active record and creates a new link with the scope of an old rec
   const actions = (label: string) => [...document.querySelectorAll<HTMLButtonElement>(".history-row button")]
     .find((button) => button.textContent?.trim() === label);
   await vi.waitFor(() => expect(actions("查看链接")).toBeDefined());
+  expect(document.querySelector(".share-counts")?.textContent).toBe("访问 12 次 · 访客 3 人");
   actions("查看链接")!.click();
   await vi.waitFor(() => expect(document.querySelector(".history-row a")?.getAttribute("href"))
     .toContain("/yearly/share/current"));

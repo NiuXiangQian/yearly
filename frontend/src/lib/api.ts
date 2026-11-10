@@ -18,7 +18,7 @@ export async function api<T = any>(
   const method = options.method || "GET";
   const scope = cacheScope(path);
   const cacheable = method === "GET" && scope && options.cache !== "reload" && options.cache !== "no-store" && (
-    /^\/(timeline|media|events|children|folders|stats)(?:[/?]|$)/.test(path) && !path.includes("/url?") ||
+    /^\/(timeline|media|events|children|folders|stats|uploaders)(?:[/?]|$)/.test(path) && !path.includes("/url?") ||
     /^\/public\/shares\/[^/?]+(?:[?]|$|\/(days|folders)\/)/.test(path)
   );
   const revision = cacheRevision();

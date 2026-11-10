@@ -5,57 +5,28 @@ import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import {
   ShieldCheck,
-  UserPlus,
   KeyRound,
   Archive,
-  Settings,
   Trash2,
   Users,
   ArrowUpRight,
 } from "lucide-vue-next";
-import { api, post, del, notify, bytes } from "../lib/api";
+import { api, post, notify, bytes } from "../lib/api";
 import { useYearly } from "../stores/yearly";
 const yearly = useYearly(),
   router = useRouter(),
-  members = ref<any[]>([]),
   config = ref<any>(),
   password = ref({ old_password: "", new_password: "" }),
-  member = ref({ username: "", password: "", role: "member" }),
-  addOpen = ref(false),
   busy = ref(false);
 async function load() {
   if (!yearly.isAdmin) return;
   try {
-    [members.value, config.value] = await Promise.all([
-      api("/users"),
-      api("/settings"),
-    ]);
+    config.value = await api("/settings");
   } catch (e) {
     notify(e);
   }
 }
 onMounted(load);
-async function add() {
-  busy.value = true;
-  try {
-    await post("/users", member.value);
-    member.value = { username: "", password: "", role: "member" };
-    addOpen.value = false;
-    await load();
-  } catch (e) {
-    notify(e);
-  } finally {
-    busy.value = false;
-  }
-}
-async function disable(id: number) {
-  try {
-    await del("/users/" + id);
-    await load();
-  } catch (e) {
-    notify(e);
-  }
-}
 async function changePassword() {
   busy.value = true;
   try {
@@ -96,7 +67,7 @@ async function changePassword() {
           yearly.isAdmin
             ? t("管理员")
             : yearly.canEdit
-              ? t("家庭成员")
+              ? t("普通账户")
               : t("只读访客")
         }}</b>
       </div>
@@ -110,11 +81,17 @@ async function changePassword() {
       <p class="muted">
         {{
           t(
-            "家庭空间内共享内容。成员可编辑影像和日记，访客只读，管理员负责账户、档案删除与备份导出。",
+            "普通账户可浏览家庭内容，只能编辑自己添加的内容。管理员负责账户管理，并拥有所有文件和功能的操作权限。",
           )
         }}
       </p>
-      <RouterLink to="/children" class="setting-link"
+      <RouterLink v-if="yearly.isAdmin" to="/accounts" class="setting-link"
+        ><Users :size="17" />{{ t("账户管理")
+        }}<ArrowUpRight :size="16" /></RouterLink
+      ><RouterLink to="/activity" class="setting-link"
+        ><Archive :size="17" />{{ t("修改日志")
+        }}<ArrowUpRight :size="16" /></RouterLink
+      ><RouterLink to="/children" class="setting-link"
         ><Users :size="17" /> {{ t("人物与宠物") }}
         <ArrowUpRight :size="16" /></RouterLink
       ><RouterLink to="/trash" class="setting-link"
@@ -150,39 +127,6 @@ async function changePassword() {
         </button>
       </form>
     </section>
-    <section v-if="yearly.isAdmin" class="panel wide">
-      <div class="section-heading">
-        <h2>{{ t("一起记录的人") }}</h2>
-        <button class="button small" @click="addOpen = true">
-          <UserPlus :size="15" /> {{ t("添加家庭成员") }}
-        </button>
-      </div>
-      <div v-for="m in members" :key="m.id" class="member-row">
-        <span class="avatar">{{ m.username.slice(0, 1).toUpperCase() }}</span
-        ><span
-          ><b>{{ m.username }}</b
-          ><small
-            >{{
-              m.role === "admin"
-                ? t("管理员")
-                : m.role === "member"
-                  ? t("可编辑成员")
-                  : t("只读访客")
-            }}
-            · {{ m.active ? t("启用") : t("已停用") }}</small
-          ></span
-        ><ElPopconfirm
-          v-if="m.id !== yearly.user?.id && m.active"
-          :title="t('停用此账户并注销其登录会话？')"
-          @confirm="disable(m.id)"
-          ><template #reference
-            ><button class="text-button danger">
-              {{ t("停用") }}
-            </button></template
-          ></ElPopconfirm
-        >
-      </div>
-    </section>
     <section v-if="config" class="panel wide">
       <div class="section-heading">
         <h2>{{ t("存储与系统") }}</h2>
@@ -217,38 +161,4 @@ async function changePassword() {
       </p>
     </section>
   </div>
-  <ElDialog v-model="addOpen" :title="t('邀请一个家人')" width="500px"
-    ><form @submit.prevent="add">
-      <label>
-        {{ t("用户名") }}
-        <input
-          v-model="member.username"
-          required
-          minlength="2"
-          maxlength="80"
-          autocomplete="off" /></label
-      ><label>
-        {{ t("初始密码") }}
-        <input
-          v-model="member.password"
-          type="password"
-          required
-          minlength="12"
-          maxlength="256"
-          autocomplete="new-password" /></label
-      ><label>
-        {{ t("家庭权限") }}
-        <select v-model="member.role">
-          <option value="member">{{ t("成员 · 浏览与编辑") }}</option>
-          <option value="viewer">{{ t("访客 · 仅浏览") }}</option>
-          <option value="admin">{{ t("管理员 · 完整管理") }}</option>
-        </select></label
-      >
-      <div class="dialog-actions">
-        <button class="button primary" :disabled="busy">
-          {{ t("创建账户") }}
-        </button>
-      </div>
-    </form></ElDialog
-  >
 </template>

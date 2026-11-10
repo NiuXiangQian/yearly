@@ -48,11 +48,21 @@ export PYTHONPATH="$PWD/backend"
 .venv/bin/python -m app.cli create-admin your-admin-name
 ```
 
-也可手动导入 `deploy/schema-mysql57.sql`，之后执行 `alembic -c backend/alembic.ini stamp 0011`。两个入口任选其一。已有库执行 `./scripts/manage.sh production migrate` 升级到 0011 后再启动新版后端。所有表为 InnoDB / utf8mb4，ID 使用 BIGINT，时间为 DATETIME(3)，坐标为 DECIMAL，原始元数据为 JSON。模型没有 MySQL 8 专属 SQL。
+也可手动导入 `deploy/schema-mysql57.sql`，之后执行 `alembic -c backend/alembic.ini stamp 0013`。然后运行 `./scripts/manage.sh production migrate` 同步后续迁移。两个入口任选其一。已有库执行该迁移命令后再启动新版后端。账户与日志迁移为 `0013`，历史文件夹和档案缺少创建人时由管理员管理，修改日志从升级后开始记录。所有表为 InnoDB / utf8mb4，ID 使用 BIGINT，时间为 DATETIME(3)，坐标为 DECIMAL，原始元数据为 JSON。模型没有 MySQL 8 专属 SQL。
 
 ## 3. 配置私有 OSS
 
 按 [存储与元数据说明](storage-and-metadata.md) 创建或选择私有 Bucket，配置 V4 所需地域、CORS、RAM 权限及 HTTPS 域名。生产配置使用独立 RAM 用户密钥，禁止使用主账号密钥。只将密钥放在服务器 `.env.production`。
+
+### 原件深度冷归档与独立预览
+
+执行数据库迁移 `0015`，安装更新后的 `backend/requirements.txt`，并启动现有 `generate-previews --watch` 服务。任务同时保存照片的 480px / 1600px WebP、视频 MP4 与 WebP 封面。旧文件自动补齐，失败任务可通过 `generate-previews --retry-failed` 重新生成。OSS 拒绝处理超大图片时，后台从已校验原件本地生成 WebP，HEIC 由 pillow-heif 解码。
+
+在对应环境配置 `OSS_ARCHIVE_ORIGINALS=true`，并执行 `scripts/manage.sh test configure-archive`（正式环境将 test 改为 production）。命令保留既有生命周期规则，添加 `originals/` 且带 `yearly-preview=ready-v1` 标签的深度冷归档规则，上传满 1 天后转换。后台在独立预览完整就绪后标记每份原件，头像和 `previews/` 继续标准存储。同地域 ECS 后台可配置 `OSS_INTERNAL_ENDPOINT`，API 为浏览器签发地址继续使用公网 Endpoint / 自定义域名。
+
+新增权限见 `deploy/oss-ram-policy.json`。原件深度冷归档采用本地冗余，最短保留期 180 天。查看原件接口返回 archived / restoring 状态，登录用户可通过 POST `/api/media/{mid}/files/{fid}/restore` 申请 Bulk 解冻，通常 48 小时，完成后提供 1 天下载窗口。Web 展示解冻申请与状态，iOS 保存到相册时为 Live Photo 的两份原件一起申请解冻。公开分享继续读取独立预览。
+
+`backup` 会为缺少本地备份的归档原件申请解冻，保留本次已下载文件并提示解冻后重试。清单恢复会清除旧 Bucket 的归档就绪标记，由目标环境重新生成预览并标记。
 
 ## 4. 构建静态前端
 

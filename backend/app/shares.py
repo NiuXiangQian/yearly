@@ -1,20 +1,23 @@
 """Public sharing has its own allowlisted payload and never grants original access."""
 import hashlib
 import hmac
+import re
 import secrets
 from base64 import urlsafe_b64encode
 from datetime import date, timedelta
 from typing import Literal, Annotated
 from types import SimpleNamespace
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, func, literal, union_all, or_, case
+from sqlalchemy.dialects.mysql import insert
 
 from .config import settings
 from .db import get_db, now
 from .models import (
     TimelineShare,
+    ShareVisit,
     Media,
     TimelineFolder,
     Event,
@@ -22,9 +25,9 @@ from .models import (
     VideoPreview,
     TimelineDay,
 )
-from .security import editor
+from .security import editor, admin
 from .services import timeline_time
-from .storage import get_storage
+from .storage import get_storage, preview_resource
 
 router = APIRouter(prefix="/api", tags=["sharing"])
 
@@ -89,16 +92,21 @@ def managed_share(sid, db, user):
 
 @router.post("/shares")
 def create_share(data: ShareCreate, response: Response, db=Depends(get_db), user=Depends(editor)):
+    return save_share(data, response, db, user, user.id if user.role != "admin" else None)
+
+
+def save_share(data, response, db, user, owner_scope_id):
     if data.media_ids is not None:
         # Validate the same permissions used by all public endpoints. Never silently
         # replace missing/hidden items with a broader date or folder scope.
-        selected, _, _ = shared_queries(SimpleNamespace(media_ids=data.media_ids))
+        selected, _, _ = shared_queries(SimpleNamespace(media_ids=data.media_ids, owner_scope_id=owner_scope_id))
         visible = set(db.scalars(selected.with_only_columns(Media.id)))
         if visible != set(data.media_ids):
             raise HTTPException(422, "部分影像不存在、已删除或不允许分享，请重新选择")
     share = TimelineShare(
         token_hash=secrets.token_hex(32),
         created_by=user.id,
+        owner_scope_id=owner_scope_id,
         title=data.title.strip(),
         media_ids=data.media_ids,
         # Selection shares use a single virtual page, not a capture/archive date.
@@ -113,7 +121,10 @@ def create_share(data: ShareCreate, response: Response, db=Depends(get_db), user
     share.token_hash = token_hash(token)
     db.commit()
     response.headers["Cache-Control"] = "no-store"
-    return {**share_info(share), "token": token, "link_available": True, "can_copy": True}
+    return {
+        **share_info(share), "token": token, "link_available": True,
+        "can_copy": True, "visit_count": 0, "visitor_count": 0,
+    }
 
 
 @router.get("/shares")
@@ -121,20 +132,34 @@ def list_shares(db=Depends(get_db), user=Depends(editor)):
     query = select(TimelineShare)
     if user.role != "admin":
         query = query.where(TimelineShare.created_by == user.id)
+    shares = db.scalars(query.order_by(TimelineShare.id.desc()).limit(100)).all()
+    counts = {
+        row.share_id: {"visit_count": row.visits, "visitor_count": row.visitors}
+        for row in db.execute(
+            select(
+                ShareVisit.share_id,
+                func.sum(ShareVisit.visit_count).label("visits"),
+                func.count().label("visitors"),
+            )
+            .where(ShareVisit.share_id.in_([s.id for s in shares]))
+            .group_by(ShareVisit.share_id)
+        )
+    }
     return [
         {
             **share_info(s),
-            "link_available": s.created_by == user.id and saved_token(s) is not None,
-            "can_copy": s.created_by == user.id,
+            **counts.get(s.id, {"visit_count": 0, "visitor_count": 0}),
+            "link_available": saved_token(s) is not None,
+            "can_copy": True,
         }
-        for s in db.scalars(query.order_by(TimelineShare.id.desc()).limit(100))
+        for s in shares
     ]
 
 
 @router.get("/shares/{sid}/link")
 def read_share_link(sid: int, response: Response, db=Depends(get_db), user=Depends(editor)):
     share = managed_share(sid, db, user)
-    if share.created_by != user.id or share.revoked or share.expires_at <= now():
+    if share.revoked or share.expires_at <= now():
         raise HTTPException(404, "分享链接不可用")
     token = saved_token(share)
     if token is None:
@@ -150,13 +175,11 @@ class ShareCopy(BaseModel):
 @router.post("/shares/{sid}/copy")
 def copy_share(sid: int, data: ShareCopy, response: Response, db=Depends(get_db), user=Depends(editor)):
     share = managed_share(sid, db, user)
-    if share.created_by != user.id:
-        raise HTTPException(404, "分享不存在")
     scope = (
         {"media_ids": share.media_ids} if share.media_ids is not None
         else {"start_date": share.start_date, "end_date": share.end_date}
     )
-    return create_share(ShareCreate(title=share.title, hours=data.hours, **scope), response, db, user)
+    return save_share(ShareCreate(title=share.title, hours=data.hours, **scope), response, db, user, share.owner_scope_id)
 
 
 @router.delete("/shares/{sid}")
@@ -182,13 +205,38 @@ def public_share(token: str, response: Response, db=Depends(get_db)):
     return share
 
 
+@router.post("/public/shares/{token}/visits")
+def record_visit(
+    request: Request, response: Response, share=Depends(public_share), db=Depends(get_db)
+):
+    client = request.cookies.get("yearly_share_client", "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", client):
+        client = secrets.token_urlsafe(32)
+    db.execute(
+        insert(ShareVisit)
+        .values(share_id=share.id, client_hash=token_hash(client), visit_count=1)
+        .on_duplicate_key_update(visit_count=ShareVisit.visit_count + 1)
+    )
+    db.commit()
+    response.set_cookie(
+        "yearly_share_client", client,
+        max_age=365 * 24 * 3600,
+        path=settings().app_base_path + "/api/public/shares",
+        httponly=True,
+        secure=settings().cookie_secure,
+        samesite="lax",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {"ok": True}
+
+
 class DaySharing(BaseModel):
     share_allowed: bool
 
 
 @router.put("/timeline/days/{day}/sharing")
 def update_day_sharing(
-    day: date, data: DaySharing, db=Depends(get_db), user=Depends(editor)
+    day: date, data: DaySharing, db=Depends(get_db), user=Depends(admin)
 ):
     preference = db.get(TimelineDay, day)
     if preference is None:
@@ -233,6 +281,10 @@ def shared_queries(share):
         *in_range(func.date(Event.start_at)),
         Event.share_allowed.is_(True),
     )
+    if share is not None and getattr(share, "owner_scope_id", None) is not None:
+        media = media.where(Media.owner_id == share.owner_scope_id)
+        folders = folders.where(TimelineFolder.owner_id == share.owner_scope_id)
+        events = events.where(Event.created_by == share.owner_scope_id)
     if selection:
         media = media.where(Media.id.in_(share.media_ids))
         # Selected folder members are flattened; never expose their unselected siblings.
@@ -488,11 +540,8 @@ def preview_url(
     ttl = min(60, int((share.expires_at - now()).total_seconds()))
     if ttl < 1:
         raise HTTPException(404, "分享已失效或不存在")
-    if purpose == "preview" and original.mime_type.startswith("video/"):
-        preview = db.get(VideoPreview, original.sha256)
-        if not preview or preview.status != "ready":
-            return {"status": "pending", "url": None}
-        url = storage.video_url(preview, expires=ttl)
-    else:
-        url = storage.image_url(file, purpose, expires=ttl)
-    return {"url": url, "status": "ready", "expires_in": ttl}
+    source = original if purpose == "preview" and original.mime_type.startswith("video/") else file
+    resource = preview_resource(db, storage, source, purpose, expires=ttl)
+    if not resource["url"]:
+        return {"status": "pending", "url": None}
+    return {**resource, "expires_in": ttl}

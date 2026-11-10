@@ -2,7 +2,7 @@
 import { t } from "../lib/i18n";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ImageOff, Layers, Image, FileImage, Maximize, Minimize } from "lucide-vue-next";
-import { bytes } from "../lib/api";
+import { bytes, post } from "../lib/api";
 import { mediaResource, releaseMediaResource, type MediaResource } from "../lib/media-resource";
 import LivePhotoViewer from "./LivePhotoViewer.vue";
 import ImageViewer from "./ImageViewer.vue";
@@ -15,6 +15,7 @@ const original = ref(false),
 const resource = ref<MediaResource>(),
   poster = ref(""),
   error = ref("");
+const resourceRevision = ref(0);
 const primary = computed(() =>
   props.media.files.find((f: any) => f.file_role === "original"),
 );
@@ -46,7 +47,7 @@ watch(
   { immediate: true },
 );
 watch(
-  () => [props.media.id, file.value?.id, original.value] as const,
+  () => [props.media.id, file.value?.id, original.value, resourceRevision.value] as const,
   async (_, __, onCleanup) => {
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
@@ -80,6 +81,8 @@ watch(
         resource.value = value;
         if (["pending", "processing"].includes(value.status))
           timer = setTimeout(refresh, 15_000);
+        if (value.status === "restoring")
+          timer = setTimeout(refresh, 60_000);
       } catch (e) {
         if (active) {
           failed.value = true;
@@ -93,6 +96,17 @@ watch(
   },
   { immediate: true },
 );
+async function restoreOriginal() {
+  loading.value = true;
+  try {
+    await post(`/media/${props.media.id}/files/${file.value.id}/restore`);
+    resourceRevision.value++;
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : t("解冻申请失败，请重试");
+  } finally {
+    loading.value = false;
+  }
+}
 async function playbackSource() {
   const value = await mediaResource(
     props.media.id,
@@ -164,7 +178,7 @@ function motionSource(refresh = false) {
       <LivePhotoViewer
         v-if="live && liveFile && !original && resource?.url && !failed"
         :key="media.id" :src="resource.url" :alt="media.title"
-        :load-motion="motionSource" @error="failed = true"
+        :load-motion="motionSource" :autoplay="expanded" @error="failed = true"
       />
       <VideoPlayer
         v-else-if="isVideo && resource?.url && !failed"
@@ -188,6 +202,10 @@ function motionSource(refresh = false) {
             {{
               loading
                 ? t("正在加载预览…")
+                : resource?.status === "archived"
+                  ? t("原件已深度归档")
+                : resource?.status === "restoring"
+                  ? t("原件正在解冻")
                 : resource?.status === "pending" ||
                     resource?.status === "processing"
                   ? t("视频预览正在准备")
@@ -197,12 +215,19 @@ function motionSource(refresh = false) {
           <p>
             {{
               error ||
+              resource?.message ||
               (resource?.status === "pending" ||
               resource?.status === "processing"
                 ? t("完成后自动更新。原文件已安全保存。")
                 : t("可以点击上方查看原文件，或下载后打开。"))
             }}
           </p>
+          <button v-if="resource?.status === 'archived'" type="button" :disabled="loading" @click="restoreOriginal">
+            {{ t("申请解冻原件 · 通常48小时") }}
+          </button>
+          <button v-if="resource?.status === 'restoring'" type="button" :disabled="loading" @click="resourceRevision++">
+            {{ t("刷新解冻状态") }}
+          </button>
         </div>
       </div>
     </div>
@@ -320,6 +345,17 @@ function motionSource(refresh = false) {
   font-size: 12px;
   color: #c5d5c9;
   line-height: 1.8;
+}
+.viewer-status button {
+  min-height: 44px;
+  max-width: 100%;
+  border: 1px solid #ffffff50;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #ffffff12;
+  color: #e7eee8;
+  font-size: 14px;
+  white-space: normal;
 }
 .viewer-live-tabs {
   display: flex;

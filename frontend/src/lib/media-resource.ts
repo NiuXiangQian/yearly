@@ -3,7 +3,8 @@ import { cacheScope, cacheRevision, cachedImage, saveCachedImage } from "./local
 
 export type MediaResource = {
   url: string | null;
-  status: "ready" | "pending" | "processing" | "failed";
+  status: "ready" | "pending" | "processing" | "failed" | "archived" | "restoring";
+  message?: string;
   mime_type?: string;
   file_size?: number;
 };

@@ -177,7 +177,7 @@ open ios/Yearly.xcodeproj
 | Access | Local HTTP | HTTPS and Secure cookies |
 | Database account, secrets, OSS settings | Configured independently | Configured independently |
 
-Use Alembic to create the schema for a new deployment. Back up an existing deployment before running migrations. The current migration revision is `0008`. Production requires both the API and the video preview worker, together with Nginx, private OSS, and backup jobs.
+Use Alembic to create the schema for a new deployment. Back up an existing deployment before running migrations. The account and audit migration revision is `0013`. Production requires both the API and the video preview worker, together with Nginx, private OSS, and backup jobs.
 
 Follow the [deployment guide](docs/en/deployment.md). This repository contains the application and deployment templates, not working server, database, or OSS credentials.
 
@@ -197,7 +197,7 @@ See [verification notes](docs/en/verification.md) for coverage and remaining acc
 
 ## Data boundaries and privacy
 
-- Members can edit the entire family archive; guests are read-only. Administrators manage accounts, profile deletion, and exports. Accounts do not have separate private spaces.
+- Members can upload and edit their own files, folders, profiles, and journals. Other content is locked for editing. Administrators manage accounts and all content. Changes record the actor and field history transactionally. Legacy folders and profiles without a known creator are managed by administrators. Existing read-only guests remain read-only.
 - The application preserves the bytes selected in the browser. Phone photo pickers may convert formats or omit Live Photo resources; check how originals are exported before importing.
 - Original capture times and manual corrections are stored separately. Missing times, time zones, or GPS data are not fabricated.
 - Deleted media and journals enter the recycle bin. Deleting a folder only removes its classification. Originals are never automatically permanently deleted.

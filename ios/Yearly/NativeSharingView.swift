@@ -71,7 +71,7 @@ struct NativeSharingView: View {
                         HStack {
                             Button("截至今天") { end = Date() }
                             if let latest { Button("截至最新回忆") { end = latest } }
-                        }.buttonStyle(.borderless)
+                        }.buttonStyle(NativeActionStyle(compact: true))
                         if loadingRange { ProgressView("正在查询可分享日期…") }
                         if !dateRangeError.isEmpty {
                             Text(dateRangeError).foregroundStyle(.secondary)
@@ -88,19 +88,19 @@ struct NativeSharingView: View {
                     HStack {
                         ForEach([1, 24, 72, 168], id: \.self) { value in
                             Button(value < 24 ? "1 小时" : "\(value / 24) 天") { hours = value }
-                                .fontWeight(hours == value ? .semibold : .regular)
+                                .buttonStyle(NativeActionStyle(kind: hours == value ? .primary : .secondary, compact: true))
                         }
                     }.buttonStyle(.borderless)
                     if !(1...168).contains(hours) {
                         Text("有效期须为 1 至 168 小时。").font(.footnote).foregroundStyle(.red)
                     }
-                    Text(selectionMode ? "链接仅包含下方确认的影像。同一天、同一文件夹的其他内容及以后新增的照片不会加入。Live Photo 作为一项完整分享。" : "链接包含所选日期内允许分享的全部家庭回忆，不受时间线人物、搜索和类型筛选影响；该日期内以后新增的可分享内容也会出现。")
+                    Text(selectionMode ? "链接仅包含下方确认的影像。同一天、同一文件夹的其他内容及以后新增的照片不会加入。Live Photo 作为一项完整分享。" : store.session.isAdmin ? "链接包含所选日期内允许分享的全部家庭回忆，不受人物、上传人、搜索和类型筛选影响。" : "链接仅包含所选日期内自己添加且允许分享的回忆，该日期内以后新增的本人内容也会出现。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("收到链接的人无需登录，只能查看预览。原件下载和编辑不开放，实况图沿用现有完整播放方式。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Button { confirming = true } label: {
                         Label("创建限时分享链接", systemImage: "link")
-                    }.disabled(!valid)
+                    }.buttonStyle(NativeActionStyle(kind: .primary)).disabled(!valid)
                 }
                 if let selectedItems {
                     Section("确认所选内容") {
@@ -136,6 +136,7 @@ struct NativeSharingView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(share.title.isEmpty ? "家庭时光" : share.title).font(.headline)
                             Text(share.scope == "selection" ? "指定影像 · \(share.selected_count ?? 0) 项" : "\(share.start_date) — \(share.end_date)").font(.caption)
+                            Text("访问 \(share.visit_count ?? 0) 次 · 访客 \(share.visitor_count ?? 0) 人（按客户端去重）").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                             TimelineView(.periodic(from: .now, by: 15)) { _ in
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(share.revoked ? "已撤销" : share.usable ? "生效中" : "已到期").font(.caption).foregroundStyle(.secondary)
@@ -156,11 +157,12 @@ struct NativeSharingView: View {
                                     }
                                 }
                             }
-                        }.buttonStyle(.borderless).padding(.vertical, 4)
+                        }.buttonStyle(NativeActionStyle(compact: true)).padding(.vertical, 4)
                     }
                 }
             }
-            .navigationTitle("分享与管理")
+            .scrollContentBackground(.hidden).background(NativeTheme.background)
+            .navigationTitle("分享管理")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .task { await store.load() }
             .task { if !selectionMode { await loadBounds() } }

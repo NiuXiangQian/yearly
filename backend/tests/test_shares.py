@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import select
 from app.db import now
-from app.models import Media, TimelineShare, User, VideoPreview, MediaFile
+from app.models import Media, TimelineShare, ShareVisit, User, VideoPreview, MediaFile
 from conftest import upload, file_payload
 from test_folders import folder
 
@@ -25,6 +25,60 @@ def share(context, **kwargs):
 def public(context, data):
     context.client.cookies.clear()
     return "/api/public/shares/" + data["token"]
+
+
+def test_share_visit_counts_and_client_deduplication(context):
+    data = share(context)
+    assert data["visit_count"] == data["visitor_count"] == 0
+    base = public(context, data)
+    # Reading pages and preview metadata must not count as additional visits.
+    for suffix in ["", "/dates", "/days/2024-03-31"]:
+        assert context.client.get(base + suffix).status_code == 200
+    first = context.client.post(base + "/visits", json={})
+    assert first.status_code == 200
+    cookie = context.client.cookies.get("yearly_share_client")
+    assert "HttpOnly" in first.headers["set-cookie"]
+    assert context.client.post(base + "/visits", json={}).status_code == 200
+    assert context.client.cookies.get("yearly_share_client") == cookie
+    context.client.cookies.clear()
+    assert context.client.post(base + "/visits", json={}).status_code == 200
+    with context.db() as db:
+        visits = db.scalars(select(ShareVisit).where(ShareVisit.share_id == data["id"])).all()
+        assert sorted(v.visit_count for v in visits) == [1, 2]
+        assert cookie not in [v.client_hash for v in visits]
+    context.client.cookies.set("yearly_session", "admin")
+    result = context.client.get("/api/shares").json()[0]
+    assert result["visit_count"] == 3
+    assert result["visitor_count"] == 2
+    # A copied link has independent counters, while the same client can visit it.
+    copied = context.client.post(f'/api/shares/{data["id"]}/copy', json={}).json()
+    assert copied["visit_count"] == copied["visitor_count"] == 0
+    assert context.client.post(f'/api/public/shares/{copied["token"]}/visits', json={}).status_code == 200
+    results = {s["id"]: s for s in context.client.get("/api/shares").json()}
+    assert results[data["id"]]["visit_count"] == 3
+    assert results[copied["id"]]["visitor_count"] == 1
+    # Stats belong to the management response, not the public payload.
+    assert "visitor_count" not in context.client.get(base).json()["share"]
+
+
+@pytest.mark.parametrize("invalid", ["expired", "revoked", "owner_inactive", "missing"])
+def test_unavailable_share_does_not_record_visit(context, invalid):
+    data = share(context)
+    with context.db() as db:
+        row = db.get(TimelineShare, data["id"])
+        if invalid == "expired":
+            row.expires_at = now() - timedelta(seconds=1)
+        elif invalid == "revoked":
+            row.revoked = True
+        elif invalid == "owner_inactive":
+            db.get(User, row.created_by).active = False
+        db.commit()
+    base = public(context, data)
+    if invalid == "missing":
+        base = "/api/public/shares/missing"
+    assert context.client.post(base + "/visits", json={}).status_code == 404
+    with context.db() as db:
+        assert db.scalars(select(ShareVisit)).all() == []
 
 
 @pytest.mark.parametrize("hours", [0, 169, -1, 1.5])
@@ -247,7 +301,7 @@ def test_share_management_permissions_and_csrf(context):
     )
 
 
-def test_saved_links_can_only_be_retrieved_by_the_creator(context):
+def test_saved_links_can_be_managed_by_creator_and_admin(context):
     client = context.client
     client.cookies.set("yearly_session", "member")
     client.headers["X-CSRF-Token"] = "csrf-member"
@@ -261,9 +315,9 @@ def test_saved_links_can_only_be_retrieved_by_the_creator(context):
     assert result.headers["Cache-Control"] == "no-store"
     client.cookies.set("yearly_session", "admin")
     client.headers["X-CSRF-Token"] = "csrf-admin"
-    assert not client.get("/api/shares").json()[0]["link_available"]
-    assert client.get(path + "/link").status_code == 404
-    assert client.post(path + "/copy", json={}).status_code == 404
+    assert client.get("/api/shares").json()[0]["link_available"]
+    assert client.get(path + "/link").status_code == 200
+    assert client.post(path + "/copy", json={}).status_code == 200
     assert client.delete(path).status_code == 200
     client.cookies.set("yearly_session", "member")
     assert client.get(path + "/link").status_code == 404
@@ -465,9 +519,9 @@ def test_backup_preserves_content_and_day_sharing_permissions(context):
     )
     document = context.client.get("/api/export/manifest").json()
     assert document["tables"]["media"][0]["share_allowed"] is False
-    assert document["tables"]["timeline_day"] == [
-        {"timeline_date": "2024-03-31", "share_allowed": False}
-    ]
+    day = document["tables"]["timeline_day"][0]
+    assert day["timeline_date"] == "2024-03-31" and day["share_allowed"] is False
+    assert day["updated_by"] == 1 and day["updated_at"]
     target = context.tmp_path / "sharing-backup.json"
     target.write_text(json.dumps(document))
     with context.db() as db:

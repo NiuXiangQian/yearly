@@ -16,7 +16,7 @@ Click **Share timeline**:
 1. Choose **Earliest, One year ago, Six months ago, or Custom date** for the start. Earliest uses the first archive date among currently shareable content. Relative dates use the local calendar and clamp to valid month-end dates (February 29 becomes February 28 one year earlier). The end date is inclusive, with a Today shortcut. Main-page child, search, and media-type filters do not scope the share.
 2. Choose **1–168 hours (up to 7 days)** from successful creation.
 3. Create, copy, or preview the link. There is no file picker: the server automatically filters content using its saved permissions. Save the full link before closing the dialog.
-4. Revoke links under **Manage recent shares**. Members manage their own links; admins manage all links. The list shows the latest 100. Viewers cannot create or modify sharing settings.
+4. Revoke links under **Manage recent shares**. Members manage their own links and can share their own content. Administrators manage all links and may share all authorized content. Day-wide sharing settings require an administrator. The list shows the latest 100. Viewers cannot create or modify sharing settings.
 
 Shares update with the timeline and saved permissions, including new content allowed for sharing. To change a link's date range, revoke it and create a new link.
 
@@ -48,7 +48,7 @@ These 2× lossless PNGs use fictional data only. The creation dialog only asks f
 - Regular list payloads omit accounts, child profiles, original filenames, GPS, EXIF, and storage details. OSS previews use short-lived signed URLs; recipients can see the domain and object path, with the signature limited to that preview.
 - **Custom titles and diary text are shared content.** Review private writing before sharing. Diaries do not expose original media associations or covers that could reveal excluded files.
 - Expiry and revocation block new API access immediately. Previously issued preview URLs remain valid for at most 60 seconds, never beyond the share's remaining lifetime. Loaded or saved content cannot be recalled.
-- The database stores only SHA-256 digests of random link tokens. Portable backups omit share links. Deactivating a creator or removing their editing role also disables their links.
+- The database stores only SHA-256 digests of random link tokens. Portable backups omit share links. Deactivating a creator or removing their editing role also disables their links. Changing a role revokes existing links. Copying another account’s link preserves its original content ownership scope.
 - The frontend suppresses Referrer headers and requests no search indexing. The sample Nginx access log redacts share tokens; API access logging is disabled. Treat other proxy, monitoring, and error logs as sensitive.
 
 ## Migration

@@ -187,7 +187,7 @@ class LoginIn(BaseModel):
 class UserIn(BaseModel):
     username: str = Field(min_length=2, max_length=80, pattern=r"^[\w.@-]+$")
     password: str = Field(min_length=12, max_length=256)
-    role: Literal["admin", "member", "viewer"] = "member"
+    role: Literal["admin", "member"] = "member"
 
 
 class TimelineCursor(BaseModel):
@@ -205,3 +205,10 @@ class TimelineCursor(BaseModel):
         if value and value.tzinfo:
             raise ValueError("游标使用拍摄当地时间")
         return value
+
+
+class UserEdit(BaseModel):
+    username: str = Field(min_length=2, max_length=80, pattern=r"^[\w.@-]+$")
+    role: Literal["admin", "member", "viewer"]
+    active: bool
+    password: str | None = Field(default=None, min_length=12, max_length=256)

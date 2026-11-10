@@ -20,6 +20,8 @@ const router = createRouter({
     { path: "/children", component: () => import("./views/Children.vue") },
     { path: "/upload", component: () => import("./views/Upload.vue") },
     { path: "/events", component: () => import("./views/Events.vue") },
+    { path: "/accounts", component: () => import("./views/Accounts.vue"), meta: { admin: true } },
+    { path: "/activity", component: () => import("./views/Activity.vue") },
     { path: "/settings", component: () => import("./views/Settings.vue") },
     { path: "/backup", component: () => import("./views/Backup.vue") },
     {
@@ -36,6 +38,7 @@ router.beforeEach(async (to) => {
   const yearly = useYearly();
   if (!yearly.user && !(await yearly.session()) && to.path !== "/login")
     return "/login";
+  if ((to.meta.admin || to.path === "/backup") && yearly.user && !yearly.isAdmin) return "/settings";
   if (yearly.user && to.path === "/login") return "/";
 });
 app.use(router).mount("#app");

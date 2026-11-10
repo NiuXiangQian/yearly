@@ -3,6 +3,7 @@ from sqlalchemy import select, delete, or_, func, cast, DateTime
 from fastapi import HTTPException
 from .models import Child, Media, MediaChild, Event, EventMedia, EventChild
 from .age import age_at
+from .accounts import modification_data, record_change
 
 
 def require_row(db, model, row_id):
@@ -25,6 +26,10 @@ def validate_children(db, ids):
 def set_children(db, parent_id, ids, relation):
     ids = validate_children(db, ids)
     field = relation.media_id if relation is MediaChild else relation.event_id
+    previous = sorted(db.scalars(select(relation.child_id).where(field == parent_id)))
+    if previous != sorted(ids):
+        parent = db.get(Media if relation is MediaChild else Event, parent_id)
+        record_change(db, parent, {"child_ids": {"before": previous, "after": sorted(ids)}})
     db.execute(delete(relation).where(field == parent_id))
     key = "media_id" if relation is MediaChild else "event_id"
     db.add_all([relation(**{key: parent_id, "child_id": cid}) for cid in ids])
@@ -51,11 +56,11 @@ def apply_time(media):
 
 
 def child_data(child):
-    return {c.name: getattr(child, c.name) for c in Child.__table__.columns}
+    return {**{c.name: getattr(child, c.name) for c in Child.__table__.columns}, **modification_data(child)}
 
 
 def media_data(media, child_ids=None, detail=False):
-    data = {c.name: getattr(media, c.name) for c in Media.__table__.columns}
+    data = {**{c.name: getattr(media, c.name) for c in Media.__table__.columns}, **modification_data(media)}
     data["timeline_day"] = media.timeline_date or (
         media.taken_at_local.date() if media.taken_at_local else None
     )
@@ -94,7 +99,7 @@ def timeline_time():
 
 
 def event_data(event, child_ids=None):
-    data = {c.name: getattr(event, c.name) for c in Event.__table__.columns}
+    data = {**{c.name: getattr(event, c.name) for c in Event.__table__.columns}, **modification_data(event)}
     data["child_ids"] = [c.id for c in event.children if c.status != "deleted"]
     data["children"] = [
         {
@@ -159,6 +164,9 @@ def save_event(db, event, payload):
     db.add(event)
     db.flush()
     set_children(db, event.id, payload.child_ids, EventChild)
+    previous = [link.media_id for link in event.media_links]
+    if previous != payload.media_ids:
+        record_change(db, event, {"media_ids": {"before": previous, "after": payload.media_ids}})
     db.execute(delete(EventMedia).where(EventMedia.event_id == event.id))
     db.add_all(
         [

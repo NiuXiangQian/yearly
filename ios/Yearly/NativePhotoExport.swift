@@ -12,6 +12,24 @@ enum NativePhotoExport {
             guard let motion = item.motion else { throw UploadFailure(message: "缺少配对资源，无法保存完整实况照片。") }
             originals.append((motion, .pairedVideo))
         }
+        var downloadable: [(file: NativeMediaFile, type: PHAssetResourceType, url: URL)] = []
+        var waitingForRestore = false
+        for (file, type) in originals {
+            let resource: NativeMediaResource = try await session.get("/media/\(item.id)/files/\(file.id)/url?purpose=original")
+            if resource.status == "archived" {
+                try await session.restoreOriginal(mediaID: item.id, fileID: file.id)
+                waitingForRestore = true
+            } else if resource.status == "restoring" {
+                waitingForRestore = true
+            } else if let url = resource.url.flatMap(AppConfiguration.httpsURL) {
+                downloadable.append((file, type, url))
+            } else {
+                throw UploadFailure(message: resource.message ?? "原件下载地址不可用。")
+            }
+        }
+        if waitingForRestore {
+            throw UploadFailure(message: "原件正在解冻，通常需要48小时。完成后请再次保存到相册，可下载1天。")
+        }
         let permission = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard permission == .authorized || permission == .limited else {
             throw UploadFailure(message: "请在设置中允许 Yearly 添加照片。")
@@ -20,11 +38,7 @@ enum NativePhotoExport {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: directory) }
         var resources: [(url: URL, name: String, type: PHAssetResourceType)] = []
-        for (file, type) in originals {
-            let resource: NativeMediaResource = try await session.get("/media/\(item.id)/files/\(file.id)/url?purpose=original")
-            guard let url = resource.url.flatMap(AppConfiguration.httpsURL) else {
-                throw UploadFailure(message: "原件下载地址不可用。")
-            }
+        for (file, type, url) in downloadable {
             let (temporary, response) = try await NativeMediaNetwork.session.download(from: url)
             defer { try? FileManager.default.removeItem(at: temporary) }
             guard (response as? HTTPURLResponse)?.statusCode == 200 else {

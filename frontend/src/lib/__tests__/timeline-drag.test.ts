@@ -84,7 +84,7 @@ beforeEach(() => {
       disconnect() {}
     },
   );
-  vi.mocked(api).mockResolvedValue({
+  vi.mocked(api).mockImplementation(async (path) => path === "/uploaders" ? [] : {
     items: [
       {
         id: 90,
@@ -407,7 +407,7 @@ it("uses one date mode at a time, including leap days and year boundaries", asyn
   }
 });
 
-it("shows every loaded item on mobile and automatically appends the next cursor page", async () => {
+it("folds a large day while still automatically appending and retrying the next cursor page", async () => {
   vi.stubGlobal("matchMedia", () => ({
     matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn(),
   }));
@@ -420,7 +420,7 @@ it("shows every loaded item on mobile and automatically appends the next cursor 
   app = createApp(Timeline);
   app.component("RouterLink", { template: "<a><slot/></a>" });
   app.mount(host);
-  await vi.waitFor(() => expect(host.querySelectorAll(".timeline-entry")).toHaveLength(40));
+  await vi.waitFor(() => expect(host.querySelectorAll(".timeline-entry")).toHaveLength(8));
   expect(host.textContent).not.toContain("展开更多");
   expect(host.textContent).not.toContain("加载更多回忆");
   vi.mocked(api)
@@ -430,9 +430,30 @@ it("shows every loaded item on mobile and automatically appends the next cursor 
     });
   loadIntersection([{ isIntersecting: true }]);
   await vi.waitFor(() => expect(host.textContent).toContain("下一页加载失败"));
-  expect(host.querySelectorAll(".timeline-entry")).toHaveLength(40);
+  expect(host.querySelectorAll(".timeline-entry")).toHaveLength(8);
   button("重新加载").click();
+  await vi.waitFor(() => expect(button("展开其余 33 项")).toBeDefined());
+  button("展开其余 33 项").click();
   await vi.waitFor(() => expect(host.querySelectorAll(".timeline-entry")).toHaveLength(41));
   expect(vi.mocked(api).mock.calls.at(-1)?.[0]).toContain("cursor=next-page");
   expect(host.querySelector(".scroll-loader")).toBeNull();
+});
+
+it("filters by uploader and clears the owner filter without reusing pagination", async () => {
+  const original = vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation((path, options) => path === "/uploaders" ? Promise.resolve([
+    { id: 1, username: "青禾" }, { id: 2, username: "明月" },
+  ]) : original(path, options));
+  await mount();
+  const picker = host.querySelector<HTMLSelectElement>('select[aria-label="上传人"]')!;
+  expect(picker.textContent).toContain("明月");
+  picker.value = "2";
+  picker.dispatchEvent(new Event("change", { bubbles: true }));
+  await vi.waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => path.startsWith("/timeline?") && new URLSearchParams(path.split("?")[1]).get("owner_id") === "2")).toBe(true));
+  picker.value = "";
+  picker.dispatchEvent(new Event("change", { bubbles: true }));
+  await nextTick();
+  const path = vi.mocked(api).mock.calls.filter(([path]) => path.startsWith("/timeline?")).at(-1)![0];
+  expect(new URLSearchParams(path.split("?")[1]).has("owner_id")).toBe(false);
+  expect(new URLSearchParams(path.split("?")[1]).has("cursor")).toBe(false);
 });

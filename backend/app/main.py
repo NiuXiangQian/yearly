@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Response, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete, update, func, and_, or_, case, literal_column
+from sqlalchemy import select, delete, func, and_, or_, case, literal_column, cast, String
 from sqlalchemy.exc import IntegrityError
 from argon2.exceptions import VerificationError
 from .config import settings
@@ -26,11 +26,13 @@ from .models import (
     UploadTask,
     TimelineFolder,
     TimelineDay,
+    TimelineShare,
     VideoPreview,
     MediaChild,
     Event,
     EventChild,
     EventMedia,
+    AuditLog,
 )
 from .schemas import (
     ChildIn,
@@ -41,6 +43,7 @@ from .schemas import (
     MediaReorder,
     LoginIn,
     UserIn,
+    UserEdit,
     TimelineCursor,
 )
 from .security import (
@@ -65,7 +68,8 @@ from .services import (
     timeline_time,
 )
 from .age import milestones
-from .storage import get_storage
+from .accounts import require_editable
+from .storage import get_storage, preview_resource
 from .shares import router as share_router
 from .uploads import router as upload_router
 from .folders import (
@@ -263,10 +267,37 @@ def change_password(data: PasswordIn, db=Depends(get_db), user=Depends(current_u
     return {"ok": True}
 
 
+@app.get("/api/uploaders")
+def uploaders(db=Depends(get_db), user=Depends(current_user)):
+    has_media = (
+        select(Media.id)
+        .where(
+            Media.owner_id == User.id,
+            Media.purpose == "memory",
+            Media.status.in_(["active", "deleted"]),
+        )
+        .exists()
+    )
+    return [
+        {"id": row.id, "username": row.username}
+        for row in db.scalars(
+            select(User).where(has_media).order_by(User.username, User.id)
+        )
+    ]
+
+
 @app.get("/api/users")
 def users(db=Depends(get_db), user=Depends(admin)):
     return [
-        {"id": u.id, "username": u.username, "role": u.role, "active": u.active}
+        {
+            "id": u.id,
+            "username": u.username,
+            "role": u.role,
+            "active": u.active,
+            "created_at": u.created_at,
+            "updated_at": u.updated_at,
+            "updated_by": u.updated_by,
+        }
         for u in db.scalars(select(User))
     ]
 
@@ -281,6 +312,102 @@ def create_user(data: UserIn, db=Depends(get_db), user=Depends(admin)):
     db.add(row)
     db.commit()
     return {"id": row.id}
+
+
+@app.put("/api/users/{uid}")
+def update_user(uid: int, data: UserEdit, db=Depends(get_db), user=Depends(admin)):
+    row = require_row(db, User, uid)
+    if uid == user.id and (not data.active or data.role != "admin"):
+        raise HTTPException(422, "当前管理员不能停用自己或降低自己的权限")
+    credentials_changed = (
+        data.password is not None
+        or row.role != data.role
+        or row.username != data.username
+        or not data.active
+    )
+    if row.role != data.role:
+        for share in db.scalars(
+            select(TimelineShare).where(
+                TimelineShare.created_by == uid, TimelineShare.revoked.is_(False)
+            )
+        ):
+            share.revoked = True
+    row.username = data.username
+    row.role = data.role
+    row.active = data.active
+    if data.password is not None:
+        row.password_hash = passwords.hash(data.password)
+    if credentials_changed:
+        db.execute(delete(UserSession).where(UserSession.user_id == uid))
+    db.commit()
+    return {"ok": True, "reauthenticate": credentials_changed and uid == user.id}
+
+
+@app.get("/api/audit-logs")
+def audit_logs(
+    resource_type: Literal[
+        "media",
+        "timeline_folder",
+        "child",
+        "timeline_event",
+        "timeline_day",
+        "timeline_share",
+        "sys_user",
+    ]
+    | None = None,
+    resource_id: str | None = Query(default=None, max_length=80),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db=Depends(get_db),
+    user=Depends(current_user),
+):
+    query = select(AuditLog)
+    if user.role != "admin":
+        owned = []
+        for model, owner in (
+            (Media, Media.owner_id),
+            (TimelineFolder, TimelineFolder.owner_id),
+            (Child, Child.owner_id),
+            (Event, Event.created_by),
+            (TimelineShare, TimelineShare.created_by),
+        ):
+            owned.append(
+                and_(
+                    AuditLog.resource_type == model.__tablename__,
+                    AuditLog.resource_id.in_(
+                        select(
+                            cast(model.id, String).collate("utf8mb4_unicode_ci")
+                        ).where(owner == user.id)
+                    ),
+                )
+            )
+        query = query.where(
+            or_(
+                AuditLog.actor_id == user.id,
+                *owned,
+                and_(
+                    AuditLog.resource_type == "sys_user",
+                    AuditLog.resource_id == str(user.id),
+                ),
+            )
+        )
+    if resource_type:
+        query = query.where(AuditLog.resource_type == resource_type)
+    if resource_id:
+        query = query.where(AuditLog.resource_id == resource_id)
+    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = db.scalars(
+        query.order_by(AuditLog.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return {
+        "items": [
+            {c.name: getattr(row, c.name) for c in AuditLog.__table__.columns}
+            for row in rows
+        ],
+        "total": total,
+    }
 
 
 @app.delete("/api/users/{uid}")
@@ -314,7 +441,7 @@ def create_child(data: ChildIn, db=Depends(get_db), user=Depends(editor)):
         values["growth_enabled"] = (
             data.profile_type in {"child", "pet"} or data.relationship == "孩子"
         )
-    child = Child(**values)
+    child = Child(**values, owner_id=user.id)
     db.add(child)
     db.commit()
     return child_data(child)
@@ -322,7 +449,7 @@ def create_child(data: ChildIn, db=Depends(get_db), user=Depends(editor)):
 
 @app.put("/api/children/{cid}")
 def update_child(cid: int, data: ChildIn, db=Depends(get_db), user=Depends(editor)):
-    child = require_row(db, Child, cid)
+    child = require_editable(user, require_row(db, Child, cid))
     if child.status == "deleted":
         raise HTTPException(404, "档案已删除")
     if data.avatar_media_id and data.avatar_media_id != child.avatar_media_id:
@@ -346,8 +473,10 @@ def delete_child(cid: int, confirm_name: str, db=Depends(get_db), user=Depends(a
     if confirm_name != child.name:
         raise HTTPException(422, "请输入名字确认删除")
     child.status = "deleted"
-    db.execute(delete(MediaChild).where(MediaChild.child_id == cid))
-    db.execute(delete(EventChild).where(EventChild.child_id == cid))
+    for media in db.scalars(select(Media).join(MediaChild).where(MediaChild.child_id == cid)):
+        set_children(db, media.id, [c.id for c in media.children if c.id != cid and c.status != "deleted"], MediaChild)
+    for event in db.scalars(select(Event).join(EventChild).where(EventChild.child_id == cid)):
+        set_children(db, event.id, [c.id for c in event.children if c.id != cid and c.status != "deleted"], EventChild)
     db.commit()
     return {"ok": True}
 
@@ -375,6 +504,7 @@ def require_avatar_image(db, mid):
 @app.get("/api/media")
 def media_list(
     folder_id: int | None = Query(default=None, ge=1),
+    owner_id: int | None = Query(default=None, ge=1),
     child_id: list[int] = Query(default=[]),
     match: Literal["any", "all"] = "any",
     start: datetime | None = None,
@@ -394,6 +524,8 @@ def media_list(
         child_id,
         match,
     )
+    if owner_id is not None:
+        query = query.where(Media.owner_id == owner_id)
     if folder_id is not None:
         active_folder(db, folder_id)
         query = query.where(Media.folder_id == folder_id)
@@ -438,7 +570,7 @@ def media_detail(mid: int, db=Depends(get_db), user=Depends(current_user)):
 
 @app.put("/api/media/{mid}")
 def edit_media(mid: int, data: MediaEdit, db=Depends(get_db), user=Depends(editor)):
-    media = require_active_media(db, mid)
+    media = require_editable(user, require_active_media(db, mid))
     previous_day = media.timeline_date or (
         media.taken_at_local.date() if media.taken_at_local else None
     )
@@ -464,7 +596,7 @@ def edit_media(mid: int, data: MediaEdit, db=Depends(get_db), user=Depends(edito
 def batch_children(data: BatchChildren, db=Depends(get_db), user=Depends(editor)):
     child_ids = validate_children(db, data.child_ids)
     for mid in set(data.media_ids):
-        media = require_active_media(db, mid)
+        media = require_editable(user, require_active_media(db, mid))
         current = {c.id for c in media.children if c.status != "deleted"}
         ids = (
             child_ids
@@ -483,7 +615,7 @@ def organize_media(data: BatchOrganize, db=Depends(get_db), user=Depends(editor)
     changes = data.model_dump(exclude={"media_ids"}, exclude_unset=True)
     if not changes:
         raise HTTPException(422, "请选择批次名称或归档日期")
-    rows = [require_active_media(db, mid) for mid in set(data.media_ids)]
+    rows = [require_editable(user, require_active_media(db, mid)) for mid in set(data.media_ids)]
     for media in rows:
         if "batch_name" in changes:
             media.batch_name = (data.batch_name or "").strip()
@@ -519,6 +651,7 @@ def reorder_timeline(data: TimelineReorder, db=Depends(get_db), user=Depends(edi
         [(item.kind, item.id) for item in data.items],
         (data.target.kind, data.target.id),
         data.placement,
+        user,
     )
     db.commit()
     return {"items": [{"kind": kind, "id": id} for kind, id in ordered]}
@@ -536,25 +669,23 @@ def reset_media_order(data: ResetMediaOrder, db=Depends(get_db), user=Depends(ed
         if folder.timeline_date != data.day:
             raise HTTPException(422, "文件夹与日期不一致")
     day_column = func.date(timeline_time())
-    query = update(Media).where(
-        Media.status == "active",
-        Media.purpose == "memory",
+    query = select(Media).where(
+        Media.status == "active", Media.purpose == "memory",
         day_column == data.day if data.day else day_column.is_(None),
     )
     if data.folder_id:
+        require_editable(user, folder)
         query = query.where(Media.folder_id == data.folder_id)
-    result = db.execute(query.values(sort_order=0))
-    if not data.folder_id and data.day:
-        db.execute(
-            update(TimelineFolder)
-            .where(
-                TimelineFolder.status == "active",
-                TimelineFolder.timeline_date == data.day,
-            )
-            .values(sort_order=0)
-        )
+    rows = list(db.scalars(query))
+    folders = list(db.scalars(select(TimelineFolder).where(
+        TimelineFolder.status == "active", TimelineFolder.timeline_date == data.day,
+    ))) if not data.folder_id and data.day else []
+    for row in [*rows, *folders]:
+        require_editable(user, row)
+    for row in [*rows, *folders]:
+        row.sort_order = 0
     db.commit()
-    return {"ok": True, "count": result.rowcount}
+    return {"ok": True, "count": len(rows)}
 
 
 @app.post("/api/media/reorder")
@@ -566,6 +697,7 @@ def reorder_media(data: MediaReorder, db=Depends(get_db), user=Depends(editor)):
             [("media", mid) for mid in data.media_ids],
             ("media", data.target_id),
             data.placement,
+            user,
         )
         db.commit()
         return {"media_ids": [id for kind, id in ordered if kind == "media"]}
@@ -589,6 +721,8 @@ def reorder_media(data: MediaReorder, db=Depends(get_db), user=Depends(editor)):
             .with_for_update()
         )
     )
+    for row in rows:
+        require_editable(user, row)
     moving_ids = set(data.media_ids)
     if data.target_id in moving_ids or not moving_ids.issubset({m.id for m in rows}):
         raise HTTPException(422, "只能调整同一天的影像，放置位置不能是已选影像")
@@ -607,14 +741,14 @@ def reorder_media(data: MediaReorder, db=Depends(get_db), user=Depends(editor)):
 
 @app.delete("/api/media/{mid}")
 def trash_media(mid: int, db=Depends(get_db), user=Depends(editor)):
-    require_active_media(db, mid).status = "deleted"
+    require_editable(user, require_active_media(db, mid)).status = "deleted"
     db.commit()
     return {"ok": True}
 
 
 @app.post("/api/media/{mid}/restore")
 def restore_media(mid: int, db=Depends(get_db), user=Depends(editor)):
-    row = require_row(db, Media, mid)
+    row = require_editable(user, require_row(db, Media, mid))
     if row.status != "deleted":
         raise HTTPException(422, "媒体不在回收站")
     row.status = "active"
@@ -639,6 +773,9 @@ def file_url(
     if not file:
         raise HTTPException(404, "原件不存在")
     if download or purpose == "original":
+        status = storage.original_status(file)
+        if status != "ready":
+            return {"url": None, "status": status, "message": "原件已深度归档，解冻通常需要48小时，完成后可下载1天。"}
         return {
             "url": storage.download_url(file, download),
             "expires_in": 300,
@@ -646,29 +783,28 @@ def file_url(
             "file_size": file.file_size,
             "status": "ready",
         }
-    if purpose == "preview" and file.mime_type.startswith("video/"):
-        preview = db.get(VideoPreview, file.sha256)
-        if not preview or preview.status != "ready":
-            return {"url": None, "status": preview.status if preview else "pending"}
-        return {
-            "url": storage.video_url(preview),
-            "expires_in": 300,
-            "mime_type": "video/mp4",
-            "file_size": preview.file_size,
-            "status": "ready",
-        }
-    return {
-        "url": storage.image_url(file, purpose),
-        "expires_in": 300,
-        "mime_type": "image/jpeg"
-        if file.mime_type.startswith("video/")
-        else "image/webp",
-        "status": "ready",
-    }
+    resource = preview_resource(db, storage, file, purpose)
+    if resource["url"]:
+        resource["expires_in"] = 300
+    return resource
+
+
+@app.post("/api/media/{mid}/files/{fid}/restore")
+def restore_original(
+    mid: int, fid: int, db=Depends(get_db), user=Depends(current_user),
+    storage=Depends(get_storage),
+):
+    media = require_active_media(db, mid)
+    file = next((f for f in media.files if f.id == fid and f.upload_status == "complete"), None)
+    if not file:
+        raise HTTPException(404, "原件不存在")
+    return {"status": storage.restore_original(file),
+            "message": "解冻通常需要48小时，完成后可下载1天。"}
 
 
 @app.get("/api/events")
 def events(
+    owner_id: int | None = Query(default=None, ge=1),
     child_id: list[int] = Query(default=[]),
     match: Literal["any", "all"] = "any",
     page: int = Query(default=1, ge=1),
@@ -683,6 +819,8 @@ def events(
         child_id,
         match,
     )
+    if owner_id is not None:
+        query = query.where(Event.created_by == owner_id)
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     rows = db.scalars(
         query.order_by(Event.start_at.desc(), Event.id.desc())
@@ -713,7 +851,7 @@ def get_event(eid: int, db=Depends(get_db), user=Depends(current_user)):
 
 @app.put("/api/events/{eid}")
 def edit_event(eid: int, data: EventIn, db=Depends(get_db), user=Depends(editor)):
-    event = require_row(db, Event, eid)
+    event = require_editable(user, require_row(db, Event, eid))
     if event.status != "active":
         raise HTTPException(404, "事件已删除")
     return save_event(db, event, data)
@@ -721,14 +859,14 @@ def edit_event(eid: int, data: EventIn, db=Depends(get_db), user=Depends(editor)
 
 @app.delete("/api/events/{eid}")
 def delete_event(eid: int, db=Depends(get_db), user=Depends(editor)):
-    require_row(db, Event, eid).status = "deleted"
+    require_editable(user, require_row(db, Event, eid)).status = "deleted"
     db.commit()
     return {"ok": True}
 
 
 @app.post("/api/events/{eid}/restore")
 def restore_event(eid: int, db=Depends(get_db), user=Depends(editor)):
-    require_row(db, Event, eid).status = "active"
+    require_editable(user, require_row(db, Event, eid)).status = "active"
     db.commit()
     return {"ok": True}
 
@@ -785,7 +923,7 @@ def system_settings(user=Depends(admin)):
         "part_size": cfg.upload_part_size,
         "registration": False,
         "preview_policy": "原件独立保存，可选上传兼容预览，不执行服务端转码",
-        "yearly_permissions": "管理员管理成员与导出，成员编辑家庭内容，访客只读",
+        "yearly_permissions": "管理员拥有全部管理权限，普通账户只能编辑自己添加的内容，历史访客只读",
     }
 
 
@@ -885,6 +1023,7 @@ def timeline_media_positions(db, media_query, rows, order):
 @app.get("/api/timeline")
 def timeline(
     group_folders: bool = False,
+    owner_id: int | None = Query(default=None, ge=1),
     child_id: list[int] = Query(default=[]),
     match: Literal["any", "all"] = "any",
     start: datetime | None = None,
@@ -958,6 +1097,9 @@ def timeline(
         child_id,
         match,
     )
+    if owner_id is not None:
+        media_query = media_query.where(Media.owner_id == owner_id)
+        event_query = event_query.where(Event.created_by == owner_id)
     filter_time = sort_time if date_basis != "timeline" else timeline_time()
     if start:
         media_query = media_query.where(filter_time >= start)
@@ -1003,9 +1145,9 @@ def timeline(
             )
         if end:
             folder_query = folder_query.where(TimelineFolder.timeline_date < end.date())
-        if child_id or q or media_type:
+        if child_id or q or media_type or owner_id is not None:
             visible = TimelineFolder.id.in_(matching)
-            if not q and not media_type:
+            if not q and not media_type and owner_id is None:
                 visible = or_(
                     visible,
                     ~select(Media.id)
@@ -1089,7 +1231,11 @@ def timeline(
     folder_counts = dict(
         db.execute(
             select(Media.folder_id, func.count())
-            .where(Media.folder_id.in_(folder_ids), Media.status == "active")
+            .where(
+                Media.folder_id.in_(folder_ids),
+                Media.status == "active",
+                *([Media.owner_id == owner_id] if owner_id is not None else []),
+            )
             .group_by(Media.folder_id)
         ).all()
     )
