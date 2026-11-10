@@ -63,6 +63,11 @@ struct NativeFamilyView: View {
                                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(.plain).accessibilityHint("查看此成员的时间线")
+                        Text(profile.description.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                             ?? "每一份陪伴，都值得珍藏。")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         HStack(spacing: 8) {
                             if profile.editable(by: store.session.account) {
                                 Button { saved = false; editing = profile } label: {

@@ -301,7 +301,7 @@ func friendly(_ error: Error) -> String {
         }
     }
     func clear(scope: String, category: String? = nil) {
-        let folder = category.map { folder(scope, $0) } ?? directory.appendingPathComponent(digest(scope), isDirectory: true)
+        let folder = category.map { self.folder(scope, $0) } ?? directory.appendingPathComponent(digest(scope), isDirectory: true)
         try? FileManager.default.removeItem(at: folder)
     }
 }
