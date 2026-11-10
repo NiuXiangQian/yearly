@@ -4,15 +4,47 @@
 
 **Keep every chapter of growing up.**
 
-A self-hosted, private family photo and video archive. Organize photos, videos, and growth journals by date, person, and pet, so the moments that matter remain easy to find years later.
+A self-hosted, private family archive with **Web, native iOS, and native Android apps**. Organize photos, videos, and growth journals by date, person, and pet. Connect all clients to the same family server to share memories, profiles, and permissions.
 
-Daily timeline · Expiring read-only shares · People and pet profiles · Drag-and-drop folders · Compressed previews · Original-file backups
+Native apps · Original and Live Photo uploads · Daily timeline · Expiring read-only shares · People and pet profiles · Drag-and-drop folders · Compressed previews · Original-file backups
 
-[Screenshots](#screenshots) · [Sharing page](#share-a-read-only-timeline) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
+[iOS gallery](#ios-app-gallery) · [Install the app](#ios-app) · [Web screenshots](#screenshots) · [Sharing page](#share-a-read-only-timeline) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
+
+## iOS app gallery
+
+A native SwiftUI client for iPhone running iOS 16 or later. Preserve originals, browse the family timeline, organize people and pets, and share selected memories with a time limit.
+
+These screenshots show the current native UI in an iPhone simulator with isolated fictional accounts, profiles, and original sample illustrations. No real family photos are included. Each is a **1320 × 2868 px, native 3×, lossless PNG**; click to open the full-resolution image. The app screenshots use Simplified Chinese. See [screenshot notes](docs/images/ios-screenshots.md).
+
+### Timeline, original uploads, and family profiles
+
+Browse by date and filter by profile, uploader, keyword, or media type. Select photos, videos, and Live Photos from the system library, preserve paired still/MOV resources, and pause, retry, or resume persisted uploads. Open memories for each person or pet.
+
+<p>
+  <a href="docs/images/demo-ios-timeline.png"><img src="docs/images/demo-ios-timeline.png" width="250" alt="Daily timeline" /></a>
+  <a href="docs/images/demo-ios-upload.png"><img src="docs/images/demo-ios-upload.png" width="250" alt="Original uploads" /></a>
+  <a href="docs/images/demo-ios-family.png"><img src="docs/images/demo-ios-family.png" width="250" alt="People and pets" /></a>
+</p>
+
+[Timeline original](docs/images/demo-ios-timeline.png) · [Upload original](docs/images/demo-ios-upload.png) · [Profiles original](docs/images/demo-ios-family.png)
+
+### Full-screen previews, expiring shares, and accounts
+
+Zoom and swipe through photos, play videos and Live Photos, and share a date range or selected media for 1 hour to 7 days. Manage family accounts, roles, and change history; members can edit only the content they added.
+
+<p>
+  <a href="docs/images/demo-ios-preview.png"><img src="docs/images/demo-ios-preview.png" width="250" alt="Full-screen photo preview" /></a>
+  <a href="docs/images/demo-ios-share.png"><img src="docs/images/demo-ios-share.png" width="250" alt="Expiring shares" /></a>
+  <a href="docs/images/demo-ios-account.png"><img src="docs/images/demo-ios-account.png" width="250" alt="Account and permissions" /></a>
+</p>
+
+[Preview original](docs/images/demo-ios-preview.png) · [Sharing original](docs/images/demo-ios-share.png) · [Account original](docs/images/demo-ios-account.png)
+
+[iOS build, installation, and usage guide](ios/README.md) · [Android native client guide](android/README.md)
 
 ## Screenshots
 
-These screenshots show the actual application with isolated fictional data. Names, birthdays, entries, and counts are fictional; avatars and media use original sample illustrations. No real family photos or accounts are included. The main gallery shows the English interface; the sharing examples use Simplified Chinese. Both languages are supported. Family names and user-written content are preserved in their original language. All screenshots are lossless PNGs captured at 2× resolution (3024px wide); open an image or its full-resolution link for details.
+These screenshots show the actual application with isolated fictional data. Names, birthdays, entries, and counts are fictional; avatars and media use original sample illustrations. No real family photos or accounts are included. The main gallery shows the English interface; the sharing examples use Simplified Chinese. Both languages are supported. Family names and user-written content are preserved in their original language. These web screenshots are lossless PNGs captured at 2× resolution (3024px wide); open an image or its full-resolution link for details.
 
 ### A daily timeline you can organize your way
 
@@ -89,16 +121,18 @@ Each deployment serves one family. All enabled accounts share the family archive
 ## Technology and storage
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic.
-- **Frontend:** Vue 3, TypeScript, Vite, Pinia, Element Plus.
+- **Web:** Vue 3, TypeScript, Vite, Pinia, Element Plus.
+- **iOS:** SwiftUI, PhotoKit, AVKit; iOS 16+.
+- **Android:** Kotlin, Jetpack Compose, Material 3, Media3; Android 8.0+.
 - **Database:** MySQL 5.7.8+ with separate development/test and production configuration; SQLite is not used as a substitute.
-- **Files:** Private Alibaba Cloud OSS. Browsers upload originals directly; the database stores metadata and relationships.
+- **Files:** Private Alibaba Cloud OSS. Web and native clients upload originals directly; the database stores metadata and relationships.
 - **Deployment:** Nginx + systemd, with a separate video preview worker. Redis is not required.
 
 Browsing uses compressed previews by default. Originals are loaded only when explicitly requested through “查看原文件” (View original); preview processing never overwrites them. Initial video transcoding reads the original and requires temporary disk space.
 
 ## Interface language and date selection
 
-Simplified Chinese is the default. Switch to English on the login page, in the top-right header, or in family settings. The choice is saved in the current browser and survives refreshes. Menus, forms, messages, and calendars switch together; child and pet names, filenames, and journal content remain unchanged.
+The web interface defaults to Simplified Chinese. Switch to English on the login page, in the top-right header, or in family settings. The choice is saved in the current browser and survives refreshes. Menus, forms, messages, and calendars switch together; child and pet names, filenames, and journal content remain unchanged.
 
 Long timelines support collapsible months, individual expansion, and Collapse all / Expand all in both family and shared views. Shared views also offer a draggable timeline on the left with date previews and direct jumps.
 
@@ -158,14 +192,25 @@ To start them separately, run each command in its own terminal:
 
 ## iOS app
 
-The existing iOS 16+ project now uses native SwiftUI login, timeline, profile filtering, photo/video/Live Photo previews and durable original uploads, without an embedded website. It supports installation and 7-day re-signing with a free Apple Personal Team. See the [Chinese iOS development and usage guide](ios/README.md) for builds, installation and the limits of device validation.
+The iPhone app (iOS 16+) uses the same backend and family accounts as the web client. Deploy your family server first, then enter its full **HTTPS URL** in the app, for example `https://example.com/yearly/`. The certificate must be valid and the server reachable from your phone.
+
+1. Install full Xcode and the iOS platform components on a Mac, then open `ios/Yearly.xcodeproj`.
+2. Select your Apple Team in Signing & Capabilities, connect the iPhone, and enable Developer Mode when prompted.
+3. Select the device and run from Xcode. A free Personal Team supports installation with a 7-day signing period; renew by installing over the existing app with the same Team and Bundle Identifier.
 
 ```bash
-open ios/Yearly.xcodeproj
+# From the repository root: local logic and project checks
 ./scripts/ios.sh verify
-# Requires full Xcode:
-./scripts/ios.sh build
+
+# Full Xcode: Debug / Release simulator builds
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build
 ```
+
+The repository provides source and self-build installation instructions; no App Store or TestFlight download is offered. Uploads pause in the background and can resume in the foreground or after reopening. See the [iOS guide](ios/README.md) for installation, re-signing, behavior, and device-validation limits.
+
+## Android app
+
+A native client for Android 8.0+ is also included. Open `android/` in Android Studio or run `./scripts/android.sh release` to build a personal installation APK, then connect to the same HTTPS family server. See the [Android guide](android/README.md) for builds, installation, and compatibility.
 
 ## Environments and deployment
 
@@ -208,6 +253,8 @@ See [verification notes](docs/en/verification.md) for coverage and remaining acc
 
 | Document | Contents |
 | --- | --- |
+| [iOS app](ios/README.md) | Native features, Xcode installation, free re-signing, and verification scope |
+| [Android app](android/README.md) | Native features, APK builds, installation, and compatibility |
 | [People & pets](docs/en/pets.md) | Relationships, pet categories, file tagging, and filtering |
 | [Deployment](docs/en/deployment.md) | MySQL, HTTPS, Nginx, systemd, and the video preview worker |
 | [Storage and metadata](docs/en/storage-and-metadata.md) | OSS, direct uploads, compressed previews, capture times, and organization rules |

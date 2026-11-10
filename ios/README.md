@@ -1,6 +1,8 @@
-# Yearly iOS 原生上传助手：开发与使用
+# Yearly iOS 原生 App：安装与使用
 
-基于已有 `codex/ios-app-install` 分支增量实现，最低 iOS 16。复用既有 SwiftUI 工程、PhotoKit 原件提取及持久上传队列，当前 App 使用原生登录、时间线、家人筛选、影像预览和上传任务，不再加载 WKWebView。既有 Vue 网页独立保留。旧网页外壳源码移至 `LegacyWebShell/` 备查，不参与编译。Bundle Identifier 仍为 `family.yearly.app`，无需付费 Apple Developer Program、TestFlight、App Store Connect 或新 Capability。
+[查看 6 张高清功能截图](../README.md#ios-app-预览) · [项目首页](../README.md)
+
+使用 SwiftUI、PhotoKit 和 AVKit，最低 iOS 16。提供原生登录、家庭时间线、家人与宠物档案、照片／视频／Live Photo 预览、原片上传、限时分享和账号管理，连接与网页相同的家庭站点。Bundle Identifier 默认为 `family.yearly.app`，可使用免费 Apple Personal Team 安装。
 
 **当前状态：已通过 Xcode 真机构建、Personal Team 签名安装和 iPhone 15 启动检查。真机相册、iCloud 和批量上传的端到端验收待完成。**
 

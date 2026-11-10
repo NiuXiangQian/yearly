@@ -4,15 +4,47 @@
 
 **让成长有迹可循。**
 
-一个可自行部署的私人家庭影像档案。把照片、视频与成长日记按日期、人物和宠物整理，在多年以后，依然能找到每一个值得记住的瞬间。
+一个支持 **Web、iOS 与 Android 原生 App** 的私人家庭影像档案，可自行部署。把照片、视频与成长日记按日期、人物和宠物整理，在多年以后，依然能找到每一个值得记住的瞬间。手机与网页连接同一个家庭站点，共享影像、档案与权限。
 
-按天时间线 · 限时只读分享 · 人物与宠物档案 · 文件夹自由混排 · 压缩预览 · 原件备份
+原生 App · 原片与实况上传 · 按天时间线 · 限时只读分享 · 人物与宠物档案 · 文件夹自由混排 · 压缩预览 · 原件备份
 
-[界面预览](#界面预览) · [分享页面](#限时分享时间线) · [快速开始](#快速开始) · [部署指南](docs/deployment.md) · [备份与恢复](docs/backup-restore.md)
+[iOS 高清预览](#ios-app-预览) · [App 安装](#ios-app) · [网页预览](#界面预览) · [分享页面](#限时分享时间线) · [快速开始](#快速开始) · [部署指南](docs/deployment.md) · [备份与恢复](docs/backup-restore.md)
+
+## iOS App 预览
+
+iPhone 上的 SwiftUI 原生客户端，支持 iOS 16 及以上。用手机珍藏原片、浏览成长时间线、整理家人与宠物，再把选中的回忆限时分享给亲友。
+
+以下为当前原生界面在 iPhone 模拟器中的截图，使用独立虚拟账户、档案和原创示例插画；不包含真实家庭照片。图片以 **1320 × 2868 像素（原生 3×）、无损 PNG** 保存，点击可查看高清原图。示例数据与截图说明见 [图片说明](docs/images/ios-screenshots.md)。
+
+### 时间线、原片上传、家人与宠物
+
+按日期浏览，组合人物、上传人、关键词和媒体类型筛选；系统相册批量选择照片、视频与 Live Photo，配对原图和 MOV，支持暂停、重试与持久续传；按家人和宠物查看各自的回忆。
+
+<p>
+  <a href="docs/images/demo-ios-timeline.png"><img src="docs/images/demo-ios-timeline.png" width="250" alt="家庭时间线" /></a>
+  <a href="docs/images/demo-ios-upload.png"><img src="docs/images/demo-ios-upload.png" width="250" alt="原片批量上传" /></a>
+  <a href="docs/images/demo-ios-family.png"><img src="docs/images/demo-ios-family.png" width="250" alt="家人与宠物" /></a>
+</p>
+
+[时间线原图](docs/images/demo-ios-timeline.png) · [上传原图](docs/images/demo-ios-upload.png) · [家人与宠物原图](docs/images/demo-ios-family.png)
+
+### 沉浸预览、限时分享、账号管理
+
+全屏浏览照片，支持缩放、左右切换以及视频和 Live Photo 播放；按日期范围或指定影像创建 1 小时至 7 天的只读分享；管理家庭账号、角色与修改记录，普通成员仅可编辑自己添加的内容。
+
+<p>
+  <a href="docs/images/demo-ios-preview.png"><img src="docs/images/demo-ios-preview.png" width="250" alt="全屏影像预览" /></a>
+  <a href="docs/images/demo-ios-share.png"><img src="docs/images/demo-ios-share.png" width="250" alt="限时分享" /></a>
+  <a href="docs/images/demo-ios-account.png"><img src="docs/images/demo-ios-account.png" width="250" alt="账号与权限" /></a>
+</p>
+
+[预览原图](docs/images/demo-ios-preview.png) · [分享原图](docs/images/demo-ios-share.png) · [账号原图](docs/images/demo-ios-account.png)
+
+[iOS 构建、安装与使用指南](ios/README.md) · [Android 原生客户端指南](android/README.md)
 
 ## 界面预览
 
-截图来自实际应用界面，使用独立的虚拟数据。人物姓名、生日、记录和数量均为虚构，头像与影像为原创示例插画，不包含真实家庭照片或账户。以下图片均为 2 倍像素、3024px 宽的无损 PNG，可点击图片或下方链接查看高清原图。
+截图来自实际应用界面，使用独立的虚拟数据。人物姓名、生日、记录和数量均为虚构，头像与影像为原创示例插画，不包含真实家庭照片或账户。以下网页图片均为 2 倍像素、3024px 宽的无损 PNG，可点击图片或下方链接查看高清原图。
 
 ### 按天收藏，自由整理
 
@@ -89,16 +121,18 @@
 ## 技术与存储
 
 - **后端：** Python 3.12、FastAPI、SQLAlchemy 2、Alembic。
-- **前端：** Vue 3、TypeScript、Vite、Pinia、Element Plus。
+- **Web：** Vue 3、TypeScript、Vite、Pinia、Element Plus。
+- **iOS：** SwiftUI、PhotoKit、AVKit，iOS 16+。
+- **Android：** Kotlin、Jetpack Compose、Material 3、Media3，Android 8.0+。
 - **数据库：** MySQL 5.7.8+；开发、测试与生产使用独立配置，不使用 SQLite 替代。
-- **文件：** 阿里云私有 OSS；原件由浏览器直传，数据库保存元数据和关联关系。
+- **文件：** 阿里云私有 OSS；原件由网页或 App 直传，数据库保存元数据和关联关系。
 - **部署：** Nginx + systemd；独立工作进程生成视频预览，无需 Redis。
 
 默认浏览使用压缩预览。只有主动选择“查看原文件”时才加载原件；预览处理不会覆盖原始文件。视频首次转码需要读取原件，并占用临时磁盘空间。
 
 ## 界面语言与日期选择
 
-默认使用简体中文。登录页、页面右上角和家庭设置中都可切换 English；选择保存在当前浏览器，刷新后继续生效。菜单、表单、提示和日历同步切换，孩子姓名、文件名和日记内容保持原样。
+网页默认使用简体中文。登录页、页面右上角和家庭设置中都可切换 English；选择保存在当前浏览器，刷新后继续生效。菜单、表单、提示和日历同步切换，孩子姓名、文件名和日记内容保持原样。
 
 长时间线支持按月折叠、单月展开及全部收起 / 展开，家庭时间线和分享页均可使用。分享页左侧还可拖动时间轴，预览日期并快速跳转。
 
@@ -160,14 +194,25 @@ chmod 600 .env.test
 
 ## iOS App
 
-提供 iPhone（iOS 16+）SwiftUI 原生客户端：原生登录、账户管理与修改日志、归属权限锁定、家庭时间线、按上传人和家人筛选、图片/视频/Live Photo 预览、批量无损上传和持久续传，不再内嵌网页。免费 Apple Personal Team 可通过 Xcode 安装，并按 7 天有效期续签，无需付费账号或 TestFlight。构建、安装与真实验收范围见 [中文 iOS 指南](ios/README.md)。
+iPhone（iOS 16+）原生客户端与网页使用同一套后端和家庭账户。先按上面的步骤部署家庭站点，再在 App 中填写证书有效、手机可访问的 **HTTPS 站点完整地址**，例如 `https://example.com/yearly/`，登录后即可使用。
+
+1. 在 Mac 安装完整 Xcode 与 iOS 平台组件，打开 `ios/Yearly.xcodeproj`。
+2. 在 Signing & Capabilities 中选择自己的 Apple Team，连接 iPhone 并按提示开启开发者模式。
+3. 在 Xcode 选择设备并运行。免费 Personal Team 可安装，签名有效期为 7 天，之后用同一 Team 和 Bundle Identifier 覆盖安装续签。
 
 ```bash
-open ios/Yearly.xcodeproj
+# 项目根目录：本地逻辑与工程检查
 ./scripts/ios.sh verify
-# 安装完整 Xcode 后：
-./scripts/ios.sh build
+
+# 完整 Xcode：Debug / Release 模拟器构建
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build
 ```
+
+当前提供源码与自行构建安装方式，未提供 App Store / TestFlight 下载入口。上传进入后台会暂停，返回前台或下次打开后可以继续；具体限制、安装续签和真实验收范围见 [iOS 指南](ios/README.md)。
+
+## Android App
+
+仓库也提供 Android 8.0+ 原生客户端，可使用 Android Studio 打开 `android/`，或运行 `./scripts/android.sh release` 构建个人安装包。连接同一 HTTPS 家庭站点即可使用，构建、安装与兼容性说明见 [Android 指南](android/README.md)。
 
 ## 环境与部署
 
@@ -210,6 +255,8 @@ open ios/Yearly.xcodeproj
 
 | 文档 | 内容 |
 | --- | --- |
+| [iOS App](ios/README.md) | 原生功能、Xcode 安装、免费签名续签与验证范围 |
+| [Android App](android/README.md) | 原生功能、APK 构建、安装与兼容性 |
 | [人物与宠物](docs/pets.md) | 人物关系、宠物分类、文件多选关联与筛选 |
 | [部署指南](docs/deployment.md) | MySQL、HTTPS、Nginx、systemd 与视频预览进程 |
 | [存储与元数据](docs/storage-and-metadata.md) | OSS、直传、压缩预览、拍摄时间与归档规则 |
