@@ -35,6 +35,11 @@ struct NativeShare: Decodable, Identifiable {
     let can_copy: Bool?
     let visit_count: Int?
     let visitor_count: Int?
+    let profile_id: Int?
+    let profile_name: String?
+    let has_avatar: Bool?
+    let card_title: String?
+    var displayTitle: String { card_title ?? (title.isEmpty ? "我们的家庭时光" : title) }
     var expiration: Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -62,7 +67,7 @@ struct NativeShare: Decodable, Identifiable {
         do { shares = try await session.get("/shares"); error = "" }
         catch { self.error = friendly(error) }
     }
-    func create(title: String, start: Date, end: Date, hours: Int, mediaIDs: [Int]? = nil) async {
+    func create(title: String, start: Date, end: Date, hours: Int, mediaIDs: [Int]? = nil, profileID: Int? = nil) async {
         guard !busy else { return }
         if let mediaIDs, mediaIDs.isEmpty || mediaIDs.count > 200 || mediaIDs.contains(where: { $0 <= 0 }) {
             error = "请选择 1 至 200 项影像。"; return
@@ -76,6 +81,7 @@ struct NativeShare: Decodable, Identifiable {
         defer { busy = false }
         do {
             var payload: [String: Any] = ["title": title, "hours": hours]
+            if let profileID { payload["profile_id"] = profileID }
             if let mediaIDs { payload["media_ids"] = mediaIDs }
             else { payload["start_date"] = NativeDay.string(start); payload["end_date"] = NativeDay.string(end) }
             let result: NativeShare = try await session.post("/shares", json: payload)

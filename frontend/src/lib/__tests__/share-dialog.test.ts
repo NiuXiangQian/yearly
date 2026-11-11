@@ -31,7 +31,7 @@ it("creates a link from dates and lifetime without selecting or loading files", 
   vi.mocked(api).mockImplementation(async (path) =>
     path === "/shares/bounds"
       ? { earliest: "2020-01-01", latest: "2024-03-31" }
-      : [],
+      : path === "/children" ? [{ id: 42, name: "小禾", nickname: "" }] : [],
   );
   vi.mocked(post).mockResolvedValue({
     id: 1,
@@ -63,14 +63,26 @@ it("creates a link from dates and lifetime without selecting or loading files", 
   create.click();
   await vi.waitFor(() =>
     expect(post).toHaveBeenCalledWith("/shares", {
+      profile_id: null,
       start_date: "2024-03-31",
       end_date: "2024-03-31",
       hours: 24,
     }),
   );
-  expect(api).toHaveBeenCalledTimes(2);
+  expect(api).toHaveBeenCalledTimes(3);
+  expect(api).toHaveBeenCalledWith("/children");
   expect(api).toHaveBeenCalledWith("/shares/bounds");
   expect(api).toHaveBeenCalledWith("/shares");
+  const person = [...document.querySelectorAll("select")].find(select =>
+    [...select.options].some(option => option.textContent === "小禾"),
+  )!;
+  person.value = "42";
+  person.dispatchEvent(new Event("change", { bubbles: true }));
+  await nextTick();
+  create.click();
+  await vi.waitFor(() => expect(post).toHaveBeenLastCalledWith("/shares", {
+    profile_id: 42, start_date: "2024-03-31", end_date: "2024-03-31", hours: 24,
+  }));
 });
 
 it("uses the earliest shareable day and calendar presets, with custom dates retained", async () => {

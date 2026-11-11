@@ -122,6 +122,7 @@ def context(tmp_path, monkeypatch, mysql_engine):
         # Clear test-visible rows within the outer transaction. Every API commit is a savepoint,
         # and final rollback restores the test environment's existing records.
         connection.execute(update(Child).values(avatar_media_id=None))
+        connection.execute(update(User).values(updated_by=None))
         for table in reversed(Base.metadata.sorted_tables):
             connection.execute(delete(table))
         factory = sessionmaker(

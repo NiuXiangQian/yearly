@@ -37,12 +37,18 @@ fun TimelineRail(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        Text(
-            days.first().take(7).replace('-', '.'),
-            fontSize = 9.sp,
-            color = secondary,
-            maxLines = 1,
-        )
+        Column(
+            Modifier.clearAndSetSemantics { contentDescription = "起始日期 ${days.first()}" },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(days.first().take(4), fontSize = 9.sp, color = secondary, maxLines = 1)
+            Text(
+                days.first().substring(5).replace('-', '.'),
+                fontSize = 11.sp,
+                color = secondary,
+                maxLines = 1,
+            )
+        }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val ratio = dragRatio ?: scale.ratio(current).toFloat()
             val height = constraints.maxHeight.toFloat()
@@ -138,11 +144,17 @@ fun TimelineRail(
                     )
                 }
         }
-        Text(
-            days.last().take(7).replace('-', '.'),
-            fontSize = 9.sp,
-            color = secondary,
-            maxLines = 1,
-        )
+        Column(
+            Modifier.clearAndSetSemantics { contentDescription = "结束日期 ${days.last()}" },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(days.last().take(4), fontSize = 9.sp, color = secondary, maxLines = 1)
+            Text(
+                days.last().substring(5).replace('-', '.'),
+                fontSize = 11.sp,
+                color = secondary,
+                maxLines = 1,
+            )
+        }
     }
 }

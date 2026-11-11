@@ -4,6 +4,7 @@ import { createApp, nextTick } from "vue";
 import SharedTimeline from "../../views/SharedTimeline.vue";
 import { api, post } from "../api";
 import { clearMediaResources } from "../media-resource";
+import { setLocale } from "../i18n";
 vi.mock("vue-router", () => ({
   useRoute: () => ({ params: { token: "virtual" } }),
 }));
@@ -13,7 +14,7 @@ vi.mock("../../components/SharedThumbnail.vue", () => ({
 }));
 vi.mock("element-plus/es/components/base/style/css", () => ({}));
 vi.mock("element-plus/es/components/dialog/style/css", () => ({}));
-let app: ReturnType<typeof createApp>, host: HTMLElement;
+let app: ReturnType<typeof createApp> | undefined, host: HTMLElement;
 const observers = new Map<Element, (entries: { isIntersecting: boolean }[]) => void>();
 function intersect(element: Element) {
   observers.get(element)!([{ isIntersecting: true }]);
@@ -71,6 +72,53 @@ afterEach(() => {
   localStorage.clear();
   observers.clear();
   vi.unstubAllGlobals();
+});
+it("keeps the share title when changing language and restores page metadata on exit", async () => {
+  document.title = "Site title";
+  const meta = document.createElement("meta");
+  meta.setAttribute("property", "og:title");
+  meta.content = "Site metadata";
+  document.head.append(meta);
+  await mount();
+  await vi.waitFor(() => expect(document.title).toBe("Family"));
+  expect(meta.content).toBe("Family");
+  setLocale("en");
+  await nextTick();
+  expect(document.title).toBe("Family");
+  expect(meta.content).toBe("Family");
+  app?.unmount();
+  app = undefined;
+  expect(document.title).toBe("Site title");
+  expect(meta.content).toBe("Site metadata");
+  meta.remove();
+  setLocale("zh-CN");
+});
+it("provides a family-sharing title and the site logo for an untitled share", async () => {
+  const data = response();
+  data.share.title = "";
+  vi.mocked(api).mockResolvedValue(data);
+  await mount();
+  await vi.waitFor(() => expect(document.title).toBe("我们的家庭时光"));
+  expect(host.querySelector(".shared-brand img")?.getAttribute("src")).toBe("/share-logo.png");
+});
+it("shows the selected person's title and avatar and updates the expiry countdown", async () => {
+  const timestamp = Date.now();
+  const date = vi.spyOn(Date, "now").mockReturnValue(timestamp);
+  const data = response();
+  const share = { ...data.share, card_title: "小禾的时光", profile_name: "小禾", has_avatar: true,
+    expires_at: new Date(timestamp + 7200000).toISOString() };
+  vi.mocked(api).mockResolvedValue({ ...data, share });
+  try {
+    await mount();
+    await vi.waitFor(() => expect(host.querySelector("h1")?.textContent).toBe("小禾的时光"));
+    expect(document.title).toBe("小禾的时光");
+    expect(host.querySelector(".shared-avatar")?.getAttribute("src")).toBe("/api/public/shares/virtual/avatar");
+    expect(host.querySelector(".share-countdown time")?.textContent).toBe("02:00:00");
+    date.mockReturnValue(timestamp + 1000);
+    await vi.waitFor(() => expect(host.querySelector(".share-countdown time")?.textContent).toBe("01:59:59"), { timeout: 2000 });
+  } finally {
+    date.mockRestore();
+  }
 });
 it("automatically fills a day at its end without a manual expand button", async () => {
   await mount();

@@ -1,4 +1,5 @@
 import SwiftUI
+import LinkPresentation
 
 struct NativeShareRequest: Identifiable {
     let id = UUID()
@@ -18,6 +19,10 @@ struct NativeSharingView: View {
     @StateObject private var store: NativeSharingStore
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
+    @State private var profiles: [UploadProfile] = []
+    @State private var profileID: Int?
+    @State private var preparingShare = false
+    private var selectedProfile: UploadProfile? { profiles.first { $0.id == profileID } }
     @State private var start: Date
     @State private var end: Date
     @State private var startMode: StartMode
@@ -30,6 +35,7 @@ struct NativeSharingView: View {
     @State private var copying: NativeShare?
     @State private var revealed: (id: Int, url: URL)?
     @State private var copiedID: Int?
+    @State private var systemShare: NativeShareActivityItem?
     @State private var dateRangeError = ""
     @State private var loadingRange = false
     init(session: NativeSession, day: String? = nil, selectedItems: [NativeTimelineItem]? = nil) {
@@ -59,6 +65,19 @@ struct NativeSharingView: View {
         NavigationStack {
             Form {
                 Section("分享家庭时光") {
+                    Picker("分享人物", selection: $profileID) {
+                        Text("全部家庭成员").tag(nil as Int?)
+                        ForEach(profiles) { profile in Text(profile.label).tag(Optional(profile.id)) }
+                    }
+                    if let profile = selectedProfile {
+                        HStack {
+                            NativeFamilyAvatar(session: store.session, mediaID: profile.avatar_media_id,
+                                               name: profile.nickname.isEmpty ? profile.name : profile.nickname,
+                                               pet: profile.profile_type == "pet", color: NativeTheme.accent, size: 40)
+                            Text("仅分享关联此人物的内容，卡片使用其名字和头像。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
                     TextField("分享标题（可留空）", text: $title)
                     if title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 120 {
                         Text("分享标题最多 120 个字符。").font(.caption).foregroundStyle(.red)
@@ -104,7 +123,7 @@ struct NativeSharingView: View {
                     if !(1...168).contains(hours) {
                         Text("有效期须为 1 至 168 的整数小时。").font(.footnote).foregroundStyle(.red)
                     }
-                    Text(selectionMode ? "链接仅包含下方确认的影像。同一天、同一文件夹的其他内容及以后新增的照片不会加入。Live Photo 作为一项完整分享。" : store.session.isAdmin ? "链接包含所选日期内允许分享的全部家庭回忆，不受人物、上传人、搜索和类型筛选影响。" : "链接仅包含所选日期内自己添加且允许分享的回忆，该日期内以后新增的本人内容也会出现。")
+                    Text(selectionMode ? "链接仅包含下方确认的影像，选定人物时进一步按此人物筛选。Live Photo 作为一项完整分享。" : profileID != nil ? "链接包含所选日期内关联此人物且允许分享的回忆。普通成员仅能分享自己添加的内容。" : store.session.isAdmin ? "链接包含所选日期内允许分享的全部家庭回忆，不受上传人、搜索和类型筛选影响。" : "链接仅包含所选日期内自己添加且允许分享的回忆，该日期内以后新增的本人内容也会出现。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("收到链接的人无需登录，只能查看预览。原件下载和编辑不开放，实况图沿用现有完整播放方式。")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -144,7 +163,7 @@ struct NativeSharingView: View {
                     if store.shares.isEmpty && !store.busy { Text("还没有分享记录").foregroundStyle(.secondary) }
                     ForEach(store.shares) { share in
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(share.title.isEmpty ? "家庭时光" : share.title).font(.headline)
+                            Text(share.displayTitle).font(.headline)
                             Text(share.scope == "selection" ? "指定影像 · \(share.selected_count ?? 0) 项" : "\(share.start_date) — \(share.end_date)").font(.caption)
                             Text("访问 \(share.visit_count ?? 0) 次 · 访客 \(share.visitor_count ?? 0) 人（按客户端去重）").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                             TimelineView(.periodic(from: .now, by: 15)) { _ in
@@ -175,18 +194,25 @@ struct NativeSharingView: View {
             .navigationTitle("分享管理")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .task { await store.load() }
+            .task {
+                do { profiles = try await store.session.get("/children") }
+                catch { store.error = friendly(error) }
+            }
             .task { if !selectionMode { await loadBounds() } }
             .refreshable { await store.load() }
             .scrollDismissesKeyboard(.interactively)
             .alert(selectionMode ? "确认分享所选影像" : "确认分享日期范围", isPresented: $confirming) {
-                Button("创建链接") { Task { await store.create(title: title, start: resolvedStart ?? start, end: end, hours: hours, mediaIDs: selectedItems?.map(\.id)) } }
+                Button("创建链接") { Task { await store.create(title: title, start: resolvedStart ?? start, end: end, hours: hours, mediaIDs: selectedItems?.map(\.id), profileID: profileID) } }
                 Button("返回检查", role: .cancel) { }
-            } message: { Text((selectionMode ? "仅分享所选 \(selectedItems?.count ?? 0) 项影像。" : "\(NativeDay.string(resolvedStart ?? start)) 至 \(NativeDay.string(end)) 的全部可分享回忆。") + "有效期 \(hours) 小时，持链接者可查看。") }
+            } message: { Text((selectionMode ? "分享所选 \(selectedItems?.count ?? 0) 项影像。" : "\(NativeDay.string(resolvedStart ?? start)) 至 \(NativeDay.string(end)) 的可分享回忆。") + (selectedProfile.map { "仅包含关联\($0.nickname.isEmpty ? $0.name : $0.nickname)的内容。" } ?? "") + "有效期 \(hours) 小时，持链接者可查看。") }
             .confirmationDialog("撤销后，收到链接的人将无法再打开", isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } }), titleVisibility: .visible) {
                 if let share = revoking { Button("撤销分享", role: .destructive) { Task { await store.revoke(share) }; revoking = nil } }
             }
             .confirmationDialog("按原分享范围生成有效期 \(hours) 小时的新链接", isPresented: Binding(get: { copying != nil }, set: { if !$0 { copying = nil } }), titleVisibility: .visible) {
                 if let share = copying { Button("创建新链接") { Task { await store.createCopy(of: share, hours: hours) }; copying = nil } }
+            }
+            .sheet(item: $systemShare) { item in
+                NativeShareActivityView(item: item)
             }
         }
     }
@@ -198,7 +224,23 @@ struct NativeSharingView: View {
                 UIPasteboard.general.setItems([["public.url": url, "public.utf8-plain-text": url.absoluteString]], options: [.localOnly: true, .expirationDate: share.expiration ?? Date()])
                 copiedID = share.id
             } label: { Label(copiedID == share.id ? "已复制链接" : "复制分享链接", systemImage: "doc.on.doc") }
-            ShareLink(item: url) { Label("系统分享", systemImage: "square.and.arrow.up") }
+            Button {
+                Task {
+                    preparingShare = true
+                    defer { preparingShare = false }
+                    var avatar: UIImage?
+                    if share.has_avatar == true {
+                        do {
+                            let resource: NativeMediaResource = try await store.session.get("/public/shares/\(url.lastPathComponent)/avatar?redirect=false")
+                            if let raw = resource.url, let imageURL = AppConfiguration.httpsURL(raw) {
+                                avatar = try await NativeMediaNetwork.image(imageURL, maximumDimension: 256)
+                            }
+                        } catch { store.error = friendly(error) }
+                    }
+                    systemShare = NativeShareActivityItem(url: url, title: share.displayTitle, image: avatar)
+                }
+            } label: { Label(preparingShare ? "准备分享…" : "系统分享", systemImage: "square.and.arrow.up") }
+                .disabled(preparingShare)
         }.buttonStyle(.borderless)
     }
 
@@ -213,4 +255,51 @@ struct NativeSharingView: View {
             if earliest == nil { dateRangeError = "暂无带日期的可分享回忆，可手动指定日期。" }
         } catch { dateRangeError = friendly(error) }
     }
+}
+
+private final class NativeShareActivityItem: NSObject, Identifiable, UIActivityItemSource {
+    let url: URL
+    let title: String
+    let image: UIImage?
+    var id: URL { url }
+
+    init(url: URL, title: String, image: UIImage? = nil) {
+        self.url = url
+        self.title = title
+        self.image = image
+    }
+
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        url as NSURL
+    }
+
+    func activityViewController(_ activityViewController: UIActivityViewController, itemForActivityType activityType: UIActivity.ActivityType?) -> Any? {
+        url as NSURL
+    }
+
+    func activityViewController(_ activityViewController: UIActivityViewController, subjectForActivityType activityType: UIActivity.ActivityType?) -> String {
+        title
+    }
+
+    func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
+        let metadata = LPLinkMetadata()
+        metadata.originalURL = url
+        metadata.url = url
+        metadata.title = title
+        if let logo = image ?? UIImage(named: "ShareLogo") {
+            metadata.iconProvider = NSItemProvider(object: logo)
+            metadata.imageProvider = metadata.iconProvider
+        }
+        return metadata
+    }
+}
+
+private struct NativeShareActivityView: UIViewControllerRepresentable {
+    let item: NativeShareActivityItem
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [item], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

@@ -12,8 +12,8 @@ android {
         applicationId = "family.yearly.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 26111003
-        versionName = "1.0.2"
+        versionCode = 26111004
+        versionName = "1.0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures {

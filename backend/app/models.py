@@ -282,6 +282,8 @@ class TimelineDay(Base):
 
 
 class TimelineShare(Base):
+    profile_id: Mapped[int | None] = mapped_column(ForeignKey("child.id"))
+    profile: Mapped[Child | None] = relationship(lazy="joined")
     owner_scope_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
     updated_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
     updated_at: Mapped[datetime] = mapped_column(DT, default=now, onupdate=now)

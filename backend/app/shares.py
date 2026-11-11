@@ -5,10 +5,12 @@ import re
 import secrets
 from base64 import urlsafe_b64encode
 from datetime import date, timedelta
+from html import escape
 from typing import Literal, Annotated
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, func, literal, union_all, or_, case
 from sqlalchemy.dialects.mysql import insert
@@ -24,9 +26,11 @@ from .models import (
     User,
     VideoPreview,
     TimelineDay,
+    MediaChild,
+    EventChild,
 )
 from .security import editor, admin
-from .services import timeline_time
+from .services import timeline_time, validate_children, filter_children
 from .storage import get_storage, preview_resource
 
 router = APIRouter(prefix="/api", tags=["sharing"])
@@ -39,6 +43,7 @@ class ShareCreate(BaseModel):
     end_date: date | None = None
     media_ids: list[Annotated[int, Field(gt=0, strict=True)]] | None = Field(default=None, min_length=1, max_length=200)
     hours: int = Field(default=24, ge=1, le=168)
+    profile_id: Annotated[int, Field(gt=0, strict=True)] | None = None
 
     @model_validator(mode="after")
     def date_order(self):
@@ -52,11 +57,23 @@ class ShareCreate(BaseModel):
 
 
 def share_info(share):
+    profile = share.profile
+    name = (profile.nickname or profile.name) if profile else None
+    title = share.title or "我们的家庭时光"
+    description = "一起看看这些珍藏的照片与视频。记录成长，留住相聚的瞬间。"
+    if name:
+        title = f"{name} · {share.title}" if share.title else f"{name}的时光"
+        description = f"一起看看{name}的照片与视频，珍藏每一个值得记住的瞬间。"
     return {
         "id": share.id,
         "scope": "selection" if share.media_ids is not None else "date_range",
         "selected_count": len(share.media_ids) if share.media_ids is not None else None,
         "title": share.title,
+        "profile_id": share.profile_id,
+        "profile_name": name,
+        "has_avatar": bool(profile and profile.avatar_media_id),
+        "card_title": title,
+        "card_description": description,
         "start_date": share.start_date,
         "end_date": share.end_date,
         "expires_at": share.expires_at.isoformat() + "Z",
@@ -96,6 +113,8 @@ def create_share(data: ShareCreate, response: Response, db=Depends(get_db), user
 
 
 def save_share(data, response, db, user, owner_scope_id):
+    if data.profile_id is not None:
+        validate_children(db, [data.profile_id])
     if data.media_ids is not None:
         # Validate the same permissions used by all public endpoints. Never silently
         # replace missing/hidden items with a broader date or folder scope.
@@ -108,6 +127,7 @@ def save_share(data, response, db, user, owner_scope_id):
         created_by=user.id,
         owner_scope_id=owner_scope_id,
         title=data.title.strip(),
+        profile_id=data.profile_id,
         media_ids=data.media_ids,
         # Selection shares use a single virtual page, not a capture/archive date.
         start_date=data.start_date if data.media_ids is None else now().date(),
@@ -179,7 +199,7 @@ def copy_share(sid: int, data: ShareCopy, response: Response, db=Depends(get_db)
         {"media_ids": share.media_ids} if share.media_ids is not None
         else {"start_date": share.start_date, "end_date": share.end_date}
     )
-    return save_share(ShareCreate(title=share.title, hours=data.hours, **scope), response, db, user, share.owner_scope_id)
+    return save_share(ShareCreate(title=share.title, profile_id=share.profile_id, hours=data.hours, **scope), response, db, user, share.owner_scope_id)
 
 
 @router.delete("/shares/{sid}")
@@ -202,7 +222,65 @@ def public_share(token: str, response: Response, db=Depends(get_db)):
     owner = db.get(User, share.created_by)
     if not owner or not owner.active or owner.role not in ("admin", "member"):
         raise HTTPException(404, "分享已失效或不存在")
+    if share.profile_id is not None and share.profile.status == "deleted":
+        raise HTTPException(404, "分享已失效或不存在")
     return share
+
+
+@router.get("/public/shares/{token}/page", response_class=HTMLResponse)
+def share_page(token: str, response: Response, db=Depends(get_db)):
+    status = 200
+    try:
+        info = share_info(public_share(token, response, db))
+    except HTTPException as error:
+        status = error.status_code
+        info = {
+            "card_title": "分享已失效或不存在",
+            "card_description": "请联系分享者获取新的链接",
+            "has_avatar": False,
+        }
+    base = settings().allowed_origin.rstrip("/") + settings().app_base_path
+    image = f"{base}/api/public/shares/{token}/avatar" if info["has_avatar"] else f"{base}/share-logo.png"
+    title, description, image = (
+        escape(value, quote=True)
+        for value in (info["card_title"], info["card_description"], image)
+    )
+    entry = settings().app_base_path + "/share-entry.js"
+    return HTMLResponse(f'''<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow, noarchive"><meta name="referrer" content="no-referrer">
+<title>{title}</title><meta name="description" content="{description}">
+<meta property="og:type" content="website"><meta property="og:site_name" content="yearly">
+<meta property="og:title" content="{title}"><meta property="og:description" content="{description}">
+<meta property="og:image" content="{image}"><link rel="image_src" href="{image}">
+<link rel="icon" href="{image}"><meta name="theme-color" content="#f7f6f2">
+</head><body><div id="app"></div><script type="module" src="{entry}"></script></body></html>''', status_code=status)
+
+
+@router.get("/public/shares/{token}/avatar")
+def share_avatar(
+    redirect: bool = True,
+    share=Depends(public_share),
+    db=Depends(get_db),
+    storage=Depends(get_storage),
+):
+    avatar = db.get(Media, share.profile.avatar_media_id) if share.profile and share.profile.avatar_media_id else None
+    if not avatar or avatar.status != "active":
+        raise HTTPException(404, "分享头像不存在")
+    file = next(
+        (f for f in avatar.files if f.file_role == "original" and f.upload_status == "complete"),
+        None,
+    )
+    if not file:
+        raise HTTPException(404, "分享头像不存在")
+    ttl = min(60, max(1, int((share.expires_at - now()).total_seconds())))
+    resource = preview_resource(db, storage, file, "thumbnail", expires=ttl)
+    if not resource["url"]:
+        raise HTTPException(404, "分享头像正在准备")
+    if redirect:
+        return RedirectResponse(resource["url"], status_code=302)
+    return resource
 
 
 @router.post("/public/shares/{token}/visits")
@@ -285,6 +363,10 @@ def shared_queries(share):
         media = media.where(Media.owner_id == share.owner_scope_id)
         folders = folders.where(TimelineFolder.owner_id == share.owner_scope_id)
         events = events.where(Event.created_by == share.owner_scope_id)
+    if share is not None and getattr(share, "profile_id", None) is not None:
+        media = filter_children(media, MediaChild, Media, [share.profile_id], "any")
+        folders = folders.where(TimelineFolder.id.in_(media.with_only_columns(Media.folder_id)))
+        events = filter_children(events, EventChild, Event, [share.profile_id], "any")
     if selection:
         media = media.where(Media.id.in_(share.media_ids))
         # Selected folder members are flattened; never expose their unselected siblings.

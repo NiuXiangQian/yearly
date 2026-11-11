@@ -380,9 +380,10 @@ private final class SessionHTTP: URLProtocol {
         let beforeEmpty = SessionHTTP.requests.count
         await selection.create(title: "Empty", start: startDate, end: endDate, hours: 24, mediaIDs: [])
         precondition(SessionHTTP.requests.count == beforeEmpty && selection.created == nil)
-        await selection.create(title: "Selected", start: endDate, end: startDate, hours: 24, mediaIDs: [7, 8])
+        await selection.create(title: "Selected", start: endDate, end: startDate, hours: 24, mediaIDs: [7, 8], profileID: 1)
         precondition(selection.created?.scope == "selection" && selection.created?.selected_count == 2)
         precondition(SessionHTTP.lastShareBody["media_ids"] as? [Int] == [7, 8])
+        precondition(SessionHTTP.lastShareBody["profile_id"] as? Int == 1)
         precondition(SessionHTTP.lastShareBody["start_date"] == nil && SessionHTTP.lastShareBody["end_date"] == nil)
         SessionHTTP.ignoreSelection = true
         let incompatible = NativeSharingStore(session: session)

@@ -8,7 +8,7 @@ import {
   onBeforeUnmount,
 } from "vue";
 import { useRoute } from "vue-router";
-import { Leaf, Folder, ShieldCheck } from "lucide-vue-next";
+import { Folder, ShieldCheck } from "lucide-vue-next";
 import { api, post, notify } from "../lib/api";
 import { cacheScope, clearCachedScope } from "../lib/local-cache";
 import { t, locale } from "../lib/i18n";
@@ -23,6 +23,10 @@ import { cachedMediaResource, releaseMediaResource, type MediaResource } from ".
 import ImageViewer from "../components/ImageViewer.vue";
 import VideoPlayer from "../components/VideoPlayer.vue";
 const route = useRoute();
+const shareLogo = import.meta.env.BASE_URL + "share-logo.png";
+const initialTitle = document.title;
+const titleMeta = document.querySelector<HTMLMetaElement>('meta[property="og:title"]');
+const initialMetaTitle = titleMeta?.content ?? "";
 const base = `/public/shares/${encodeURIComponent(String(route.params.token))}`;
 const timelineOrder = ref(
   localStorage.getItem("yearly-shared-order") === "asc" ? "asc" : "desc",
@@ -30,6 +34,10 @@ const timelineOrder = ref(
 const share = ref<any>(null),
   days = ref<any[]>([]),
   nextDate = ref<string | null>(null);
+watch([share, locale], () => {
+  document.title = share.value?.card_title || share.value?.title || t("我们的家庭时光");
+  if (titleMeta) titleMeta.content = document.title;
+}, { immediate: true });
 const dateIndex = ref<string[]>([]);
 const railDates = computed(() =>
   timelineOrder.value === "asc"
@@ -95,6 +103,14 @@ const video = computed(
 );
 watch(loading, value => { if (!value && scrubTarget) void applyScrub(); });
 let expiryTimer: ReturnType<typeof setTimeout>;
+const clock = ref(Date.now());
+const countdown = computed(() => {
+  const seconds = Math.max(0, Math.ceil((new Date(share.value?.expires_at).getTime() - clock.value) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  return `${String(hours).padStart(2, "0")}:${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+});
+let countdownTimer: ReturnType<typeof setInterval>;
+const avatar = computed(() => share.value?.has_avatar ? import.meta.env.BASE_URL + `api/public/shares/${encodeURIComponent(String(route.params.token))}/avatar` : "");
 let previewGeneration = 0;
 let loadGeneration = 0;
 let visitRecorded = false;
@@ -150,6 +166,7 @@ async function load(direction: "replace" | "next" | "previous" = "replace", anch
       return;
     }
     share.value = data.share;
+    clock.value = Date.now();
     if (!visitRecorded) {
       visitRecorded = true;
       void post(`${base}/visits`).catch(() => {});
@@ -291,10 +308,14 @@ watch(timelineOrder, (value) => {
   load();
 });
 onMounted(() => {
+  countdownTimer = setInterval(() => { clock.value = Date.now(); }, 1000);
   load();
   window.addEventListener("scroll", trackDate, { passive: true });
 });
 onBeforeUnmount(() => {
+  clearInterval(countdownTimer);
+  document.title = initialTitle;
+  if (titleMeta) titleMeta.content = initialMetaTitle;
   clearTimeout(expiryTimer);
   cancelAnimationFrame(scrollFrame);
   releaseMediaResource(preview.value);
@@ -304,7 +325,7 @@ onBeforeUnmount(() => {
 <template>
   <main class="shared-page">
     <header class="shared-nav">
-      <span class="shared-brand"><Leaf :size="22" /> yearly</span
+      <span class="shared-brand"><img :src="shareLogo" alt="" width="22" height="22" /> yearly</span
       ><LanguageSwitch />
     </header>
     <div v-if="error" class="shared-empty" role="alert">
@@ -314,8 +335,9 @@ onBeforeUnmount(() => {
     </div>
     <template v-else-if="share">
       <section class="shared-intro">
+        <img v-if="avatar" :src="avatar" :alt="share.profile_name" class="shared-avatar" />
         <span class="eyebrow">{{ t("与你分享的时光") }}</span>
-        <h1>{{ share.title || t("一起长大的日子") }}</h1>
+        <h1>{{ share.card_title || share.title || t("一起长大的日子") }}</h1>
         <p v-if="share.scope === 'selection'">{{ t("指定影像分享") }}</p>
         <p v-else>{{ share.start_date }} — {{ share.end_date }}</p>
         <small
@@ -326,6 +348,7 @@ onBeforeUnmount(() => {
             })
           }}</small
         >
+        <p class="share-countdown">{{ t("链接剩余有效时间") }} <time>{{ countdown }}</time></p>
       </section>
       <div v-if="share.scope !== 'selection'" class="shared-sort">
         <TimelineOrder
@@ -549,9 +572,25 @@ onBeforeUnmount(() => {
   font-size: 23px;
   color: var(--sage);
 }
+.shared-brand img {
+  border-radius: 5px;
+}
 .shared-intro {
   text-align: center;
   padding: 52px 0 42px;
+}
+.shared-avatar {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.share-countdown time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--sage);
 }
 .shared-intro h1 {
   font-size: 34px;

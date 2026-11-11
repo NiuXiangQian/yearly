@@ -7,6 +7,8 @@ import { t, locale } from "../lib/i18n";
 import DateField from "./DateField.vue";
 const props = defineProps<{ open: boolean; initialDate?: string }>();
 const emit = defineEmits(["close"]);
+const profiles = ref<any[]>([]);
+const profileID = ref<number | null>(null);
 const startMode = ref("earliest"),
   earliest = ref("");
 function dateString(date: Date) {
@@ -61,10 +63,12 @@ watch(
     start.value = props.initialDate || "";
     end.value = props.initialDate || dateString(new Date());
     try {
-      const [links, bounds] = await Promise.all([
+      const [links, bounds, people] = await Promise.all([
         api("/shares"),
         api("/shares/bounds"),
+        api("/children"),
       ]);
+      profiles.value = people;
       history.value = links;
       earliest.value = bounds.earliest || "";
       chooseStart();
@@ -81,6 +85,7 @@ async function create() {
       start_date: start.value,
       end_date: end.value,
       hours: hours.value,
+      profile_id: profileID.value,
     });
     showLink(data.id, data.token);
     history.value.unshift(data);
@@ -143,6 +148,10 @@ async function copyRecord(item: any) {
   >
     <p class="muted">{{ t("选择时间线范围，自动分享其中允许分享的内容。") }}</p>
     <form @submit.prevent="create">
+      <label>{{ t("分享人物") }}<select v-model="profileID">
+        <option :value="null">{{ t("全部家庭成员") }}</option>
+        <option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profile.nickname || profile.name }}</option>
+      </select></label>
       <label
         >{{ t("开始时间")
         }}<select
@@ -203,7 +212,7 @@ async function copyRecord(item: any) {
         <p>
           {{
             t(
-              "范围包含全部孩子的内容，并随时间线更新；仅展示允许分享的影像与日记。",
+              profileID ? "仅分享关联所选人物且允许分享的影像与日记，卡片使用此人物的名字和头像。" : "范围包含全部孩子的内容，并随时间线更新；仅展示允许分享的影像与日记。",
             )
           }}
         </p>
@@ -233,7 +242,7 @@ async function copyRecord(item: any) {
       <summary>{{ t("管理最近的分享") }} · {{ history.length }}</summary>
       <div v-for="item in history" :key="item.id" class="history-row">
         <div>
-          <b>{{ item.title || t("成长时间线") }}</b
+          <b>{{ item.card_title || item.title || t("成长时间线") }}</b
           ><small>{{ item.scope === "selection" ? t("指定影像分享") + " · " + item.selected_count : item.start_date + " — " + item.end_date }}</small
           ><small
             >{{ t("到期时间") }}:
