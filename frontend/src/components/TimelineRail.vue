@@ -125,12 +125,14 @@ function keydown(event: KeyboardEvent) {
         aria-hidden="true"
       ></span>
       <output
-        v-if="dragging !== null || focused"
         class="rail-date"
+        :class="{ expanded: dragging !== null || focused }"
         :style="{ top: `${position}%` }"
         aria-hidden="true"
-        >{{ dates[index] }}</output
       >
+        <span v-if="dragging !== null || focused" class="rail-date-year">{{ dates[index].slice(0, 4) }}</span>
+        <span class="rail-date-day">{{ dates[index].slice(5).replace("-", ".") }}</span>
+      </output>
     </div>
     <span class="rail-edge" aria-hidden="true">{{
       dates[dates.length - 1].slice(0, 7).replace("-", ".")
@@ -202,17 +204,30 @@ function keydown(event: KeyboardEvent) {
 }
 .rail-date {
   position: absolute;
-  left: calc(50% + 19px);
-  transform: translateY(-50%);
-  padding: 9px 12px;
-  border-radius: 8px;
-  background: var(--text);
-  color: var(--surface);
-  box-shadow: 0 4px 18px #0002;
-  font-size: 13px;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  width: min(36px, 100%);
+  padding: 2px 0;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--sage);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 10px;
+  line-height: 12px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
+}
+.rail-date.expanded {
+  font-size: 11px;
+  line-height: 14px;
+}
+.rail-date-year {
+  display: block;
+  font-size: 9px;
+  line-height: 10px;
 }
 @media (max-width: 700px) {
   .rail-edge {

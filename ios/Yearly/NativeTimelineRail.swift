@@ -36,13 +36,18 @@ struct NativeTimelineRail: View {
                     }
                     .frame(width: 44, height: geometry.size.height)
                     .overlay(alignment: .topLeading) {
-                        if dragRatio != nil {
-                            Text(day).font(.system(size: 13, weight: .semibold)).monospacedDigit()
-                                .foregroundStyle(.primary).padding(.horizontal, 12).padding(.vertical, 9)
-                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                                .fixedSize().offset(x: 44, y: ratio * geometry.size.height - 17)
-                                .allowsHitTesting(false)
+                        VStack(spacing: 0) {
+                            if dragRatio != nil {
+                                Text(day.prefix(4)).font(.system(size: 9))
+                            }
+                            Text(day.dropFirst(5).replacingOccurrences(of: "-", with: "."))
+                                .font(.system(size: dragRatio == nil ? 10 : 11, weight: .semibold))
                         }
+                            .monospacedDigit().foregroundStyle(.tint)
+                            .frame(width: 40).padding(.vertical, 2)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+                            .position(x: 22, y: ratio * geometry.size.height)
+                            .allowsHitTesting(false)
                     }
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0)

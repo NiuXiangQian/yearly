@@ -123,26 +123,36 @@ fun TimelineRail(
                 drawCircle(primary.copy(alpha = .16f), 12.dp.toPx(), center)
                 drawCircle(primary, 7.dp.toPx(), center)
             }
-            if (dragRatio != null)
-                Surface(
-                    modifier =
-                        Modifier.offset {
-                                IntOffset(
-                                    44.dp.roundToPx(),
-                                    (ratio * height - 18.dp.toPx()).roundToInt(),
-                                )
-                            }
-                            .requiredWidth(124.dp),
-                    shape = MaterialTheme.shapes.small,
-                    tonalElevation = 6.dp,
+            val day = scale.nearest(ratio.toDouble())
+            Surface(
+                modifier =
+                    Modifier.offset {
+                            IntOffset(
+                                0,
+                                (ratio * height - (if (dragRatio == null) 8.dp else 14.dp).toPx()).roundToInt(),
+                            )
+                        }
+                        .width(40.dp)
+                        .align(Alignment.TopCenter),
+                shape = MaterialTheme.shapes.small,
+                tonalElevation = if (dragRatio == null) 2.dp else 6.dp,
+            ) {
+                Column(
+                    Modifier.padding(vertical = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    if (dragRatio != null) {
+                        Text(day.take(4), fontSize = 9.sp, lineHeight = 10.sp, color = primary, maxLines = 1)
+                    }
                     Text(
-                        scale.nearest(ratio.toDouble()),
-                        Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                        fontSize = 13.sp,
+                        day.substring(5).replace('-', '.'),
+                        fontSize = if (dragRatio == null) 10.sp else 11.sp,
+                        lineHeight = if (dragRatio == null) 12.sp else 14.sp,
+                        color = primary,
                         maxLines = 1,
                     )
                 }
+            }
         }
         Column(
             Modifier.clearAndSetSemantics { contentDescription = "结束日期 ${days.last()}" },
