@@ -18,6 +18,8 @@
 
 Apple 官方依据：[Personal Team 与 7 天有效期](https://developer.apple.com/help/account/basics/about-your-developer-account)、[连接设备并运行](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html)。免费账号还受 Apple 当时的 App/设备额度限制，Xcode 会显示具体错误。
 
+多台手机可以使用同一张有效开发证书，描述文件需包含对应设备。日常使用下面的脚本复用本地证书和描述文件。`device`、`archive`、`export` 均关闭自动联网更新签名，签名材料缺失、失效或未覆盖设备时构建会报错退出。首次配置和续签需单独在 Xcode 处理，优先复用仍有效的证书。吊销证书会使关联描述文件失效，可能导致其他手机上的旧包无法启动，换证前需检查所有受影响设备。
+
 不启用 Push Notifications、App Groups、iCloud Container、Background Processing 等能力。访问用户 iCloud 照片由 Photos 框架与系统照片账户完成，不需要 App 的 iCloud entitlement。没有 AltStore 前置条件。
 
 ```bash
@@ -28,7 +30,7 @@ Apple 官方依据：[Personal Team 与 7 天有效期](https://developer.apple.
 # 完整 Xcode：Debug / Release 模拟器编译，不签名
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build
 
-# 可选：命令行自动开发签名构建（Xcode 已登录免费账号并连接设备）
+# 复用本地开发签名构建（已在 Xcode 准备好有效证书和包含目标设备的描述文件）
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 export YEARLY_TEAM_ID='Xcode显示的PersonalTeamID'
 export YEARLY_DEVICE_ID='Xcode设备窗口显示的设备标识'

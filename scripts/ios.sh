@@ -11,7 +11,7 @@ Usage: ./scripts/ios.sh verify | test-large | build | device | archive | export
   verify   Check Swift sources, upload mocks, origin policy and project metadata (macOS CLI tools).
   test-large  Run synthetic 1 GiB streaming and multipart tests; no network or OSS.
   build    Build unsigned Debug and Release for iOS Simulator (full Xcode required).
-  device   Build with automatic Personal Team signing for your connected iPhone.
+  device   Build for your connected iPhone using existing local signing materials.
   archive  Create a signed archive for App Store Connect; no upload.
   export   Export an existing archive as an App Store IPA; no upload.
 
@@ -22,6 +22,7 @@ Optional: YEARLY_VERSION (default 1.0), YEARLY_BUILD_NUMBER (default 1).
 export requires YEARLY_TEAM_ID and the archive created above.
 Use Xcode Organizer to validate the archive and upload after reviewing it.
 device requires YEARLY_TEAM_ID and YEARLY_DEVICE_ID; YEARLY_BUNDLE_ID defaults to family.yearly.app.
+Signed builds use existing local certificates and profiles. Prepare initial signing or renewal in Xcode after checking other installed devices.
 Personal installation does not require archive/export, App Store Connect or paid membership.
 USAGE
 }
@@ -71,7 +72,6 @@ case "$ACTION" in
     : "${YEARLY_DEVICE_ID:?Set your connected iPhone identifier from Xcode Devices}"
     xcodebuild -project "$IOS_ROOT/Yearly.xcodeproj" -scheme Yearly -configuration Debug \
       -destination "id=$YEARLY_DEVICE_ID" -derivedDataPath "$BUILD_ROOT/Device" \
-      -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
       "DEVELOPMENT_TEAM=$YEARLY_TEAM_ID" "PRODUCT_BUNDLE_IDENTIFIER=${YEARLY_BUNDLE_ID:-family.yearly.app}" build
     echo "Built: $BUILD_ROOT/Device/Build/Products/Debug-iphoneos/Yearly.app"
     echo 'Install/run using Xcode Run, or xcrun devicectl device install app --device "$YEARLY_DEVICE_ID" <app-path>.'
@@ -99,7 +99,7 @@ case "$ACTION" in
     if [[ -e "$ARCHIVE" ]]; then echo "Archive already exists: $ARCHIVE; increment YEARLY_BUILD_NUMBER." >&2; exit 1; fi
     xcodebuild -project "$IOS_ROOT/Yearly.xcodeproj" -scheme Yearly -configuration Release \
       -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
-      -derivedDataPath "$BUILD_ROOT/DerivedData" -allowProvisioningUpdates \
+      -derivedDataPath "$BUILD_ROOT/DerivedData" \
       "DEVELOPMENT_TEAM=$YEARLY_TEAM_ID" "PRODUCT_BUNDLE_IDENTIFIER=$YEARLY_BUNDLE_ID" \
       "MARKETING_VERSION=${YEARLY_VERSION:-1.0}" "CURRENT_PROJECT_VERSION=${YEARLY_BUILD_NUMBER:-1}" \
       "YEARLY_SITE_URL=$YEARLY_SITE_URL" "YEARLY_PRIVACY_URL=$YEARLY_PRIVACY_URL" \
@@ -122,7 +122,7 @@ with open(sys.argv[1], 'wb') as file:
                   'manageAppVersionAndBuildNumber': False, 'uploadSymbols': True}, file)
 PY
     xcodebuild -exportArchive -archivePath "$ARCHIVE" \
-      -exportOptionsPlist "$BUILD_ROOT/ExportOptions.plist" -exportPath "$EXPORT" -allowProvisioningUpdates
+      -exportOptionsPlist "$BUILD_ROOT/ExportOptions.plist" -exportPath "$EXPORT"
     ;;
   help|--help|-h) usage ;;
   *) usage; exit 2 ;;

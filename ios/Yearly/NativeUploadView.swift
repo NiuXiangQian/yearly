@@ -25,6 +25,8 @@ struct NativeUploadView: View {
     @State private var hasLoaded = false
     @State private var loadedProfileRevision: Int?
     @State private var showingPeople = false
+    @State private var choosingPeopleForUpload = false
+    @State private var confirmingAfterPeople = false
     @State private var profileSearch = ""
     @State private var showFinished = false
     @State private var showAllPending = false
@@ -348,7 +350,10 @@ struct NativeUploadView: View {
                         .buttonStyle(NativeActionStyle()).disabled(account == nil || openingPicker)
                     if !ready.isEmpty {
                         Button {
-                            confirmingIDs = Set(ready.map(\.id)); confirming = true
+                            confirmingIDs = Set(ready.map(\.id))
+                            choosingPeopleForUpload = children.isEmpty
+                            if choosingPeopleForUpload { showingPeople = true }
+                            else { confirming = true }
                         } label: {
                             Text("上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
                         }.buttonStyle(NativeActionStyle(kind: .primary))
@@ -369,10 +374,20 @@ struct NativeUploadView: View {
                 }
             }
             .refreshable { await loadAccount() }
-            .sheet(isPresented: $showingPeople) {
+            .sheet(isPresented: $showingPeople, onDismiss: {
+                choosingPeopleForUpload = false
+                if confirmingAfterPeople {
+                    confirmingAfterPeople = false
+                    confirming = true
+                }
+            }) {
                 NavigationStack {
                     List {
                         Section {
+                            if choosingPeopleForUpload {
+                                Text("可以选择本批关联的人物与宠物，也可以暂不选择，以家庭时光继续上传。")
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            }
                             Button("仅家庭时光 · 取消全部关联") { selectPeople([]) }
                             Text("已选：\(chosenNames)").font(.subheadline).foregroundStyle(.secondary)
                         }
@@ -394,7 +409,20 @@ struct NativeUploadView: View {
                         }
                     }.navigationTitle("关联人物与宠物")
                         .searchable(text: $profileSearch, prompt: "搜索人物或宠物")
-                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingPeople = false } } }
+                        .toolbar {
+                            if choosingPeopleForUpload {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("取消", role: .cancel) { showingPeople = false }
+                                }
+                            }
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button(choosingPeopleForUpload ? (children.isEmpty ? "暂不选择" : "继续") : "完成") {
+                                    selectPeople(children)
+                                    confirmingAfterPeople = choosingPeopleForUpload
+                                    showingPeople = false
+                                }
+                            }
+                        }
                 }
             }
             .confirmationDialog("取消后会删除本机缓存，继续上传需要重新选择原件", isPresented: Binding(get: { cancelling != nil }, set: { if !$0 { cancelling = nil } }), titleVisibility: .visible) {
