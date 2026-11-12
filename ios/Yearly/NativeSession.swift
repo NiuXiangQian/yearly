@@ -185,13 +185,25 @@ struct LoginCaptcha: Decodable {
         let revision = cacheRevision
         let cacheKey = "accounts-v2|" + path
         let cacheable = path.range(of: #"^/(timeline|media|events|children|folders|stats|uploaders)([/?]|$)"#, options: .regularExpression) != nil && !path.contains("/url?")
-        if cacheable, !refresh, let scope,
-           let data = localCache.data(scope: scope, key: cacheKey, category: "lists"),
-           let value = try? JSONDecoder().decode(T.self, from: data) { return value }
+        let cache = localCache
+        if cacheable, !refresh, let scope {
+            let cached = await Task.detached(priority: .userInitiated) {
+                cache.data(scope: scope, key: cacheKey, category: "lists")
+            }.value
+            try Task.checkCancellation()
+            if let cached, let value = try? await Task.detached(priority: .userInitiated, operation: {
+                try JSONDecoder().decode(T.self, from: cached)
+            }).value, scope == cacheScope, revision == cacheRevision { return value }
+        }
         let (data, _) = try await send(path)
-        let value = try JSONDecoder().decode(T.self, from: data)
+        let value = try await Task.detached(priority: .userInitiated) {
+            try JSONDecoder().decode(T.self, from: data)
+        }.value
+        try Task.checkCancellation()
         if cacheable, let scope, scope == cacheScope, revision == cacheRevision {
-            localCache.insert(data, scope: scope, key: cacheKey, category: "lists", lifetime: 300)
+            await Task.detached(priority: .utility) {
+                cache.insert(data, scope: scope, key: cacheKey, category: "lists", lifetime: 300)
+            }.value
         }
         return value
     }
@@ -254,7 +266,7 @@ func friendly(_ error: Error) -> String {
 }
 
 // App cache files live outside backups and are separated by site and account.
-@MainActor final class NativeLocalCache {
+final class NativeLocalCache: Sendable {
     private struct Entry: Codable {
         let expires: Date
         let data: Data

@@ -3,18 +3,18 @@ import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct NativeAvatarDraft: Transferable {
+struct NativeAvatarDraft: Transferable, Identifiable {
+    let id = UUID()
     let jpeg: Data
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(importedContentType: .image) { received in
-            // An avatar is a new, bounded derivative. ImageIO applies orientation
-            // without copying the source EXIF or loading the full photo into memory.
+            // A bounded editing preview; the Photos original is never modified.
             guard let source = CGImageSourceCreateWithURL(received.file as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
                   let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 512,
+                    kCGImageSourceThumbnailMaxPixelSize: 2048,
                   ] as CFDictionary) else {
                 throw UploadFailure(message: "无法读取这张照片，请换一张。")
             }
@@ -23,7 +23,7 @@ struct NativeAvatarDraft: Transferable {
                 throw UploadFailure(message: "无法生成头像。")
             }
             CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
-            guard CGImageDestinationFinalize(destination), encoded.length <= 1024 * 1024 else {
+            guard CGImageDestinationFinalize(destination) else {
                 throw UploadFailure(message: "无法生成符合大小限制的头像。")
             }
             return NativeAvatarDraft(jpeg: encoded as Data)
@@ -65,7 +65,8 @@ struct NativeFamilyAvatar: View {
         loadedID = nil
         guard let mediaID, let account = session.account?.id else { return }
         let cacheKey = "avatar|\(session.site.url.absoluteString)|\(account)|\(mediaID)"
-        if let cached = NativeImageCache.image(for: cacheKey, scope: session.cacheScope) {
+        if let cached = await NativeImageCache.image(for: cacheKey, scope: session.cacheScope) {
+            guard !Task.isCancelled, session.account?.id == account else { return }
             remote = cached
             loadedID = mediaID
             return
@@ -170,5 +171,99 @@ struct NativeFamilyPhotoSearch: View {
         } catch {
             if generation == ticket, !Task.isCancelled { self.error = friendly(error) }
         }
+    }
+}
+
+// Crop only the display copy. The source stays in Photos or in the timeline.
+struct NativeAvatarCropView: View {
+    private let image: UIImage?
+    let save: (NativeAvatarDraft) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var zoom: CGFloat = 1
+    @State private var initialZoom: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var initialOffset: CGSize = .zero
+    @State private var error = ""
+
+    init(source: NativeAvatarDraft, save: @escaping (NativeAvatarDraft) -> Void) {
+        image = UIImage(data: source.jpeg)
+        self.save = save
+    }
+
+    var body: some View {
+        NavigationStack {
+            if let image {
+                GeometryReader { geometry in
+                    let side = min(geometry.size.width - 48, 300, max(120, geometry.size.height - 330))
+                    let base = side / min(image.size.width, image.size.height)
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            Spacer(minLength: 8)
+                            Image(uiImage: image).resizable()
+                                .frame(width: image.size.width * base * zoom, height: image.size.height * base * zoom)
+                                .offset(offset)
+                                .frame(width: side, height: side)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(.secondary.opacity(0.4), lineWidth: 1))
+                                .contentShape(Circle())
+                                .gesture(DragGesture().onChanged { value in
+                                    offset = bounded(CGSize(width: initialOffset.width + value.translation.width,
+                                                            height: initialOffset.height + value.translation.height), image: image, side: side)
+                                }.onEnded { _ in initialOffset = offset })
+                                .simultaneousGesture(MagnificationGesture().onChanged { value in
+                                    zoom = min(5, max(1, initialZoom * value))
+                                    offset = bounded(offset, image: image, side: side)
+                                }.onEnded { _ in initialZoom = zoom; initialOffset = offset })
+                                .accessibilityLabel("头像圆形预览，可拖动调整位置")
+                            Text("拖动调整位置，双指缩放")
+                                .font(.headline)
+                            HStack {
+                                Image(systemName: "minus.magnifyingglass")
+                                Slider(value: $zoom, in: 1...5, onEditingChanged: { editing in
+                                    if !editing { initialZoom = zoom }
+                                }).accessibilityLabel("头像缩放")
+                                Image(systemName: "plus.magnifyingglass")
+                            }.padding(.horizontal, 28)
+                            Button("重置位置与缩放") { zoom = 1; initialZoom = 1; offset = .zero; initialOffset = .zero }
+                            Text("仅生成头像副本，来源照片保留原样。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                            if !error.isEmpty { Text(error).foregroundStyle(.red).font(.footnote) }
+                            Spacer(minLength: 8)
+                            Button {
+                                let format = UIGraphicsImageRendererFormat()
+                                format.scale = 1
+                                format.opaque = true
+                                let output = UIGraphicsImageRenderer(size: CGSize(width: 512, height: 512), format: format).image { _ in
+                                    let ratio = 512 / side
+                                    let size = CGSize(width: image.size.width * base * zoom, height: image.size.height * base * zoom)
+                                    image.draw(in: CGRect(x: ((side - size.width) / 2 + offset.width) * ratio,
+                                                          y: ((side - size.height) / 2 + offset.height) * ratio,
+                                                          width: size.width * ratio, height: size.height * ratio))
+                                }
+                                if let jpeg = output.jpegData(compressionQuality: 0.85) {
+                                    save(NativeAvatarDraft(jpeg: jpeg)); dismiss()
+                                } else { error = "无法生成头像，请重新选择照片。" }
+                            } label: { Text("使用此头像").frame(maxWidth: .infinity) }
+                                .buttonStyle(NativeActionStyle(kind: .primary)).padding(.horizontal, 24)
+                        }.frame(maxWidth: .infinity).padding(.vertical, 16)
+                            .frame(minHeight: geometry.size.height)
+                            .onChange(of: zoom) { _ in
+                                offset = bounded(offset, image: image, side: side)
+                                initialOffset = offset
+                            }
+                    }
+                }
+                .background(NativeTheme.background)
+                .navigationTitle("调整头像").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+            }
+        }
+    }
+
+    private func bounded(_ value: CGSize, image: UIImage, side: CGFloat) -> CGSize {
+        let scale = side / min(image.size.width, image.size.height) * zoom
+        let x = max(0, (image.size.width * scale - side) / 2)
+        let y = max(0, (image.size.height * scale - side) / 2)
+        return CGSize(width: min(x, max(-x, value.width)), height: min(y, max(-y, value.height)))
     }
 }

@@ -38,9 +38,10 @@ struct YearlyRootView: View {
 struct NativeAppShell: View {
     @StateObject private var session: NativeSession
     @StateObject private var timeline: NativeTimelineStore
-    @ObservedObject var queue: UploadQueue
+    let queue: UploadQueue
     let editSite: () -> Void
     @State private var tab = 0
+    @State private var timelineTopRequest = 0
     @State private var loggingOut = false
     @State private var showingShares = false
     @State private var uploadDay: Date?
@@ -59,8 +60,11 @@ struct NativeAppShell: View {
             } else if session.account == nil {
                 NativeLoginView(session: session, editSite: editSite)
             } else {
-                TabView(selection: $tab) {
-                    NativeTimelineView(store: timeline) { day in
+                TabView(selection: Binding(get: { tab }, set: { selected in
+                    if selected == 0 && tab == 0 { timelineTopRequest += 1 }
+                    tab = selected
+                })) {
+                    NativeTimelineView(store: timeline, topRequest: timelineTopRequest) { day in
                         uploadDay = NativeDay.date(day)
                         tab = 1
                     }

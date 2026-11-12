@@ -78,6 +78,14 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var stableID: String { "\(kind ?? "media")-\(id)" }
     var label: String { [title, batch_name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "珍藏的瞬间" }
     var day: String { String((timeline_day ?? timeline_date ?? taken_at_local ?? start_at ?? "日期未知").prefix(10)) }
+    var previewDateTime: String {
+        if time_unknown != true, let capture = corrected_taken_at_local ?? taken_at_local,
+           capture.count >= 19 {
+            // Capture timestamps are local wall-clock values, not UTC instants.
+            return String(capture.prefix(19)).replacingOccurrences(of: "T", with: " ")
+        }
+        return day
+    }
     var uploadDate: Date? {
         guard let uploaded_at else { return nil }
         let utc = uploaded_at + "Z" // The server stores upload timestamps as UTC without a suffix.
@@ -107,6 +115,7 @@ struct NativeMediaResource: Decodable { let url: String?; let status: String; le
 struct NativeTimelineScale {
     let days: [String]
     private let positions: [Double]
+    private let ratios: [String: Double]
 
     init(days: [String]) {
         let datedDays = days.compactMap { day in
@@ -116,10 +125,11 @@ struct NativeTimelineScale {
         let start = datedDays.first?.1 ?? 0
         let span = (datedDays.last?.1 ?? start) - start
         positions = datedDays.map { span == 0 ? 0 : ($0.1 - start) / span }
+        ratios = Dictionary(zip(self.days, positions), uniquingKeysWith: { first, _ in first })
     }
 
     func ratio(for day: String) -> Double {
-        days.firstIndex(of: day).map { positions[$0] } ?? 0
+        ratios[day] ?? 0
     }
 
     func nearest(to ratio: Double) -> String? {
@@ -153,7 +163,7 @@ struct NativeTimelineScale {
 
 @MainActor final class NativeTimelineStore: ObservableObject {
     private enum Page { case first, older, newer }
-    @Published var items: [NativeTimelineItem] = []
+    @Published var items: [NativeTimelineItem] = [] { didSet { groupedCache = nil } }
     @Published var profiles: [UploadProfile] = []
     @Published private(set) var profilesLoading = false
     @Published private(set) var profilesError = ""
@@ -165,12 +175,12 @@ struct NativeTimelineScale {
     @Published var search = ""
     @Published var mediaType = ""
     @Published var ascending = false
-    @Published private(set) var byUpload = false
+    @Published private(set) var byUpload = false { didSet { groupedCache = nil } }
     @Published var useDateRange = false
     @Published var startDate = Date()
     @Published var endDate = Date()
-    @Published private(set) var uploadedMediaIDs: [Int] = []
-    @Published private(set) var anchorMediaID: Int?
+    @Published private(set) var uploadedMediaIDs: [Int] = [] { didSet { groupedCache = nil } }
+    @Published private(set) var anchorMediaID: Int? { didSet { groupedCache = nil } }
     @Published private var dateAnchor: (day: String, filters: String)?
     @Published private(set) var dates: [String] = []
     @Published private(set) var archiveExpanded = false
@@ -180,8 +190,15 @@ struct NativeTimelineScale {
     var usesUploadOrder: Bool { byUpload && !showingUploads && anchorMediaID == nil }
     var isFocused: Bool { showingUploads || anchorMediaID != nil }
     var anchorDay: String? { dateAnchor?.filters == filterKey ? dateAnchor?.day : nil }
+    private var groupedCache: [String: [NativeTimelineItem]]?
+    var groupedItems: [String: [NativeTimelineItem]] {
+        if let groupedCache { return groupedCache }
+        let groups = Dictionary(grouping: items, by: groupDay)
+        groupedCache = groups
+        return groups
+    }
     var railDays: [String] {
-        orderedDays(Set(dates).union(items.map(groupDay).filter { $0 != "日期未知" }))
+        orderedDays(Set(dates).union(groupedItems.keys.filter { $0 != "日期未知" }))
     }
     func groupDay(_ item: NativeTimelineItem) -> String {
         guard usesUploadOrder else { return item.day }

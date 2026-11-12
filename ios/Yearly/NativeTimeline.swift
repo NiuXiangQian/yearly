@@ -17,21 +17,34 @@ import UniformTypeIdentifiers
         return value
     }()
     private static let disk = NativeLocalCache()
-    static func image(for key: String, scope: String? = nil) -> UIImage? {
+    private static let io = DispatchQueue(label: "family.yearly.image-cache", qos: .utility)
+    static func image(for key: String, scope: String? = nil) async -> UIImage? {
         if let entry = cache.object(forKey: key as NSString), Date().timeIntervalSince(entry.created) < 120 {
             return entry.image
         }
-        guard let scope, let data = disk.data(scope: scope, key: key, category: "images"),
-              let image = UIImage(data: data) else { return nil }
-        insert(image, for: key)
+        guard let scope else { return nil }
+        let disk = disk
+        let image: UIImage? = await withCheckedContinuation { continuation in
+            io.async {
+                let image = disk.data(scope: scope, key: key, category: "images").flatMap(UIImage.init(data:))
+                continuation.resume(returning: image?.preparingForDisplay())
+            }
+        }
+        if let image { insert(image, for: key) }
         return image
     }
+
     static func insert(_ image: UIImage, for key: String, scope: String? = nil) {
         let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
         guard cost > 0, cost <= 32 * 1024 * 1024 else { return }
         cache.setObject(Entry(image), forKey: key as NSString, cost: cost)
-        if let scope, let data = image.pngData() {
-            disk.insert(data, scope: scope, key: key, category: "images", lifetime: 7 * 24 * 60 * 60)
+        if let scope {
+            let disk = disk
+            io.async {
+                if let data = image.pngData() {
+                    disk.insert(data, scope: scope, key: key, category: "images", lifetime: 7 * 24 * 60 * 60)
+                }
+            }
         }
     }
     static func clear() { cache.removeAllObjects() }
@@ -86,7 +99,10 @@ struct NativeMediaImage: View {
             let owner = session.account?.id
             let cacheKey = "\(session.site.url.absoluteString)|\(owner ?? -1)|\(mediaID)|\(fileID)|\(purpose)"
             failure = ""
-            if attempt == 0, let cached = NativeImageCache.image(for: cacheKey, scope: session.cacheScope) { image = cached; return }
+            if attempt == 0, let cached = await NativeImageCache.image(for: cacheKey, scope: session.cacheScope) {
+                guard !Task.isCancelled, session.account?.id == owner else { return }
+                image = cached; return
+            }
             image = nil
             do {
                 let resource: NativeMediaResource = try await session.get("/media/\(mediaID)/files/\(fileID)/url?purpose=\(purpose)")
@@ -100,12 +116,14 @@ struct NativeMediaImage: View {
                 image = result
             } catch { if !Task.isCancelled { failure = friendly(error) } }
         }
+        .onDisappear { image = nil }
         .accessibilityLabel(failure.isEmpty ? "影像预览" : failure)
     }
 }
 
 struct NativeTimelineView: View {
     @ObservedObject var store: NativeTimelineStore
+    var topRequest = 0
     let appendToDay: (String) -> Void
     @State private var showingFilter = false
     @State private var shareRequest: NativeShareRequest?
@@ -131,16 +149,19 @@ struct NativeTimelineView: View {
     @State private var expandAllDays = false
     @State private var foldedDayEndVisible = false
     @State private var collapsingDay: String?
-    @State private var timelineScroll: UIScrollView?
-    @State private var dayFrames: [String: CGRect] = [:]
-    @State private var contentHeight: CGFloat = 0
+    @State private var viewport = NativeTimelineViewport()
+    @State private var refreshing = false
+    @State private var scrollRevision = 0
+    private var timelineScroll: UIScrollView? { viewport.scroll }
+    private var dayFrames: [String: CGRect] { viewport.days }
+    private var contentHeight: CGFloat { viewport.height }
     @State private var railHeld = false
     @State private var scrubDay: String?
     private var timelineList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                timelineContent.coordinateSpace(name: "timeline-content").background(NativeTimelineScrollReader(resolve: { value in
-                    if timelineScroll !== value { timelineScroll = value }
+                timelineContent.coordinateSpace(name: "timeline-content").background(NativeTimelineScrollReader(refresh: refreshTimeline, resolve: { value in
+                    viewport.scroll = value
                     restoreReadingPosition()
                     if scrubDay != nil { scrollToDay() }
                     loadMoreIfNeeded()
@@ -153,9 +174,10 @@ struct NativeTimelineView: View {
                                            value: NativeTimelineLayout(height: geometry.size.height))
                 })
             }
+                .id(scrollRevision)
                 .onPreferenceChange(NativeTimelineDayPositions.self) { layout in
-                    dayFrames = layout.days
-                    contentHeight = layout.height
+                    viewport.days = layout.days
+                    viewport.height = layout.height
                     restoreReadingPosition()
                     if scrubDay != nil || pendingRailDay != nil { scrollToDay() }
                     if currentDay.isEmpty, let scroll = timelineScroll { updateReadingDay(scroll) }
@@ -172,19 +194,43 @@ struct NativeTimelineView: View {
                                 currentDay = day
                                 scrubDay = day
                                 collapsedMonths[String(day.prefix(7))] = false
-                                if store.items.contains(where: { store.groupDay($0) == day }) {
+                                if dayFrames[day] != nil && store.items.contains(where: { store.groupDay($0) == day }) {
                                     scrollToDay()
                                 } else if !store.loading { store.jump(to: day) }
                             }) { day in
                                 currentDay = day
                                 scrubDay = day
                                 collapsedMonths[String(day.prefix(7))] = false
-                                if store.items.contains(where: { store.groupDay($0) == day }) {
+                                if dayFrames[day] != nil && store.items.contains(where: { store.groupDay($0) == day }) {
                                     scrollToDay()
                                 } else { store.jump(to: day) }
                             }
                             .frame(height: geometry.size.height)
                         }.frame(width: 44).zIndex(1)
+                    }
+                }
+                .onChange(of: topRequest) { _ in
+                    scrubDay = nil
+                    pendingRailDay = nil
+                    positionBeforePrepend = nil
+                    railHeld = false
+                    if store.anchorDay != nil {
+                        returningToStart = true
+                        store.focusOnUploads([])
+                    } else {
+                        proxy.scrollTo("timeline-start", anchor: .top)
+                        if let scroll = timelineScroll {
+                            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: -scroll.adjustedContentInset.top), animated: false)
+                        }
+                        currentDay = store.items.first.map(store.groupDay) ?? ""
+                    }
+                }
+                .onChange(of: scrubDay) { day in
+                    if let day, dayFrames[day] == nil { proxy.scrollTo("day-\(day)", anchor: .top) }
+                }
+                .onChange(of: store.items.count) { _ in
+                    if let day = scrubDay ?? pendingRailDay, dayFrames[day] == nil {
+                        proxy.scrollTo("day-\(day)", anchor: .top)
                     }
                 }
                 .onChange(of: collapsingDay) { day in
@@ -201,10 +247,10 @@ struct NativeTimelineView: View {
     }
 
     private var timelineContent: some View {
-        let groups = Dictionary(grouping: store.items, by: store.groupDay)
+        let groups = store.groupedItems
         let days = store.orderedDays(groups.keys)
         let months = Dictionary(grouping: days) { String($0.prefix(7)) }
-        return VStack(alignment: .leading, spacing: 22) {
+        return LazyVStack(alignment: .leading, spacing: 22) {
             if store.showingUploads {
                 HStack {
                     Text("按归档日期查看刚上传的影像").font(.subheadline).foregroundStyle(.secondary)
@@ -459,13 +505,34 @@ struct NativeTimelineView: View {
         .id("day-\(day)")
     }
 
+    private func refreshTimeline() async {
+        refreshing = true
+        scrubDay = nil
+        pendingRailDay = nil
+        positionBeforePrepend = nil
+        returningToStart = false
+        async let profiles: Void = store.loadProfiles()
+        async let uploaders: Void = store.loadUploaders(refresh: true)
+        await store.load(refresh: true)
+        _ = await (profiles, uploaders)
+        if store.error.isEmpty {
+            // Recreate the scroll layout after replacing a paged window. This
+            // discards LazyVStack's old height estimates and pull-down offset.
+            viewport.days = [:]
+            viewport.height = 0
+            currentDay = store.items.first.map(store.groupDay) ?? ""
+            scrollRevision += 1
+        }
+        refreshing = false
+    }
+
     private var scrollLayoutReady: Bool {
         guard let scroll = timelineScroll else { return false }
         return contentHeight > 0 && abs(scroll.contentSize.height - contentHeight) < 1
     }
 
     private func restoreReadingPosition() {
-        guard scrollLayoutReady, let position = positionBeforePrepend, let scroll = timelineScroll,
+        guard !refreshing, scrollLayoutReady, let position = positionBeforePrepend, let scroll = timelineScroll,
               let frame = dayFrames[position.day], frame.minY != position.originY,
               scroll.contentSize.height >= frame.maxY else { return }
         scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: scroll.contentOffset.y + frame.minY - position.originY), animated: false)
@@ -473,8 +540,7 @@ struct NativeTimelineView: View {
     }
 
     private func updateReadingDay(_ scroll: UIScrollView) {
-        guard !railHeld, scrubDay == nil, pendingRailDay == nil, positionBeforePrepend == nil,
-              currentDay.isEmpty || scroll.isTracking || scroll.isDecelerating else { return }
+        guard !railHeld, scrubDay == nil, pendingRailDay == nil, positionBeforePrepend == nil else { return }
         let readingY = scroll.contentOffset.y + scroll.adjustedContentInset.top + 32
         if let frame = dayFrames[currentDay], frame.minY <= readingY && readingY < frame.maxY { return }
         let day = dayFrames.filter { $0.value.minY <= readingY }.max { $0.value.minY < $1.value.minY }?.key
@@ -483,7 +549,7 @@ struct NativeTimelineView: View {
     }
 
     private func scrollToDay() {
-        guard let scroll = timelineScroll else { return }
+        guard !refreshing, let scroll = timelineScroll else { return }
         if !railHeld && (scroll.isTracking || scroll.isDecelerating) {
             scrubDay = nil
             pendingRailDay = nil
@@ -502,7 +568,7 @@ struct NativeTimelineView: View {
     }
 
     private func finishLoading() {
-        guard !store.loading, store.error.isEmpty else { return }
+        guard !refreshing, !store.loading, store.error.isEmpty else { return }
         if let day = scrubDay {
             if !store.items.contains(where: { store.groupDay($0) == day }) {
                 store.jump(to: day)
@@ -536,7 +602,10 @@ struct NativeTimelineView: View {
 
     private func loadMoreIfNeeded() {
         let endVisible = foldedDayEndVisible || collapsedEndVisible || (visibleEndItem != nil && visibleEndItem == store.items.last?.stableID)
-        guard scrollLayoutReady, !railHeld, !store.loading, positionBeforePrepend == nil, store.error.isEmpty else { return }
+        guard !refreshing, scrollLayoutReady, !railHeld, !store.loading,
+              positionBeforePrepend == nil, store.error.isEmpty,
+              let scroll = timelineScroll,
+              scroll.contentOffset.y >= -scroll.adjustedContentInset.top else { return }
         if newerEndVisible && store.hasNewer && scrubDay == nil && pendingRailDay == nil {
             prependNewer()
         } else if endVisible && store.cursor != nil {
@@ -657,7 +726,6 @@ struct NativeTimelineView: View {
                         .accessibilityLabel("更多时间线操作")
                 }
             }
-            .refreshable { await store.loadProfiles(); await store.loadUploaders(refresh: true); await store.load(refresh: true) }
             .task { await store.loadProfiles(); await store.loadUploaders() }
             .task(id: store.queryKey) {
                 pendingRailDay = store.anchorDay
@@ -986,7 +1054,11 @@ struct NativeMediaDetail: View {
                             Button(action: { if let previous { stop(); previous() } }) { Image(systemName: "chevron.left").padding(8) }
                                 .accessibilityLabel("上一项").disabled(previous == nil || savingToPhotos)
                             VStack(spacing: 4) {
-                                Text(pagePosition.day).font(.headline)
+                                Text(item.previewDateTime).font(.headline)
+                                    .multilineTextAlignment(.center)
+                                if pagePosition.day.hasPrefix("上传") {
+                                    Text(pagePosition.day).font(.caption).foregroundStyle(.white.opacity(0.75))
+                                }
                                 ViewThatFits {
                                     HStack(spacing: 12) { Text(pagePosition.withinDay); Text(pagePosition.overall) }
                                     VStack(spacing: 2) { Text(pagePosition.withinDay); Text(pagePosition.overall) }

@@ -2,14 +2,15 @@ import Foundation
 import Combine
 
 enum NativeDay {
-    private static var formatter: DateFormatter {
+    private static let formatter: DateFormatter = {
         let value = DateFormatter()
         value.calendar = Calendar(identifier: .gregorian)
         value.locale = Locale(identifier: "en_US_POSIX")
+        value.timeZone = .autoupdatingCurrent
         value.dateFormat = "yyyy-MM-dd"
         value.isLenient = false
         return value
-    }
+    }()
     static func string(_ date: Date) -> String { formatter.string(from: date) }
     static func date(_ text: String) -> Date? {
         guard text.count == 10, let value = formatter.date(from: text), string(value) == text else { return nil }

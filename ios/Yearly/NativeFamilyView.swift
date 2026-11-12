@@ -140,6 +140,9 @@ private struct NativeFamilyEditor: View {
     @State private var status: String
     @State private var avatarID: Int?
     @State private var avatarDraft: NativeAvatarDraft?
+    @State private var avatarSource: NativeAvatarDraft?
+    @State private var croppingAvatar: NativeAvatarDraft?
+    @State private var existingAvatarToCrop: Int?
     @State private var avatarKey = UUID()
     @State private var libraryPhoto: PhotosPickerItem?
     @State private var choosingExisting = false
@@ -290,12 +293,21 @@ private struct NativeFamilyEditor: View {
                         .disabled(saving || preparingAvatar || !profile.editable(by: session.account) || validation != nil)
                 }
             }
-            .sheet(isPresented: $choosingExisting) {
+            .sheet(isPresented: $choosingExisting, onDismiss: {
+                if let id = existingAvatarToCrop {
+                    existingAvatarToCrop = nil
+                    Task { await prepareExistingAvatar(id) }
+                }
+            }) {
                 NativeFamilyPhotoSearch(session: session, selectedID: avatarID) { id in
-                    avatarDraft = nil
-                    avatarID = id
-                    libraryPhoto = nil
-                    error = ""
+                    existingAvatarToCrop = id
+                }
+            }
+            .sheet(item: $croppingAvatar) { source in
+                NativeAvatarCropView(source: source) { cropped in
+                    avatarSource = source
+                    avatarDraft = cropped
+                    avatarKey = UUID()
                 }
             }
             .task(id: libraryPhoto) { await prepareAvatar() }
@@ -320,9 +332,13 @@ private struct NativeFamilyEditor: View {
                 Label("从手机相册选头像", systemImage: "photo.on.rectangle")
             }
             Button("从时间线选头像", systemImage: "clock") { choosingExisting = true }
+            if let avatarSource {
+                Button("调整头像位置与缩放", systemImage: "crop") { croppingAvatar = avatarSource }
+            }
             if avatarID != nil || avatarDraft != nil {
                 Button("移除头像", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
                     avatarDraft = nil
+                    avatarSource = nil
                     avatarID = nil
                     libraryPhoto = nil
                     error = ""
@@ -331,7 +347,7 @@ private struct NativeFamilyEditor: View {
             if preparingAvatar { ProgressView("正在准备头像…") }
             if let progress = avatarProgress { ProgressView("正在上传头像…", value: progress) }
         } header: { Text("档案头像") } footer: {
-            Text("从手机选择的照片会生成专用头像，保存后用于此档案。")
+            Text("可拖动和缩放头像，保存专用副本；手机相册或时间线中的来源照片保持原样。")
         }
     }
 
@@ -364,11 +380,28 @@ private struct NativeFamilyEditor: View {
                 throw UploadFailure(message: "未能从系统相册取得头像图片。")
             }
             try Task.checkCancellation()
-            avatarDraft = image
-            avatarKey = UUID()
+            croppingAvatar = image
+            self.libraryPhoto = nil
         } catch {
             if !Task.isCancelled { self.error = friendly(error) }
         }
+    }
+
+    private func prepareExistingAvatar(_ id: Int) async {
+        preparingAvatar = true
+        error = ""
+        defer { preparingAvatar = false }
+        do {
+            let media: NativeTimelineItem = try await session.get("/media/\(id)")
+            guard let file = media.primary else { throw UploadFailure(message: "这张照片暂时无法预览。") }
+            let resource: NativeMediaResource = try await session.get("/media/\(id)/files/\(file.id)/url?purpose=preview")
+            guard let raw = resource.url, let url = AppConfiguration.httpsURL(raw) else {
+                throw UploadFailure(message: "照片预览尚未就绪，请稍后重试。")
+            }
+            let image = try await NativeMediaNetwork.image(url, maximumDimension: 2048)
+            guard let jpeg = image.jpegData(compressionQuality: 0.9) else { throw UploadFailure(message: "无法读取这张照片。") }
+            croppingAvatar = NativeAvatarDraft(jpeg: jpeg)
+        } catch { self.error = friendly(error) }
     }
 
     private func save() async {

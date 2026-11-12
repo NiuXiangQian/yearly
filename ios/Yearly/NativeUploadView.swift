@@ -17,6 +17,8 @@ struct NativeUploadView: View {
     @State private var archiveDate = Date()
     @State private var showPicker = false
     @State private var confirming = false
+    @State private var confirmationFromPreparation = false
+    @State private var addingPhotos = false
     @State private var excluded: Set<UUID> = []
     @State private var message = ""
     @State private var showingDuplicate = false
@@ -114,7 +116,20 @@ struct NativeUploadView: View {
         let readyBytes = readyItems.reduce(Int64(0)) { $0 + $1.size }
         let preparingItems = preparing
         let count = readyCount + preparingItems.count
-        if count > 0 {
+        if preparingItems.isEmpty && readyCount > 0 {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("准备完成 · \(readyCount) 项原件", systemImage: "checkmark.circle.fill")
+                    .font(.headline).foregroundStyle(NativeTheme.accent)
+                Text("共 \(bytesLabel(readyBytes))，尚未上传。确认关联人物后即可立即上传。")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Button("立即上传所选 \(ready.count) 项") {
+                    requestUpload()
+                }.buttonStyle(NativeActionStyle(kind: .primary))
+                    .disabled(ready.isEmpty || account == nil || batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255)
+            }
+            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        } else if count > 0 {
             let knownSizes = preparingItems.compactMap(\.sourceByteCount)
             let total = knownSizes.count == preparingItems.count ? readyBytes + knownSizes.reduce(0, +) : nil
             let progress = ByteProgress(processed: readyBytes + (preparation?.bytesRead ?? 0), total: total)
@@ -219,9 +234,9 @@ struct NativeUploadView: View {
                         Button { Task { await choosePhotos() } } label: {
                             Label("选择照片与视频", systemImage: "plus").frame(maxWidth: .infinity)
                         }.buttonStyle(NativeActionStyle(kind: .primary))
-                            .disabled(account == nil || openingPicker)
+                            .disabled(account == nil || openingPicker || addingPhotos)
                     }.padding(.vertical, 10)
-                    if loadingAccount || openingPicker { ProgressView(openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
+                    if loadingAccount || openingPicker || addingPhotos { ProgressView(addingPhotos ? "正在加入所选原件…" : openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
                     preparationSummary
                     uploadSummary
                     completionBanner
@@ -232,7 +247,7 @@ struct NativeUploadView: View {
                             Label("全部重试（\(failedCount) 项失败）", systemImage: "arrow.clockwise")
                         }.disabled(account == nil)
                     }
-                    Text("按点选顺序导入；Live Photo 自动包含图片与 MOV。仅访问你选择并授权的项目。")
+                    Text("在相册中横向滑过照片可连续多选；Live Photo 自动包含图片与 MOV。仅访问你选择并授权的项目。")
                         .font(.caption).foregroundStyle(.secondary)
                     if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited {
                         Text("当前为有限访问。若某项无法读取，请在系统照片权限中将它加入允许列表后重试。")
@@ -344,16 +359,11 @@ struct NativeUploadView: View {
             .scrollContentBackground(.hidden).background(NativeTheme.background)
             .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom) {
-                if !items.isEmpty {
+                if !ready.isEmpty || !preparing.isEmpty || batchResult?.ids.isEmpty == false {
                 HStack(spacing: 12) {
-                    Button { Task { await choosePhotos() } } label: { Label("继续选片", systemImage: "plus") }
-                        .buttonStyle(NativeActionStyle()).disabled(account == nil || openingPicker)
                     if !ready.isEmpty {
                         Button {
-                            confirmingIDs = Set(ready.map(\.id))
-                            choosingPeopleForUpload = children.isEmpty
-                            if choosingPeopleForUpload { showingPeople = true }
-                            else { confirming = true }
+                            requestUpload()
                         } label: {
                             Text("上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
                         }.buttonStyle(NativeActionStyle(kind: .primary))
@@ -385,6 +395,10 @@ struct NativeUploadView: View {
                     List {
                         Section {
                             if choosingPeopleForUpload {
+                                if confirmationFromPreparation {
+                                    Label("准备完成 · \(confirmationItems.count) 项原件", systemImage: "checkmark.circle.fill")
+                                        .font(.headline).foregroundStyle(NativeTheme.accent)
+                                }
                                 Text("可以选择本批关联的人物与宠物，也可以暂不选择，以家庭时光继续上传。")
                                     .font(.subheadline).foregroundStyle(.secondary)
                             }
@@ -431,6 +445,12 @@ struct NativeUploadView: View {
             .onChange(of: queue.duplicateNotice.isEmpty) { empty in
                 if !empty { showingDuplicate = true }
             }
+            .onChange(of: preparing.isEmpty) { finished in
+                if finished && !ready.isEmpty && !confirming && !showPicker && !showingPeople &&
+                    !pending.contains(where: { $0.phase == .paused && !$0.confirmed }) {
+                    requestUpload(prepared: true)
+                }
+            }
             .onChange(of: batchResult?.title) { title in
                 if let title { UIAccessibility.post(notification: .announcement, argument: title) }
             }
@@ -449,23 +469,35 @@ struct NativeUploadView: View {
                 NativePhotoPicker { identifiers, unavailable in
                     showPicker = false
                     if unavailable > 0 { message = "\(unavailable) 项未交付可访问的照片标识，请调整图库权限后重新选择。" }
-                    if let account { queue.add(identifiers: identifiers, account: account) }
+                    if let account, !identifiers.isEmpty {
+                        addingPhotos = true
+                        Task { await queue.add(identifiers: identifiers, account: account); addingPhotos = false }
+                    }
                 }
             }
-            .alert("确认珍藏所选原件", isPresented: $confirming) {
-                Button("确认上传") {
+            .alert(confirmationFromPreparation ? "原件已就绪，可以立即上传" : "确认珍藏所选原件", isPresented: $confirming) {
+                Button(confirmationFromPreparation ? "立即上传" : "确认上传") {
                     let formatter = DateFormatter()
                     formatter.locale = Locale(identifier: "en_US_POSIX")
                     formatter.dateFormat = "yyyy-MM-dd"
                     queue.confirm(ids: confirmingIDs, childIDs: Array(children), batchName: batchName,
                                   archiveDate: useArchiveDate ? formatter.string(from: archiveDate) : nil)
                 }
-                Button("返回检查", role: .cancel) { }
+                .disabled(account == nil || confirmationItems.isEmpty || batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255)
+                Button(confirmationFromPreparation ? "稍后上传" : "返回检查", role: .cancel) { }
             } message: {
                 Text("\(confirmationItems.count) 项，\(ByteCountFormatter.string(fromByteCount: confirmationItems.reduce(0) { $0 + $1.size }, countStyle: .file))。关联：\(chosenNames)。\(useArchiveDate ? "全部归档到所选日期，保留原始拍摄时间。" : "优先按原件拍摄日期归档，其次用相册日期。")\(confirmationItems.contains { !$0.warning.isEmpty } ? "部分项目含原件或元数据提示，请确认已阅读每项说明。" : "")")
             }
         }
     }
+    private func requestUpload(prepared: Bool = false) {
+        confirmationFromPreparation = prepared
+        confirmingIDs = Set(ready.map(\.id))
+        choosingPeopleForUpload = children.isEmpty
+        if choosingPeopleForUpload { showingPeople = true }
+        else { confirming = true }
+    }
+
     private func selectPeople(_ ids: Set<Int>) {
         guard let account, account.id == session.account?.id, hasLoaded else { return }
         children = ids.intersection(Set(profiles.map(\.id)))
@@ -522,7 +554,8 @@ private struct NativePhotoPicker: UIViewControllerRepresentable {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter = .any(of: [.images, .videos])
         configuration.selectionLimit = 0
-        configuration.selection = .ordered
+        // Ordered selection disables the system swipe-to-select gesture.
+        configuration.selection = .default
         configuration.preferredAssetRepresentationMode = .current
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = context.coordinator

@@ -69,25 +69,32 @@ import Photos
         let names = duplicateNames.prefix(5).joined(separator: "、")
         duplicateNotice = "发现 \(duplicateNames.count) 项重复文件，已阻止重复上传。\n\(names)\(duplicateNames.count > 5 ? " 等" : "")\n已存在的原件会跳过；队列中的原件请继续原任务。其他文件继续上传。"
     }
-    func add(identifiers: [String], account: UploadAccount) {
+    func add(identifiers: [String], account: UploadAccount) async {
         guard let site, store != nil, session?.account?.id == account.id, session?.canEdit == true else { return }
         duplicateNotice = ""; duplicateNames = []
-        // Fetch individually: PHFetchResult does not promise picker order.
-        for identifier in identifiers {
-            if let existing = items.first(where: { $0.assetIdentifier == identifier && $0.site == site.url.absoluteString && $0.ownerID == account.id && !$0.isTerminal }) {
-                noteDuplicate(existing.name)
-                continue
+        let added = await Task.detached(priority: .userInitiated) {
+            let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
+            var byID: [String: PHAsset] = [:]
+            assets.enumerateObjects { asset, _, _ in byID[asset.localIdentifier] = asset }
+            return identifiers.map { identifier in
+                let asset = byID[identifier]
+                let selection = asset.flatMap { try? PhotoOriginals.selection(for: $0) }
+                var item = UploadItem(assetIdentifier: identifier, site: site.url.absoluteString, ownerID: account.id,
+                                      name: selection?.resources.first?.originalFilename ?? "无法访问的照片",
+                                      mediaType: asset?.mediaSubtypes.contains(.photoLive) == true ? "live_photo" : asset?.mediaType == .video ? "video" : "photo")
+                item.photoKitDate = asset?.creationDate
+                item.sourceByteCount = selection.flatMap { PhotoOriginals.totalSize($0.sizes) }
+                return item
             }
-            let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject
-            let selection = asset.flatMap { try? PhotoOriginals.selection(for: $0) }
-            let resource = selection?.resources.first
-            var item = UploadItem(assetIdentifier: identifier, site: site.url.absoluteString, ownerID: account.id,
-                                  name: resource?.originalFilename ?? "无法访问的照片",
-                                  mediaType: asset?.mediaSubtypes.contains(.photoLive) == true ? "live_photo" : asset?.mediaType == .video ? "video" : "photo")
-            item.photoKitDate = asset?.creationDate
-            item.sourceByteCount = selection.flatMap { PhotoOriginals.totalSize($0.sizes) }
-            items.append(item)
+        }.value
+        guard self.site?.url == site.url, session?.account?.id == account.id, session?.canEdit == true else { return }
+        var known = Set(items.filter { $0.site == site.url.absoluteString && $0.ownerID == account.id && !$0.isTerminal }.map(\.assetIdentifier))
+        let unique = added.filter { item in
+            if known.insert(item.assetIdentifier).inserted { return true }
+            noteDuplicate(item.name)
+            return false
         }
+        items.append(contentsOf: unique)
         do { try persist(); suspended = false; start() } catch { }
     }
     func confirm(ids: Set<UUID>, childIDs: [Int], batchName: String, archiveDate: String?) {

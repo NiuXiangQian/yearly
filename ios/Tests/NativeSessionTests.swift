@@ -134,6 +134,14 @@ private final class SessionHTTP: URLProtocol {
         precondition(nativeResponseDetail(Data(#"{"detail":[{"type":"unknown","loc":["body","password"],"input":"private-input-must-not-appear"}]}"#.utf8)) == "密码不符合要求，请检查后重试。")
         precondition(nativeResponseDetail(Data("not json".utf8)) == nil)
         precondition(nativeResponseDetail(Data(#"{"detail":[]}"#.utf8)) == nil)
+        var datedMedia = try JSONDecoder().decode(NativeTimelineItem.self, from: Data(#"{"id":1,"timeline_day":"2026-10-01","taken_at_local":"2026-09-30T23:59:07"}"#.utf8))
+        precondition(datedMedia.previewDateTime == "2026-09-30 23:59:07", "preview shows capture date and precise local time, independent of archive date")
+        datedMedia.corrected_taken_at_local = "2026-10-02T00:00:00"
+        precondition(datedMedia.previewDateTime == "2026-10-02 00:00:00", "a known midnight remains visible")
+        datedMedia.time_unknown = true
+        precondition(datedMedia.previewDateTime == "2026-10-01", "unknown capture time displays only the archive date")
+        datedMedia.time_unknown = false; datedMedia.corrected_taken_at_local = nil; datedMedia.taken_at_local = nil
+        precondition(datedMedia.previewDateTime == "2026-10-01", "no capture time must not invent midnight")
         let cacheDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("YearlyCacheTests-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: cacheDirectory) }
         let disk = NativeLocalCache(directory: cacheDirectory)
@@ -326,6 +334,18 @@ private final class SessionHTTP: URLProtocol {
             #"{"id":42,"kind":"media","timeline_day":"2018-01-03","uploaded_at":"2026-11-08T23:30:00.123"}"#.utf8
         ))
         precondition(uploaded.uploadDate != nil && timeline.groupDay(uploaded) != uploaded.day)
+        let groupingStore = NativeTimelineStore(session: session)
+        groupingStore.items = [uploaded]
+        precondition(groupingStore.groupedItems[uploaded.day]?.count == 1)
+        groupingStore.items[0].timeline_day = "2019-02-03"
+        precondition(groupingStore.groupedItems["2019-02-03"]?.count == 1 && groupingStore.groupedItems[uploaded.day] == nil,
+                     "editing an item invalidates the cached day groups")
+        groupingStore.showRecentUploads()
+        groupingStore.items = [uploaded]
+        precondition(groupingStore.groupedItems[groupingStore.groupDay(uploaded)]?.count == 1)
+        groupingStore.locate(uploaded)
+        groupingStore.items = [uploaded]
+        precondition(groupingStore.groupedItems[uploaded.day]?.count == 1, "locating an archive switches cached grouping back from upload date")
         let uploadCount = try await timeline.uploadDayTotal(timeline.groupDay(uploaded))
         precondition(uploadCount == 3)
         let uploadCountParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!

@@ -112,43 +112,91 @@ struct NativeTimelineDayPositions: PreferenceKey {
     }
 }
 
+// Geometry and UIKit references do not drive SwiftUI rendering on every scroll tick.
+final class NativeTimelineViewport {
+    weak var scroll: UIScrollView?
+    var days: [String: CGRect] = [:]
+    var height: CGFloat = 0
+}
+
 struct NativeTimelineScrollReader: UIViewRepresentable {
+    let refresh: () async -> Void
     let resolve: (UIScrollView) -> Void
     let didScroll: (UIScrollView) -> Void
-    final class Coordinator {
+    final class Coordinator: NSObject {
+        let refreshControl = UIRefreshControl()
+        var refresh: () async -> Void
+        var refreshTask: Task<Void, Never>?
         weak var scroll: UIScrollView?
         var layoutObservation: NSKeyValueObservation?
         var scrollObservation: NSKeyValueObservation?
+        var scrollUpdateQueued = false
         var resolve: (UIScrollView) -> Void
         var didScroll: (UIScrollView) -> Void
-        init(resolve: @escaping (UIScrollView) -> Void, didScroll: @escaping (UIScrollView) -> Void) {
+        init(refresh: @escaping () async -> Void, resolve: @escaping (UIScrollView) -> Void, didScroll: @escaping (UIScrollView) -> Void) {
+            self.refresh = refresh
             self.resolve = resolve
             self.didScroll = didScroll
+            super.init()
+            refreshControl.addTarget(self, action: #selector(refreshRequested), for: .valueChanged)
         }
-    }
-    func makeCoordinator() -> Coordinator { Coordinator(resolve: resolve, didScroll: didScroll) }
-    func makeUIView(context: Context) -> UIView { UIView() }
-    func updateUIView(_ view: UIView, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.resolve = resolve
-        coordinator.didScroll = didScroll
-        DispatchQueue.main.async {
-            var ancestor = view.superview
-            while let parent = ancestor {
-                if let scroll = parent as? UIScrollView {
-                    guard coordinator.scroll !== scroll else { return }
-                    coordinator.scroll = scroll
-                    coordinator.layoutObservation = scroll.observe(\.contentSize, options: [.new]) { [weak coordinator] scroll, _ in
-                        DispatchQueue.main.async { coordinator?.resolve(scroll) }
-                    }
-                    coordinator.scrollObservation = scroll.observe(\.contentOffset, options: [.new]) { [weak coordinator] scroll, _ in
-                        coordinator?.didScroll(scroll)
-                    }
-                    coordinator.resolve(scroll)
-                    return
-                }
-                ancestor = parent.superview
+        @objc private func refreshRequested() {
+            guard refreshTask == nil else { return }
+            refreshTask = Task { @MainActor in
+                await refresh()
+                refreshControl.endRefreshing()
+                refreshTask = nil
             }
         }
+    }
+    final class Probe: UIView {
+        var attach: ((UIView) -> Void)?
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { attach?(self) }
+        }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(refresh: refresh, resolve: resolve, didScroll: didScroll) }
+    func makeUIView(context: Context) -> UIView { Probe() }
+    static func dismantleUIView(_ view: UIView, coordinator: Coordinator) {
+        (view as? Probe)?.attach = nil
+        coordinator.refreshTask?.cancel()
+        coordinator.scroll?.refreshControl = nil
+    }
+    func updateUIView(_ view: UIView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.refresh = refresh
+        coordinator.resolve = resolve
+        coordinator.didScroll = didScroll
+        let attach: (UIView) -> Void = { view in
+            DispatchQueue.main.async {
+                var ancestor = view.superview
+                while let parent = ancestor {
+                    if let scroll = parent as? UIScrollView {
+                        guard coordinator.scroll !== scroll else { coordinator.resolve(scroll); return }
+                        coordinator.scroll = scroll
+                        scroll.alwaysBounceVertical = true
+                        scroll.refreshControl = coordinator.refreshControl
+                        coordinator.layoutObservation = scroll.observe(\.contentSize, options: [.new]) { [weak coordinator] scroll, _ in
+                            DispatchQueue.main.async { coordinator?.resolve(scroll) }
+                        }
+                        coordinator.scrollObservation = scroll.observe(\.contentOffset, options: [.new]) { [weak coordinator] scroll, _ in
+                            guard let coordinator, !coordinator.scrollUpdateQueued else { return }
+                            coordinator.scrollUpdateQueued = true
+                            DispatchQueue.main.async { [weak coordinator] in
+                                guard let coordinator else { return }
+                                coordinator.scrollUpdateQueued = false
+                                coordinator.didScroll(scroll)
+                            }
+                        }
+                        coordinator.resolve(scroll)
+                        return
+                    }
+                    ancestor = parent.superview
+                }
+            }
+        }
+        (view as? Probe)?.attach = attach
+        attach(view)
     }
 }
