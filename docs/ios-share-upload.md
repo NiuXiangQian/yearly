@@ -5,20 +5,20 @@
 - 更新安装后先打开 yearly 一次，以同步当前家庭站点；分享扩展复用钥匙串中的现有登录状态。未登录、登录过期和只读账号会提示在 App 内登录或切换账号。
 - 支持常见照片、MOV / MP4 视频，以及系统以 `PHLivePhoto` 提供的完整实况照片。保留实际收到的文件字节；实况照片读取同一资源组的图片和配对视频，校验配对标识。系统只提供静态照片时按静态照片上传，不伪装成实况照片。系统可能提供编辑或转换后的文件，不能保证是相册未修改原片。
 - 复用现有 `/uploads` 协议、人物权限、幂等请求、哈希与 CRC64 校验和断点续传，不需要后端或 Android 更新。图片没有拍摄日期时可以指定归档日期，否则按现有服务端规则归档。
-- 上传期间保持分享窗口打开。关闭或进入后台会暂停；下次向 yearly 分享图片时可继续或取消此前未完成任务。扩展的队列位于其独立沙盒，不迁移、不覆盖 App 现有的 `NativeUploads` 队列。
+- 上传期间保持分享窗口打开。关闭或进入后台会暂停；下次打开同一分享入口时可继续或取消此前未完成任务。两个扩展各自的队列位于其独立沙盒，不迁移、不覆盖 App 现有的 `NativeUploads` 队列。
 - 未确认的新照片在点击关闭时取消；已确认任务保留服务端任务 ID 和原件缓存。上传成功后清理缓存。再次上传相同内容使用现有重复处理规则。
 
 ## 签名与兼容
 
 `YearlyShare` 为随 App 打包的 Share Extension，Bundle ID 为主 App Bundle ID 加 `.share`；`YearlyAction` 为操作菜单扩展，Bundle ID 加 `.action`。两个扩展复用同一上传界面。主 App 和扩展使用主 App 原有的默认 Keychain Access Group，确保历史登录记录仍可读取；不使用 App Groups，也不把凭据写入 UserDefaults 或队列 JSON。
 
-`scripts/ios.sh` 继续接受 `YEARLY_BUNDLE_ID`，并将其作为 `YEARLY_APP_BUNDLE_ID` 同时传给三个 target，避免为二者指定相同 Bundle ID。真机签名需要现有有效证书，以及同时允许主 App、扩展和目标设备的描述文件。缺少扩展描述文件时停止真机交付，不自动注册设备、更新描述文件或吊销证书。
+`scripts/ios.sh` 继续接受 `YEARLY_BUNDLE_ID`，并将其作为 `YEARLY_APP_BUNDLE_ID` 同时传给三个 target，避免为二者指定相同 Bundle ID。真机签名需要现有有效证书，以及同时允许主 App、两个扩展和目标设备的描述文件。缺少任一扩展描述文件时停止真机交付，不自动注册设备、更新描述文件或吊销证书。
 
 CLI 验证：`./scripts/ios.sh verify`。完整 Xcode 构建：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build`。
 
 旧 App 的请求和响应、本机队列格式、站点偏好及登录服务保持不变；旧版本继续在 App 内选择照片上传。新增系统分享入口只在安装新版后提供。
 
-## 2026-11-12 验证记录
+## 首版验证记录（2026-11-12，仅普通照片）
 
 - `scripts/ios.sh verify` 通过：项目打包与签名脚本检查、现有上传与会话回归，以及新分享文件的格式识别、原始字节、EXIF、账号隔离和任务恢复检查。
 - 主 App 与扩展的 Debug、Release 模拟器构建通过。
@@ -32,3 +32,12 @@ CLI 验证：`./scripts/ios.sh verify`。完整 Xcode 构建：`DEVELOPER_DIR=/A
 本次完整工作区通过主 App、分享扩展、操作扩展三个 target 的 clean 构建：Debug / Release 模拟器、Release 真机签名构建均成功。命令行回归覆盖真实照片和视频文件字节、EXIF、生成的 Live Photo 图片 / MOV 配对标识、账号隔离、请求字段、恢复及非法文件。
 
 完整包已覆盖安装到 iPhone 15，版本 `2026111210`，启动及运行进程已核验；保留应用数据。复用原证书和主 App、分享扩展描述文件，新增操作扩展使用本机已有且有效、覆盖设备的 `.action` 描述文件；未自动注册设备或吊销证书。构建源码、签名和安装记录在 `.local/ios-full-20261112/`。本轮未在真机自动操作完整分享上传，也未验证旧版系统实机。
+
+## 照片、实况、视频与快捷操作扩展验证
+
+- 本轮使用合成 JPEG、带 ContentIdentifier 和 still-image-time 的 MOV 生成真实 `PHLivePhoto`；不使用私人影像。
+- CLI 媒体与既有上传/会话回归通过。6 项模拟器界面检查通过：三种媒体混合上传、实况失败后重开续传、未登录、深色 320pt 窄屏及移除、上方分享入口、下方快捷操作。实况入口由测试 Provider 提供系统构造的 `PHLivePhoto`，照片与视频另经系统分享面板真实交接给两个扩展。
+- 首次窄屏检查和 Release 构建曾因本机磁盘空间不足中断，清理本任务生成的构建缓存后重跑；没有修改缓存空间保护规则。
+- 最终主 App、分享扩展和快捷操作扩展的 Debug / Release 模拟器构建通过，下方操作的系统上传图标已截图核验。
+- 测试日志、结果包与截图位于 `.local/share-media-20261112/`。网络仍使用模拟响应，真机钥匙串共享、真实 OSS 和旧版本实机覆盖升级未验证。
+- 本次不变更后端协议、上传记录结构或 App 内历史队列；普通照片、实况和视频继续沿用已有 `photo`、`live_photo`、`video` 及 `original`/`live_video` 契约。

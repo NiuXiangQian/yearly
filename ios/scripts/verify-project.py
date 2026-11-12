@@ -76,7 +76,7 @@ assert action['productReference'] in [objects[key]['fileRef'] for key in embed['
 assert any(objects[objects[key]['target']]['name'] == 'YearlyAction' for key in target['dependencies'])
 action_info = plistlib.loads((root / 'YearlyAction/Info.plist').read_bytes())
 assert action_info['CFBundleDisplayName'] == '上传到 yearly'
-assert action_info['CFBundleSymbolName'] == 'square.and.arrow.up'
+assert action_info['CFBundleIcons']['CFBundlePrimaryIcon']['CFBundleSymbolName'] == 'square.and.arrow.up'
 assert action_info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.ui-services'
 assert action_info['NSExtension']['NSExtensionAttributes']['NSExtensionActivationRule'] == extension_info['NSExtensionAttributes']['NSExtensionActivationRule']
 assert plistlib.loads((root / 'YearlyAction/YearlyAction.entitlements').read_bytes()) == plistlib.loads((root / 'YearlyShare/YearlyShare.entitlements').read_bytes())

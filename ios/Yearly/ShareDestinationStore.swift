@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-// Both targets use the app's original default Keychain group, preserving installed sessions.
+// The app and its extensions use the original default Keychain group, preserving installed sessions.
 // Only the destination is added here; session tokens stay in KeychainSessionStore.
 struct ShareDestinationStore {
     private var query: [String: Any] {
