@@ -150,6 +150,7 @@ def test_index_uses_previews_and_does_not_repeat(context, provider):
         db.commit()
         assert ai.index_one(db, context.storage) is True
         assert db.get(MediaSearchIndex, mid).status == "ready"
+        assert db.get(MediaSearchIndex, mid).analysis_model == settings().ai_analysis_model
         assert ai.index_one(db, context.storage) is False
     assert reads == ["previews/test.webp"]
 
@@ -218,7 +219,7 @@ def test_video_frame_coverage_scales_with_duration(tmp_path,monkeypatch,duration
     storage=SimpleNamespace(bucket=SimpleNamespace(get_object_to_file=lambda key,target:shutil.copyfile(source,target)))
     db=SimpleNamespace(get=lambda *args:SimpleNamespace(object_key="previews/video.mp4"))
     captured=[]
-    monkeypatch.setattr(ai,"chat",lambda db,system,content: captured.extend(content) or "蓝色画面")
+    monkeypatch.setattr(ai,"chat",lambda db,system,content,**kwargs: captured.extend(content) or "蓝色画面")
     monkeypatch.setattr(ai,"embed",lambda *args:vector())
     description,embedding,seconds=ai.analyze_media(db,storage,SimpleNamespace(media_type="video",duration_ms=duration*1000),SimpleNamespace(sha256="test"))
     assert len(seconds)==expected
@@ -259,3 +260,40 @@ def test_parallel_budget_reservations_do_not_deadlock_or_exceed_limit(mysql_engi
     finally:
         with factory() as db:
             db.execute(delete(AISpend).where(AISpend.month == month)); db.commit()
+
+
+def test_analysis_and_online_search_use_separate_models(monkeypatch):
+    payloads=[]
+    def request(db, endpoint, payload):
+        payloads.append(payload)
+        return {"choices":[{"finish_reason":"stop","message":{"content":"画面描述"}}]}
+    monkeypatch.setattr(ai,"openai_call",request)
+    ai.chat(None,"system","query")
+    ai.chat(None,"system","image",model="gpt-6.1-sol")
+    assert payloads[0]["model"]=="gpt-4.1-mini"
+    assert payloads[0]["temperature"]==0
+    assert payloads[1]["model"]=="gpt-6.1-sol"
+    assert payloads[1]["reasoning_effort"]=="low"
+    assert payloads[1]["max_completion_tokens"]==3000
+    assert "temperature" not in payloads[1] and "max_tokens" not in payloads[1]
+
+
+@pytest.mark.parametrize("model,expected",[("gpt-4.1-mini","0.000500"),("gpt-6.1-sol","0.002620")])
+def test_model_specific_cached_token_accounting(mysql_engine,monkeypatch,model,expected):
+    from uuid import uuid4
+    from sqlalchemy import delete
+    from sqlalchemy.orm import sessionmaker
+    month='T'+uuid4().hex[:6]
+    monkeypatch.setattr(ai,'datetime',SimpleNamespace(now=lambda tz:SimpleNamespace(strftime=lambda fmt:month)))
+    monkeypatch.setattr(settings(),'ai_search_enabled',True)
+    monkeypatch.setattr(settings(),'openai_api_key','test-key')
+    monkeypatch.setattr(settings(),'ai_monthly_budget_usd',80)
+    monkeypatch.setattr(httpx.Client,'post',lambda self,url,**kwargs:httpx.Response(200,request=httpx.Request('POST',url),json={"usage":{"prompt_tokens":1000,"prompt_tokens_details":{"cached_tokens":200},"completion_tokens":100}}))
+    factory=sessionmaker(bind=mysql_engine,expire_on_commit=False)
+    try:
+        with factory() as db:
+            ai.openai_call(db,'chat/completions',{'model':model})
+            db.expire_all()
+            assert db.get(AISpend,month).amount==Decimal(expected)
+    finally:
+        with factory() as db:db.execute(delete(AISpend).where(AISpend.month==month));db.commit()

@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     ai_search_enabled: bool = False
     openai_api_key: str = Field(default="", repr=False)
     openai_proxy_url: str = Field(default="", repr=False)
+    ai_analysis_model: Literal["gpt-4.1-mini", "gpt-6.1-sol"] = "gpt-6.1-sol"
     ai_monthly_budget_usd: float = Field(default=80, ge=0, le=100)
 
     @field_validator("app_base_path")

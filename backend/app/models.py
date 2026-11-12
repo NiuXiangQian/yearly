@@ -203,6 +203,7 @@ class MediaSearchIndex(Base, Timestamp):
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), primary_key=True)
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     description: Mapped[str] = mapped_column(Text, default="")
+    analysis_model: Mapped[str] = mapped_column(String(64), default="gpt-4.1-mini", server_default="gpt-4.1-mini")
     embedding: Mapped[list] = mapped_column(JSON, default=list)
     frame_seconds: Mapped[list] = mapped_column(JSON, default=list)
     error: Mapped[str] = mapped_column(String(255), default="")
