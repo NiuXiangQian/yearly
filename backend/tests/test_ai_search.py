@@ -287,7 +287,7 @@ def test_model_specific_cached_token_accounting(mysql_engine,monkeypatch,model,e
     monkeypatch.setattr(ai,'datetime',SimpleNamespace(now=lambda tz:SimpleNamespace(strftime=lambda fmt:month)))
     monkeypatch.setattr(settings(),'ai_search_enabled',True)
     monkeypatch.setattr(settings(),'openai_api_key','test-key')
-    monkeypatch.setattr(settings(),'ai_monthly_budget_usd',80)
+    monkeypatch.setattr(settings(),'ai_monthly_budget_usd',0.1 if model=='gpt-6.1-sol' else 80)
     monkeypatch.setattr(httpx.Client,'post',lambda self,url,**kwargs:httpx.Response(200,request=httpx.Request('POST',url),json={"usage":{"prompt_tokens":1000,"prompt_tokens_details":{"cached_tokens":200},"completion_tokens":100}}))
     factory=sessionmaker(bind=mysql_engine,expire_on_commit=False)
     try:
@@ -295,5 +295,9 @@ def test_model_specific_cached_token_accounting(mysql_engine,monkeypatch,model,e
             ai.openai_call(db,'chat/completions',{'model':model})
             db.expire_all()
             assert db.get(AISpend,month).amount==Decimal(expected)
+            if model=='gpt-6.1-sol':
+                with pytest.raises(HTTPException) as failure:
+                    ai.openai_call(db,'chat/completions',{'model':model})
+                assert failure.value.status_code==429
     finally:
         with factory() as db:db.execute(delete(AISpend).where(AISpend.month==month));db.commit()
