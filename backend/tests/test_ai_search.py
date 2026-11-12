@@ -224,3 +224,38 @@ def test_video_frame_coverage_scales_with_duration(tmp_path,monkeypatch,duration
     assert len(seconds)==expected
     assert seconds[-1] >= duration*.8
     assert len([x for x in captured if x["type"]=="image_url"])==expected
+
+
+def test_parallel_budget_reservations_do_not_deadlock_or_exceed_limit(mysql_engine, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from uuid import uuid4
+    from sqlalchemy import delete
+    from sqlalchemy.orm import sessionmaker
+    month = 'T' + uuid4().hex[:6]
+    monkeypatch.setattr(ai, 'datetime', SimpleNamespace(now=lambda tz: SimpleNamespace(strftime=lambda fmt: month)))
+    monkeypatch.setattr(settings(), 'ai_search_enabled', True)
+    monkeypatch.setattr(settings(), 'openai_api_key', 'test-key')
+    monkeypatch.setattr(settings(), 'ai_monthly_budget_usd', 0.02)
+    monkeypatch.setattr(httpx.Client, 'post', lambda self, url, **kwargs: httpx.Response(200, request=httpx.Request('POST', url), json={'data': []}))
+    factory = sessionmaker(bind=mysql_engine, expire_on_commit=False)
+    barrier = Barrier(8)
+    def reserve(_):
+        barrier.wait()
+        with factory() as db:
+            try:
+                ai.openai_call(db, 'embeddings', {})
+                return 'sent'
+            except HTTPException as exc:
+                assert exc.status_code == 429
+                return 'budget'
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(reserve, range(8)))
+        assert results.count('sent') == 4
+        assert results.count('budget') == 4
+        with factory() as db:
+            assert db.get(AISpend, month).amount == Decimal('0.020000')
+    finally:
+        with factory() as db:
+            db.execute(delete(AISpend).where(AISpend.month == month)); db.commit()

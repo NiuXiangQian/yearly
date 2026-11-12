@@ -102,7 +102,7 @@ def openai_call(db, endpoint, payload):
     require_enabled()
     month = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m")
     reserve = Decimal("0.05" if endpoint == "chat/completions" else "0.005")
-    db.execute(insert(AISpend).values(month=month, amount=0).prefix_with("IGNORE"))
+    db.execute(insert(AISpend).values(month=month, amount=0).on_duplicate_key_update(month=month))
     spend = db.scalar(select(AISpend).where(AISpend.month == month).with_for_update())
     if spend.amount + reserve > Decimal(str(settings().ai_monthly_budget_usd)):
         db.rollback()
