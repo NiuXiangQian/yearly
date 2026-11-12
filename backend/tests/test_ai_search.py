@@ -30,8 +30,12 @@ def provider(monkeypatch):
         if endpoint == "embeddings":
             return {"data": [{"embedding": vector()}]}
         schema = payload.get("response_format", {}).get("json_schema", {}).get("name")
-        if schema == "QueryPlan":
-            content = json.dumps(dict(scene="海边玩沙", start=None, end=None, profile_ids=[], media_type=None))
+        if schema in ("QueryPlan", "SearchSelection"):
+            plan = dict(scene="海边玩沙", start=None, end=None, profile_ids=[], media_type=None)
+            if schema == "SearchSelection":
+                candidates = json.loads(payload["messages"][1]["content"])["candidates"]
+                plan["ids"] = [c["id"] for c in candidates if "海边" in c["description"]]
+            content = json.dumps(plan)
         elif schema == "Matches":
             candidates = json.loads(payload["messages"][1]["content"])["candidates"]
             content = json.dumps({"ids": [c["id"] for c in candidates if "海边" in c["description"]]})
@@ -175,8 +179,8 @@ def test_inferred_date_person_and_type_are_intersected(context, provider, monkey
     for mid in (wanted, old, other): add_index(context, mid)
     real_chat = ai.chat
     def planned(db, system, content, schema=None):
-        if schema is ai.QueryPlan:
-            return ai.QueryPlan(scene='', start='2025-06-01',end='2025-08-31',profile_ids=[person['id']],media_type='photo')
+        if schema in (ai.QueryPlan, ai.SearchSelection):
+            return schema(**({"ids": [wanted, old, other]} if schema is ai.SearchSelection else {}), scene='', start='2025-06-01',end='2025-08-31',profile_ids=[person['id']],media_type='photo')
         return real_chat(db,system,content,schema)
     monkeypatch.setattr(ai,'chat',planned)
     response=context.client.post('/api/ai-search',json={'query':'去年夏天哥哥的照片'})
@@ -184,3 +188,39 @@ def test_inferred_date_person_and_type_are_intersected(context, provider, monkey
     assert [item['id'] for item in response.json()['items']] == [wanted]
     response=context.client.post('/api/ai-search',json={'query':'去年夏天哥哥的照片','end':'2025-01-01T00:00:00'})
     assert response.json()['items'] == []
+
+
+def test_small_scope_uses_one_call_and_reports_owned_progress(context, provider):
+    mid = upload(context)["media_id"]
+    add_index(context, mid)
+    response = context.client.post("/api/ai-search", json={"query":"海边", "request_id":"my-search"})
+    assert response.status_code == 200
+    assert len(provider) == 1
+    assert context.client.get("/api/ai-search/progress/my-search").json() == {"stage":"complete"}
+    act(context,"viewer")
+    assert context.client.get("/api/ai-search/progress/my-search").json() == {"stage":"waiting"}
+
+
+def test_large_scope_preserves_vector_search_and_scope(context, provider):
+    for _ in range(41): add_index(context, upload(context)["media_id"])
+    response=context.client.post("/api/ai-search",json={"query":"海边"})
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 40
+    assert [c[0] for c in provider] == ["chat/completions","embeddings","chat/completions"]
+
+
+@pytest.mark.parametrize("duration,expected",[(12,6),(120,24),(600,60)])
+def test_video_frame_coverage_scales_with_duration(tmp_path,monkeypatch,duration,expected):
+    import shutil,subprocess
+    source=tmp_path/"preview.mp4"
+    subprocess.run([ai.imageio_ffmpeg.get_ffmpeg_exe(),"-hide_banner","-loglevel","error","-f","lavfi","-i",
+                    "color=c=blue:s=16x16:r=1","-t",str(duration),"-c:v","libx264","-threads","1",str(source)],check=True)
+    storage=SimpleNamespace(bucket=SimpleNamespace(get_object_to_file=lambda key,target:shutil.copyfile(source,target)))
+    db=SimpleNamespace(get=lambda *args:SimpleNamespace(object_key="previews/video.mp4"))
+    captured=[]
+    monkeypatch.setattr(ai,"chat",lambda db,system,content: captured.extend(content) or "蓝色画面")
+    monkeypatch.setattr(ai,"embed",lambda *args:vector())
+    description,embedding,seconds=ai.analyze_media(db,storage,SimpleNamespace(media_type="video",duration_ms=duration*1000),SimpleNamespace(sha256="test"))
+    assert len(seconds)==expected
+    assert seconds[-1] >= duration*.8
+    assert len([x for x in captured if x["type"]=="image_url"])==expected
