@@ -32,6 +32,19 @@ AI_MONTHLY_BUDGET_USD=80
 
 生产部署替换为 `production`。可使用 `deploy/yearly-ai-search.service`，修改路径和环境配置后由 systemd 启动。API 与索引进程需要重启才能读取新的环境配置。先启动正常的预览任务，缺少预览的影像会留待后续扫描，不会误标为已经完成。
 
+一次性全量索引完成后，仍需保留上述 `--watch` 工作进程，新上传的影像才会自动建立索引。它每 15 秒检查预览已就绪、尚无索引的影像；已完成的影像不会重复分析。上传请求与原始媒体接口保持不变。
+
+Docker 部署可使用 `deploy/yearly-ai-search-docker.service`。先创建名为 `yearly-ai-search` 的容器，复用 API 的镜像、后端代码和私有配置挂载，使用独立可写 `/tmp`，启动命令为 `python -u -m app.cli build-search-index --watch --limit 10000`。再安装并启用该 unit：
+
+```bash
+sudo install -m 644 deploy/yearly-ai-search-docker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now yearly-ai-search-docker.service
+sudo systemctl status yearly-ai-search-docker.service
+```
+
+该服务开启开机启动，但不会在费用上限或配置错误后自动重试；达到上限后需调整预算或等新月份再手动启动。临时分析失败项保留 `failed` 状态，排查后用 `--retry-failed` 重试。不要同时开启原生和 Docker 索引服务，两者共用同一数据库任务锁。
+
 搜索界面显示当前用户可见的总数、已分析数量；不会把尚未建立索引的影像伪装成可搜索。服务错误与额度不足保留输入，允许稍后重试。后台失败记录需通过 `--retry-failed` 重试，不无限自动消耗额度。
 
 ## 模型与成本
@@ -164,3 +177,11 @@ API、媒体协议和客户端缓存不变；重建期间旧、新描述的向�
 结束后逐项检查了描述非空、512 维有限向量、向量归一化及视频抽帧记录，异常 0；索引锁已释放，批处理正常退出，无自动重跑。两个 API 服务健康检查均通过。在线搜索仍用 `gpt-4.1-mini`，向量仍用 `text-embedding-3-small`。本次未新增客户端协议或缓存变更，也未重新安装客户端；未额外调用付费搜索评估，因此以上验证不代表召回准确率评测。
 
 服务器完成报告及核验结果保存在 `/opt/yearly-test/backups/ai-sol-resume-20261112/`；暂停标记已移入该目录保留历史。旧索引备份继续保留在 `/opt/yearly-test/backups/ai-sol-20261112/index-before.json.gz`。
+
+### 新上传影像自动索引（2026-11-12）
+
+全量重建结束后新上传了 5 张照片，预览已就绪但没有索引。排查确认服务器只有已经退出的一次性重建容器，未启用持续扫描任务，因此搜索状态仍为 807 条已分析。
+
+现已启用 `yearly-ai-search-docker.service`，使用独立 `yearly-ai-search` 容器持续运行既有 `build-search-index --watch`，预览就绪后自动处理新影像。容器复用 API 的代码、私有配置及当前费用上限，限制为 384 MiB / 1 CPU；分析继续用 Sol。服务已设为开机启动，预算或配置错误时退出，`Restart=no`，不循环付费重试。
+
+5 张新增照片全部自动完成索引，当前 812/812、失败 0。通过公开 HTTPS 接口实际搜索“一家人过生日吃蛋糕”，返回这 5 张新照片；既有媒体接口返回 200，验证会话已撤销。systemd 配置验证通过，服务运行且 enabled。本次仅新增部署 unit 和文档，未改 App、API 或持久化协议，无需重新安装客户端；未重复构建客户端或运行会锁住共享测试库的全量测试。部署证据保存在服务器 `/opt/yearly-test/backups/ai-auto-index-20261112/`。客户端已打开的搜索弹窗需点“刷新状态”更新计数，再重新提交查询。

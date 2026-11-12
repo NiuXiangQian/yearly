@@ -1,0 +1,21 @@
+[Unit]
+Description=yearly automatic visual search index (Docker)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Create this container with the API image/configuration and command:
+# python -u -m app.cli build-search-index --watch --limit 10000
+ExecStart=/usr/bin/docker start --attach yearly-ai-search
+ExecStop=/usr/bin/docker stop --time 45 yearly-ai-search
+TimeoutStopSec=50
+# A budget/configuration failure must stop indexing instead of retrying paid calls.
+Restart=no
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
