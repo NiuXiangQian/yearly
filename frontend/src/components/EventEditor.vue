@@ -172,7 +172,7 @@ async function trash() {
           :disabled="!editable"
         />{{ t("允许分享") }}</label
       >
-      <p class="muted">{{ t("关闭后，此日记不会出现在任何分享链接中。") }}</p>
+      <p class="muted">{{ t("关闭后，此日记仅管理员可见，也不会出现在任何分享链接中。") }}</p>
       <div class="field-group">
         <span> {{ t("一起经历的人物与宠物") }} </span
         ><ChildPicker v-model="form.child_ids" :disabled="!editable" />

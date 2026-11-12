@@ -1131,7 +1131,7 @@ function saveStages() {
               <label
                 v-if="yearly.isAdmin && group.date !== 'unknown' && view === 'calendar'"
                 class="checkbox-label day-share-option"
-                :title="t('关闭后，这一天的全部内容不会出现在任何分享链接中。')"
+                :title="t('关闭后，这一天的全部内容仅管理员可见，也不会出现在任何分享链接中。')"
                 ><input
                   type="checkbox"
                   :checked="daySharing[group.date] !== false"

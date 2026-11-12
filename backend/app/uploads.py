@@ -131,7 +131,7 @@ def create_upload(
     if data.folder_id:
         from .folders import active_folder
 
-        folder = require_editable(user, active_folder(db, data.folder_id))
+        folder = require_editable(user, active_folder(db, data.folder_id, user))
         if data.timeline_date and data.timeline_date != folder.timeline_date:
             raise HTTPException(422, "文件夹与归档日期不一致")
         data.timeline_date = folder.timeline_date

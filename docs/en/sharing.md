@@ -9,7 +9,7 @@ Set **Allow sharing** during normal content editing. Creating a link only requir
 - **Timeline day:** toggle **Allow sharing this day** in the date action bar. It saves immediately and controls all files, folders, and diaries on that day.
 - **Diary:** change **Allow sharing** in its editor and save.
 
-Sharing is allowed by default. These persistent settings apply to **all existing and new links**. A file is hidden if its parent folder or day disallows sharing, even when the file itself allows it. Enabling this option does not publish a link. Normal family browsing, editing, and original downloads remain available.
+Sharing is allowed by default. These persistent settings apply to **all existing and new links**. A file is hidden if its parent folder or day disallows sharing, even when the file itself allows it. Enabling this option does not publish a link. Disabled content is visible only to administrators. Regular editors and viewers cannot see it in the signed-in management interface, timeline, search, folders, or diaries, even when they uploaded it themselves. Folder and day restrictions apply to their contents. Direct detail, preview, download, and edit requests enforce the same restrictions. Administrators retain access and can allow sharing again.
 
 Click **Share timeline**:
 

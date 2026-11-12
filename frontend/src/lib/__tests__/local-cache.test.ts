@@ -113,3 +113,13 @@ it("caches uploader choices including empty results and invalidates them after w
   expect(await api("/uploaders")).toEqual([]);
   expect(network).toHaveBeenCalledTimes(5);
 });
+
+it("separates administrator pages from the same account with a regular role", async () => {
+  network.mockImplementation(async () => reply({ items: ["private"] }));
+  setCacheAccount(1, "admin");
+  await api("/timeline");
+  network.mockImplementation(async () => reply({ items: [] }));
+  setCacheAccount(1, "member");
+  expect(await api("/timeline")).toEqual({ items: [] });
+  expect(network).toHaveBeenCalledTimes(2);
+});

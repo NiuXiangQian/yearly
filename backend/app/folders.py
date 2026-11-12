@@ -2,12 +2,13 @@ from datetime import date, datetime
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, func
+from sqlalchemy import select, func, literal
 from .db import get_db
 from .models import TimelineFolder, Media
 from .security import current_user, editor
-from .services import require_row, timeline_time
+from .services import timeline_time
 from .accounts import require_editable, modification_data
+from .visibility import sharing_visibility, visible_query, visible_row
 
 router = APIRouter(prefix="/api/folders", tags=["folders"])
 
@@ -41,8 +42,8 @@ class FolderOrder(BaseModel):
     placement: Literal["before", "after"] = "before"
 
 
-def active_folder(db, fid):
-    folder = require_row(db, TimelineFolder, fid)
+def active_folder(db, fid, user):
+    folder = visible_row(db, TimelineFolder, fid, user)
     if folder.status != "active":
         raise HTTPException(404, "文件夹已删除")
     return folder
@@ -67,9 +68,10 @@ def folder_data(folder, count=0):
 @router.get("")
 def folders(day: date, db=Depends(get_db), user=Depends(current_user)):
     rows = db.execute(
-        select(TimelineFolder, func.count(Media.id))
+        visible_query(select(TimelineFolder, func.count(Media.id)), TimelineFolder, user)
         .outerjoin(
             Media, (Media.folder_id == TimelineFolder.id) & (Media.status == "active")
+            & (sharing_visibility(Media) if user.role != "admin" else literal(True))
         )
         .where(TimelineFolder.status == "active", TimelineFolder.timeline_date == day)
         .group_by(TimelineFolder.id)
@@ -88,9 +90,9 @@ def create_folder(data: FolderCreate, db=Depends(get_db), user=Depends(editor)):
 
 @router.post("/move-media")
 def move_media(data: FolderMove, db=Depends(get_db), user=Depends(editor)):
-    folder = require_editable(user, active_folder(db, data.folder_id)) if data.folder_id else None
+    folder = require_editable(user, active_folder(db, data.folder_id, user)) if data.folder_id else None
     rows = db.scalars(
-        select(Media).where(
+        visible_query(select(Media), Media, user).where(
             Media.id.in_(set(data.media_ids)),
             Media.status == "active",
             Media.purpose == "memory",
@@ -107,7 +109,7 @@ def move_media(data: FolderMove, db=Depends(get_db), user=Depends(editor)):
     for media in rows:
         require_editable(user, media)
         if media.folder_id:
-            require_editable(user, active_folder(db, media.folder_id))
+            require_editable(user, active_folder(db, media.folder_id, user))
     for media in rows:
         media.folder_id = data.folder_id
         media.sort_order = 0
@@ -117,10 +119,9 @@ def move_media(data: FolderMove, db=Depends(get_db), user=Depends(editor)):
 
 @router.get("/{fid}")
 def folder_detail(fid: int, db=Depends(get_db), user=Depends(current_user)):
-    folder = active_folder(db, fid)
+    folder = active_folder(db, fid, user)
     count = db.scalar(
-        select(func.count())
-        .select_from(Media)
+        visible_query(select(func.count()).select_from(Media), Media, user)
         .where(Media.folder_id == fid, Media.status == "active")
     )
     return folder_data(folder, count)
@@ -128,7 +129,7 @@ def folder_detail(fid: int, db=Depends(get_db), user=Depends(current_user)):
 
 @router.put("/{fid}")
 def rename_folder(fid: int, data: FolderEdit, db=Depends(get_db), user=Depends(editor)):
-    folder = require_editable(user, active_folder(db, fid))
+    folder = require_editable(user, active_folder(db, fid, user))
     folder.name = data.name
     if "share_allowed" in data.model_fields_set:
         folder.share_allowed = data.share_allowed
@@ -138,8 +139,8 @@ def rename_folder(fid: int, data: FolderEdit, db=Depends(get_db), user=Depends(e
 
 @router.delete("/{fid}")
 def remove_folder(fid: int, db=Depends(get_db), user=Depends(editor)):
-    folder = require_editable(user, active_folder(db, fid))
-    contents = list(db.scalars(select(Media).where(Media.folder_id == fid)))
+    folder = require_editable(user, active_folder(db, fid, user))
+    contents = list(db.scalars(visible_query(select(Media).where(Media.folder_id == fid), Media, user)))
     for media in contents:
         require_editable(user, media)
     for media in contents:
@@ -151,8 +152,8 @@ def remove_folder(fid: int, db=Depends(get_db), user=Depends(editor)):
 
 
 def reorder_day_entries(db, moving_keys, target_key, placement, user):
-    target = require_row(
-        db, TimelineFolder if target_key[0] == "folder" else Media, target_key[1]
+    target = visible_row(
+        db, TimelineFolder if target_key[0] == "folder" else Media, target_key[1], user
     )
     day = (
         target.timeline_date
@@ -162,7 +163,7 @@ def reorder_day_entries(db, moving_keys, target_key, placement, user):
     )
     day_column = func.date(timeline_time())
     media_rows = db.scalars(
-        select(Media).where(
+        visible_query(select(Media), Media, user).where(
             Media.status == "active",
             Media.purpose == "memory",
             Media.folder_id.is_(None),
@@ -171,7 +172,7 @@ def reorder_day_entries(db, moving_keys, target_key, placement, user):
     ).all()
     folder_rows = (
         db.scalars(
-            select(TimelineFolder).where(
+            visible_query(select(TimelineFolder), TimelineFolder, user).where(
                 TimelineFolder.status == "active",
                 TimelineFolder.timeline_date == day,
             )

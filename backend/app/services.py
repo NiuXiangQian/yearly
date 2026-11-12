@@ -2,6 +2,8 @@ from datetime import timedelta
 from sqlalchemy import select, delete, or_, func, cast, DateTime
 from fastapi import HTTPException
 from .models import Child, Media, MediaChild, Event, EventMedia, EventChild
+from sqlalchemy.orm import object_session
+from .visibility import visible_query
 from .age import age_at
 from .accounts import modification_data, record_change
 
@@ -116,7 +118,17 @@ def event_data(event, child_ids=None):
         for c in event.children
         if c.status != "deleted" and (not child_ids or c.id in child_ids)
     ]
-    data["media_ids"] = [link.media_id for link in event.media_links]
+    media_ids = [link.media_id for link in event.media_links]
+    db = object_session(event)
+    user = db.info.get("actor") if db else None
+    if user and user.role != "admin" and (media_ids or event.cover_media_id):
+        visible = set(db.scalars(visible_query(select(Media.id).where(
+            Media.id.in_([*media_ids, event.cover_media_id]),
+        ), Media, user)))
+        media_ids = [mid for mid in media_ids if mid in visible]
+        if event.cover_media_id not in visible:
+            data["cover_media_id"] = None
+    data["media_ids"] = media_ids
     data["media_scope"] = "全部事件媒体，按手动顺序排列"
     return data
 
@@ -145,33 +157,47 @@ def filter_children(query, relation, parent, ids, match):
 def save_event(db, event, payload):
     ids = set(payload.media_ids)
     existing_ids = {link.media_id for link in event.media_links} if event.id else set()
+    user = db.info["actor"]
     found = set(
         db.scalars(
-            select(Media.id).where(
+            visible_query(select(Media.id).where(
                 Media.id.in_(ids),
                 or_(Media.status == "active", Media.id.in_(existing_ids)),
-            )
+            ), Media, user)
         )
     )
     if found != ids:
         raise HTTPException(422, "事件包含不可用媒体")
+    media_ids = list(payload.media_ids)
+    if user.role != "admin" and existing_ids:
+        visible_existing = set(db.scalars(visible_query(
+            select(Media.id).where(Media.id.in_(existing_ids)), Media, user,
+        )))
+        # The editor cannot see restricted attachments; preserve them when saving visible fields.
+        media_ids.extend(link.media_id for link in event.media_links if link.media_id not in visible_existing)
+    if payload.cover_media_id:
+        if not db.scalar(visible_query(select(Media.id).where(Media.id == payload.cover_media_id), Media, user)):
+            raise HTTPException(422, "事件封面不可用")
     validate_children(db, payload.child_ids)
     excluded = {"child_ids", "media_ids"} | (
         {"share_allowed"} - payload.model_fields_set
     )
+    if user.role != "admin" and event.cover_media_id and payload.cover_media_id is None:
+        if not db.scalar(visible_query(select(Media.id).where(Media.id == event.cover_media_id), Media, user)):
+            excluded.add("cover_media_id")
     for key, value in payload.model_dump(exclude=excluded).items():
         setattr(event, key, value)
     db.add(event)
     db.flush()
     set_children(db, event.id, payload.child_ids, EventChild)
     previous = [link.media_id for link in event.media_links]
-    if previous != payload.media_ids:
-        record_change(db, event, {"media_ids": {"before": previous, "after": payload.media_ids}})
+    if previous != media_ids:
+        record_change(db, event, {"media_ids": {"before": previous, "after": media_ids}})
     db.execute(delete(EventMedia).where(EventMedia.event_id == event.id))
     db.add_all(
         [
             EventMedia(event_id=event.id, media_id=mid, sort_order=i)
-            for i, mid in enumerate(payload.media_ids)
+            for i, mid in enumerate(media_ids)
         ]
     )
     db.commit()

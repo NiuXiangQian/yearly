@@ -2,14 +2,14 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
 import FolderPanel from "../../components/FolderPanel.vue";
-import { api, post, notify } from "../api";
+import { api, post, put, notify } from "../api";
 import * as reorder from "../reorder";
 
 vi.mock("../../stores/yearly", () => ({
-  useYearly: () => ({ canEdit: true, selected: [] }),
+  useYearly: () => ({ canEdit: true, isAdmin: false, selected: [] }),
 }));
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("../api", () => ({ api: vi.fn(), post: vi.fn(), notify: vi.fn() }));
+vi.mock("../api", () => ({ api: vi.fn(), post: vi.fn(), put: vi.fn(), notify: vi.fn() }));
 vi.mock("../../components/MediaCard.vue", () => ({
   default: {
     props: ["media"],
@@ -29,6 +29,7 @@ vi.mock("element-plus/es/components/dialog/style/css", () => ({}));
 vi.mock("element-plus/es/components/popconfirm/style/css", () => ({}));
 
 let app: ReturnType<typeof createApp>;
+const closed = vi.fn();
 const cards = () => [...document.querySelectorAll(".folder-media-grid > div")];
 function drag(element: Element, type: string) {
   const event = new Event(type, { bubbles: true, cancelable: true });
@@ -39,12 +40,12 @@ function drag(element: Element, type: string) {
 beforeEach(async () => {
   vi.mocked(api).mockImplementation(async (path) =>
     path.startsWith("/folders/")
-      ? { id: 90, name: "测试文件夹", timeline_day: "2026-11-06" }
+      ? { id: 90, name: "测试文件夹", timeline_day: "2026-11-06", share_allowed: true }
       : { items: [{ id: 10 }, { id: 11 }, { id: 12 }], total: 3 },
   );
   const host = document.createElement("div");
   document.body.append(host);
-  app = createApp(FolderPanel, { id: 90 });
+  app = createApp(FolderPanel, { id: 90, onClose: closed });
   app.mount(host);
   await vi.waitFor(() => expect(cards()).toHaveLength(3));
 });
@@ -53,6 +54,21 @@ afterEach(() => {
   document.body.innerHTML = "";
   vi.clearAllMocks();
   vi.restoreAllMocks();
+});
+
+it("closes a regular user's folder after making it admin-only without reloading its denied detail", async () => {
+  vi.mocked(put).mockResolvedValue({});
+  [...document.querySelectorAll("button")].find(b => b.textContent?.trim() === "编辑文件夹")!.click();
+  await nextTick();
+  const checkbox = document.querySelector("input[type=checkbox]") as HTMLInputElement;
+  checkbox.checked = false;
+  checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+  await nextTick();
+  document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  await vi.waitFor(() => expect(closed).toHaveBeenCalledOnce());
+  expect(put).toHaveBeenCalledExactlyOnceWith("/folders/90", { name: "测试文件夹", share_allowed: false });
+  expect(api).toHaveBeenCalledTimes(2);
+  expect(notify).not.toHaveBeenCalled();
 });
 
 it("previews folder media immediately and restores cancelled dragging", async () => {

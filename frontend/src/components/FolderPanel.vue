@@ -190,6 +190,11 @@ async function rename() {
       share_allowed: shareAllowed.value,
     });
     renaming.value = false;
+    if (!yearly.isAdmin && !shareAllowed.value) {
+      emit("changed");
+      emit("close");
+      return;
+    }
     await load();
     emit("changed");
   } catch (e) {
@@ -459,7 +464,7 @@ async function changed() {
           }}</label
         >
         <p class="muted">
-          {{ t("关闭后，此文件夹及其内容不会出现在任何分享链接中。") }}
+          {{ t("关闭后，此文件夹及其内容仅管理员可见，也不会出现在任何分享链接中。") }}
         </p>
         <div class="dialog-actions">
           <button class="button primary" :disabled="busy || !name.trim()">

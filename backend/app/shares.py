@@ -31,6 +31,7 @@ from .models import (
 )
 from .security import editor, admin
 from .services import timeline_time, validate_children, filter_children
+from .visibility import sharing_visibility
 from .storage import get_storage, preview_resource
 
 router = APIRouter(prefix="/api", tags=["sharing"])
@@ -327,28 +328,24 @@ def update_day_sharing(
 
 def shared_queries(share):
     """Apply the same scope to listing, folder previews and direct media access."""
-    blocked_days = select(TimelineDay.timeline_date).where(
-        TimelineDay.share_allowed.is_(False)
-    )
     day = func.date(timeline_time())
 
     selection = share is not None and share.media_ids is not None
 
     def in_range(column):
         limits = (column >= share.start_date, column <= share.end_date) if share and not selection else ()
-        visibility = or_(column.is_(None), column.not_in(blocked_days)) if selection else column.not_in(blocked_days)
-        return (*limits, visibility)
+        return limits if selection else (*limits, column.is_not(None))
 
     folders = select(TimelineFolder).where(
         TimelineFolder.status == "active",
         *in_range(TimelineFolder.timeline_date),
-        TimelineFolder.share_allowed.is_(True),
+        sharing_visibility(TimelineFolder),
     )
     media = select(Media).where(
         Media.status == "active",
         Media.purpose == "memory",
         *in_range(day),
-        Media.share_allowed.is_(True),
+        sharing_visibility(Media),
         or_(
             Media.folder_id.is_(None),
             Media.folder_id.in_(folders.with_only_columns(TimelineFolder.id)),
@@ -357,7 +354,7 @@ def shared_queries(share):
     events = select(Event).where(
         Event.status == "active",
         *in_range(func.date(Event.start_at)),
-        Event.share_allowed.is_(True),
+        sharing_visibility(Event),
     )
     if share is not None and getattr(share, "owner_scope_id", None) is not None:
         media = media.where(Media.owner_id == share.owner_scope_id)

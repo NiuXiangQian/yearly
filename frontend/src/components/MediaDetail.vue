@@ -158,7 +158,7 @@ async function trash() {
             />{{ t("允许分享") }}</label
           >
           <p class="muted">
-            {{ t("关闭后，此文件不会出现在任何分享链接中。") }}
+            {{ t("关闭后，此文件仅管理员可见，也不会出现在任何分享链接中。") }}
           </p>
           <div class="form-row">
             <label>

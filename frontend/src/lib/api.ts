@@ -59,7 +59,7 @@ export async function api<T = any>(
     throw new Error(t(message));
   }
   const value = await response.json();
-  if ((path === "/auth/me" || path === "/auth/login") && value.id) setCacheAccount(value.id);
+  if ((path === "/auth/me" || path === "/auth/login") && value.id) setCacheAccount(value.id, value.role);
   if (method !== "GET") invalidateCachedLists();
   if (path === "/auth/logout") {
     if (scope) await clearCachedScope(scope);

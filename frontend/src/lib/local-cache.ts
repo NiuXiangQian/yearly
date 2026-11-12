@@ -1,17 +1,18 @@
 import { sha256 } from "hash-wasm";
 
-const prefix = `yearly-cache-v2:${import.meta.env.BASE_URL}:`;
+const prefix = `yearly-cache-v3:${import.meta.env.BASE_URL}:`;
 const listLifetime = 5 * 60_000;
 const imageLifetime = 7 * 24 * 60 * 60_000;
 let account: number | null = null;
+let accountRole = "";
 let revision = 0;
 const shareExpiry = new Map<string, number>();
 
-export function setCacheAccount(id: number | null) { account = id; }
+export function setCacheAccount(id: number | null, role = "") { account = id; accountRole = role; }
 export function cacheRevision() { return revision; }
 export function cacheScope(path: string) {
   const share = path.match(/^\/public\/shares\/[^/?]+/);
-  return share ? share[0] : account === null ? null : `account:${account}`;
+  return share ? share[0] : account === null ? null : `account:${account}${accountRole ? ":" + accountRole : ""}`;
 }
 export function rememberShare(path: string, expires: string) {
   const scope = cacheScope(path);
