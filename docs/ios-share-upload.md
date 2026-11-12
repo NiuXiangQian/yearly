@@ -49,5 +49,5 @@ CLI 验证：`./scripts/ios.sh verify`。完整 Xcode 构建：`DEVELOPER_DIR=/A
 - 增加 Objective-C 类型明确的 `loadItem` 回调读取 Photos 的旧式实况对象，同时保留现代 `NSItemProviderReading` 路径。类型明确的回调是公开 API 的类型转换约定：[Apple loadItem 文档](https://developer.apple.com/documentation/foundation/nsitemprovider/loaditem(fortypeidentifier:options:completionhandler:))。两扩展显式声明实况类型；声明实况后读取失败不会静默降为照片。
 - 用合成图片和 3 秒 MOV 导入系统 Photos 为实况，通过原生相册上方分享和下方快捷操作分别提取并确认上传，两项 UI 测试通过。两个扩展的实际队列均为 `live_photo`，各含 `original: image/jpeg` 和 `live_video: video/quicktime`，状态 `complete`；网络使用模拟响应，没有上传私人影像。
 - CLI 全套回归及现代 Provider 的照片、视频、实况混合确认上传通过；本次保持服务端协议、队列字段、登录钥匙串和主 App 上传路径不变。已变成静态照片的历史记录无法凭 JPEG 恢复 MOV，需要从相册原实况重新分享。
-- Release 完整代码包 `2026111213` 已保留数据覆盖安装至 iPhone 15。全部代码提交 `bfbbe78` 推送后再次核对安装包源码并覆盖安装；用户解锁后启动成功，版本及运行进程已核验，记录在 `.local/push-all-install-20261112/`。复用同一证书及三个现有描述文件，证书 OCSP 校验通过；证书到期 UTC `2027-11-12 00:45:12`，三个描述文件到期 UTC `2026-11-19`。未更新描述文件、注册设备或吊销证书。
+- Release 完整代码包 `2026111213` 已保留数据覆盖安装至 iPhone 15。全部代码提交 `bfbbe78` 已推送，安装包源码与该提交一致；用户解锁后启动成功，版本及运行进程已核验，记录在 `.local/push-all-install-20261112/`。复用同一证书及三个现有描述文件，证书 OCSP 校验通过；证书到期 UTC `2027-11-12 00:45:12`，三个描述文件到期 UTC `2026-11-19`。未更新描述文件、注册设备或吊销证书。
 - 证据保存在 `.local/share-live-fix-20261112/`：`native-live-both.xcresult`、`native-screenshots/`、两个 `*-verified-queue.json`、`final-verify.log`、源码快照、签名与安装记录。尚未自动验证真机真实 OSS 上传、iOS 16 实机及旧版二进制覆盖升级。
