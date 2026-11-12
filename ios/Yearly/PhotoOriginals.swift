@@ -130,6 +130,20 @@ enum PhotoOriginals {
         let live = asset.mediaSubtypes.contains(.photoLive)
         let video = asset.mediaType == .video
         let choice = try selection(for: asset)
+        return try await prepare(item, store: store, choice: choice, asset: asset, live: live, video: video, progress: progress)
+    }
+
+    static func prepare(livePhoto: PHLivePhoto, site: SiteOrigin, ownerID: Int, store: UploadStore) async throws -> UploadItem {
+        let resources = PHAssetResource.assetResources(for: livePhoto)
+        let policy = try PhotoResourcePolicy.select(types: resources.map { $0.type.rawValue }, live: true, video: false)
+        let choice = Selection(resources: policy.types.compactMap { type in resources.first { $0.type.rawValue == type } }, edited: policy.edited)
+        let item = UploadItem(assetIdentifier: "share:" + UUID().uuidString, site: site.url.absoluteString,
+                              ownerID: ownerID, name: "", mediaType: "live_photo")
+        return try await prepare(item, store: store, choice: choice, asset: nil, live: true, video: false, progress: { _, _, _ in })
+    }
+
+    private static func prepare(_ item: UploadItem, store: UploadStore, choice: Selection, asset: PHAsset?,
+                                live: Bool, video: Bool, progress: @escaping @Sendable (Int64, Int64?, String) -> Void) async throws -> UploadItem {
         let selected = choice.resources
         let extensions: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "webp", "dng", "cr2", "cr3", "nef", "arw", "orf", "rw2", "raf", "mp4", "mov"]
         for (index, resource) in selected.enumerated() {
@@ -182,7 +196,7 @@ enum PhotoOriginals {
             }
             var metadata = try await OriginalMetadata.inspect(prepared.resources, directory: directory, asset: asset, edited: choice.edited)
             prepared.captureDate = metadata["original_taken_at_local"] as? String
-            prepared.photoKitDate = asset.creationDate
+            prepared.photoKitDate = asset?.creationDate
             if let warning = metadata.removeValue(forKey: "client_warning") as? String {
                 prepared.warning += (prepared.warning.isEmpty ? "" : "\n") + warning
             }

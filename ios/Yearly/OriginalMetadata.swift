@@ -125,8 +125,10 @@ enum OriginalMetadata {
         return fields
     }
     #if canImport(Photos)
-    static func inspect(_ resources: [UploadResource], directory: URL, asset: PHAsset, edited: Bool) async throws -> [String: Any] {
-        var metadata: [String: Any] = ["source": "ios_photokit", "parse_status": "parsed", "representation": edited ? "edited_full_size" : "unmodified_original"]
+    static func inspect(_ resources: [UploadResource], directory: URL, asset: PHAsset?, edited: Bool) async throws -> [String: Any] {
+        let source = asset == nil ? "ios_share_extension" : "ios_photokit"
+        let representation = asset == nil ? "system_shared_live_photo" : edited ? "edited_full_size" : "unmodified_original"
+        var metadata: [String: Any] = ["source": source, "parse_status": "parsed", "representation": representation]
         var originals: [String: Any] = [:], pairIDs: [String] = [], warnings: [String] = []
         for resource in resources {
             let url = directory.appendingPathComponent(resource.path)
@@ -148,22 +150,25 @@ enum OriginalMetadata {
         }
         if resources.count == 2 {
             if pairIDs.count == 2 && pairIDs[0] != pairIDs[1] { throw UploadFailure(message: "Live Photo 图片与 MOV 的 ContentIdentifier 不匹配，未创建上传。") }
-            metadata["pairing_source"] = pairIDs.count == 2 ? "ContentIdentifier" : "PHAssetResource.sameAsset"
+            metadata["pairing_source"] = pairIDs.count == 2 ? "ContentIdentifier" : asset == nil ? "PHLivePhoto.resourceGroup" : "PHAssetResource.sameAsset"
             if pairIDs.count != 2 { warnings.append("系统未解析出两份 ContentIdentifier；配对依据为 PhotoKit 同一 Live Photo 资源组。") }
         }
-        var auxiliary: [String: Any] = ["pixelWidth": asset.pixelWidth, "pixelHeight": asset.pixelHeight, "duration": asset.duration]
-        if let date = asset.creationDate { auxiliary["creationDateUTC"] = ISO8601DateFormatter().string(from: date) }
-        if let location = asset.location { auxiliary["location"] = ["latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude, "altitude": location.altitude] }
-        metadata["photokit_auxiliary"] = auxiliary
+        var auxiliary: [String: Any] = [:]
+        if let asset {
+            auxiliary = ["pixelWidth": asset.pixelWidth, "pixelHeight": asset.pixelHeight, "duration": asset.duration]
+            if let date = asset.creationDate { auxiliary["creationDateUTC"] = ISO8601DateFormatter().string(from: date) }
+            if let location = asset.location { auxiliary["location"] = ["latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude, "altitude": location.altitude] }
+            metadata["photokit_auxiliary"] = auxiliary
+        }
         // Metadata is bounded separately from file bytes; oversized raw fields stay in the untouched original.
         if try JSONSerialization.data(withJSONObject: metadata).count > 900_000 {
-            metadata = ["source": "ios_photokit", "parse_status": "partial", "parse_error": "元数据超过 JSON 预算，完整信息保留在原件中。", "photokit_auxiliary": auxiliary, "representation": edited ? "edited_full_size" : "unmodified_original"]
+            metadata = ["source": source, "parse_status": "partial", "parse_error": "元数据超过 JSON 预算，完整信息保留在原件中。", "photokit_auxiliary": auxiliary, "representation": representation]
             warnings.append("元数据较大，数据库只保存常用字段；完整 EXIF/XMP/IPTC 保留在原件。")
         }
         var result = fields(originals)
         result["metadata"] = metadata
         if result["original_taken_at_local"] == nil {
-            warnings.append(asset.creationDate == nil
+            warnings.append(asset?.creationDate == nil
                 ? "原件和相册都没有可用日期。"
                 : "原件拍摄时间未知，可用相册日期归档。")
         }

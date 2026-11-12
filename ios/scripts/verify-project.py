@@ -70,4 +70,14 @@ for key in objects[extension['buildConfigurationList']]['buildConfigurations']:
 extension_info = plistlib.loads((root / 'YearlyShare/Info.plist').read_bytes())['NSExtension']
 assert extension_info['NSExtensionPointIdentifier'] == 'com.apple.share-services'
 assert extension_info['NSExtensionAttributes']['NSExtensionActivationRule']['NSExtensionActivationSupportsImageWithMaxCount'] == 20
+assert extension_info['NSExtensionAttributes']['NSExtensionActivationRule']['NSExtensionActivationSupportsMovieWithMaxCount'] == 20
+action = next(value for value in objects.values() if value.get('isa') == 'PBXNativeTarget' and value.get('name') == 'YearlyAction')
+assert action['productReference'] in [objects[key]['fileRef'] for key in embed['files']]
+assert any(objects[objects[key]['target']]['name'] == 'YearlyAction' for key in target['dependencies'])
+action_info = plistlib.loads((root / 'YearlyAction/Info.plist').read_bytes())
+assert action_info['CFBundleDisplayName'] == '上传到 yearly'
+assert action_info['CFBundleSymbolName'] == 'square.and.arrow.up'
+assert action_info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.ui-services'
+assert action_info['NSExtension']['NSExtensionAttributes']['NSExtensionActivationRule'] == extension_info['NSExtensionAttributes']['NSExtensionActivationRule']
+assert plistlib.loads((root / 'YearlyAction/YearlyAction.entitlements').read_bytes()) == plistlib.loads((root / 'YearlyShare/YearlyShare.entitlements').read_bytes())
 print('Xcode source membership, resources, icon sizes, plist and shared scheme checks passed.')

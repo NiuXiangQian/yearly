@@ -97,12 +97,12 @@ import Photos
         items.append(contentsOf: unique)
         do { try persist(); suspended = false; start() } catch { }
     }
-    func addSharedPhoto(file: URL, name: String) async throws -> UUID {
+    func addSharedMedia(_ source: SharedPhotoImport.Source) async throws -> UUID {
         guard let site, let store, let session, session.canEdit, let ownerID = session.account?.id else {
             throw UploadFailure(message: "请先在 yearly 登录有上传权限的账号。")
         }
         let preparation = Task.detached(priority: .utility) {
-            try SharedPhotoImport.prepare(file: file, name: name, site: site, ownerID: ownerID, store: store)
+            try await SharedPhotoImport.prepare(source, site: site, ownerID: ownerID, store: store)
         }
         let item = try await withTaskCancellationHandler { try await preparation.value } onCancel: { preparation.cancel() }
         do {
@@ -116,6 +116,10 @@ import Photos
             try? store.removeFiles(item.id)
             throw error
         }
+    }
+    func sharedPreviewFile(_ id: UUID) -> URL? {
+        guard let item = items.first(where: { $0.id == id }), let resource = item.resources.first else { return nil }
+        return try? store?.file(resource, itemID: id)
     }
     func confirm(ids: Set<UUID>, childIDs: [Int], batchName: String, archiveDate: String?) {
         guard session?.canEdit == true else { return }

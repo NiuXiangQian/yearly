@@ -1,18 +1,18 @@
 # iOS 相册分享上传
 
-相册选中 1–20 张图片 → 分享 → yearly → 预览、移除照片、选择人物或宠物 → 确认上传。
+相册选中照片、视频或实况照片（最多 20 项）→ 分享或操作菜单中的 yearly → 预览、移除媒体、选择人物或宠物 → 确认上传。
 
 - 更新安装后先打开 yearly 一次，以同步当前家庭站点；分享扩展复用钥匙串中的现有登录状态。未登录、登录过期和只读账号会提示在 App 内登录或切换账号。
-- 支持 JPEG、PNG、HEIC、HEIF、WebP。上传系统实际分享的图片字节，不重新编码；系统可能提供编辑后的版本或去除部分元数据，不能据此保证是相册未修改原片。完整实况照片和视频继续使用 App 内导入。
+- 支持常见照片、MOV / MP4 视频，以及系统以 `PHLivePhoto` 提供的完整实况照片。保留实际收到的文件字节；实况照片读取同一资源组的图片和配对视频，校验配对标识。系统只提供静态照片时按静态照片上传，不伪装成实况照片。系统可能提供编辑或转换后的文件，不能保证是相册未修改原片。
 - 复用现有 `/uploads` 协议、人物权限、幂等请求、哈希与 CRC64 校验和断点续传，不需要后端或 Android 更新。图片没有拍摄日期时可以指定归档日期，否则按现有服务端规则归档。
 - 上传期间保持分享窗口打开。关闭或进入后台会暂停；下次向 yearly 分享图片时可继续或取消此前未完成任务。扩展的队列位于其独立沙盒，不迁移、不覆盖 App 现有的 `NativeUploads` 队列。
 - 未确认的新照片在点击关闭时取消；已确认任务保留服务端任务 ID 和原件缓存。上传成功后清理缓存。再次上传相同内容使用现有重复处理规则。
 
 ## 签名与兼容
 
-`YearlyShare` 为随 App 打包的 Share Extension，Bundle ID 为主 App Bundle ID 加 `.share`。主 App 和扩展使用主 App 原有的默认 Keychain Access Group，确保历史登录记录仍可读取；不使用 App Groups，也不把凭据写入 UserDefaults 或队列 JSON。
+`YearlyShare` 为随 App 打包的 Share Extension，Bundle ID 为主 App Bundle ID 加 `.share`；`YearlyAction` 为操作菜单扩展，Bundle ID 加 `.action`。两个扩展复用同一上传界面。主 App 和扩展使用主 App 原有的默认 Keychain Access Group，确保历史登录记录仍可读取；不使用 App Groups，也不把凭据写入 UserDefaults 或队列 JSON。
 
-`scripts/ios.sh` 继续接受 `YEARLY_BUNDLE_ID`，并将其作为 `YEARLY_APP_BUNDLE_ID` 同时传给两个 target，避免为二者指定相同 Bundle ID。真机签名需要现有有效证书，以及同时允许主 App、扩展和目标设备的描述文件。缺少扩展描述文件时停止真机交付，不自动注册设备、更新描述文件或吊销证书。
+`scripts/ios.sh` 继续接受 `YEARLY_BUNDLE_ID`，并将其作为 `YEARLY_APP_BUNDLE_ID` 同时传给三个 target，避免为二者指定相同 Bundle ID。真机签名需要现有有效证书，以及同时允许主 App、扩展和目标设备的描述文件。缺少扩展描述文件时停止真机交付，不自动注册设备、更新描述文件或吊销证书。
 
 CLI 验证：`./scripts/ios.sh verify`。完整 Xcode 构建：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build`。
 
@@ -25,3 +25,10 @@ CLI 验证：`./scripts/ios.sh verify`。完整 Xcode 构建：`DEVELOPER_DIR=/A
 - iOS 27.2 模拟器的 5 项真实界面测试通过：系统分享面板唤起扩展并接收两张图片，人物与归档日期选择及确认上传，深色 320pt 窄屏与移除照片，未登录提示，失败后重新打开窗口继续上传。
 - 界面测试使用虚拟图片、虚拟账号及模拟网络响应；未验证真实 OSS、真机钥匙串共享、iOS 16 实机或旧版 App 覆盖升级。当前手机未连接，且本地没有新 `.share` 扩展的描述文件，未执行真机安装或签名材料变更。
 - 测试日志、结果包及截图保存在 `.local/share-upload-20261112/`。
+
+
+## 照片、视频与实况照片扩展验证（2026-11-12）
+
+本次完整工作区通过主 App、分享扩展、操作扩展三个 target 的 clean 构建：Debug / Release 模拟器、Release 真机签名构建均成功。命令行回归覆盖真实照片和视频文件字节、EXIF、生成的 Live Photo 图片 / MOV 配对标识、账号隔离、请求字段、恢复及非法文件。
+
+完整包已覆盖安装到 iPhone 15，版本 `2026111210`，启动及运行进程已核验；保留应用数据。复用原证书和主 App、分享扩展描述文件，新增操作扩展使用本机已有且有效、覆盖设备的 `.action` 描述文件；未自动注册设备或吊销证书。构建源码、签名和安装记录在 `.local/ios-full-20261112/`。本轮未在真机自动操作完整分享上传，也未验证旧版系统实机。

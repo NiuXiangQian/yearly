@@ -3,7 +3,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 @main struct SharedPhotoImportTests {
-    static func main() throws {
+    static func main() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -20,7 +20,7 @@ import UniformTypeIdentifiers
         ]] as CFDictionary)
         precondition(CGImageDestinationFinalize(destination))
         let site = SiteOrigin("https://share.invalid/yearly/")!
-        var item = try SharedPhotoImport.prepare(file: file, name: "../../假后缀.png", site: site, ownerID: 7, store: store)
+        var item = try await SharedPhotoImport.prepare(file: file, name: "../../假后缀.png", site: site, ownerID: 7, store: store)
         precondition(item.phase == .ready && !item.confirmed && !item.requestStarted)
         precondition(item.ownerID == 7 && item.site == site.url.absoluteString)
         precondition(item.name == "假后缀.jpeg" || item.name == "假后缀.jpg")
@@ -51,9 +51,21 @@ import UniformTypeIdentifiers
         let invalid = root.appendingPathComponent("broken.jpg")
         try Data("not an image".utf8).write(to: invalid)
         do {
-            _ = try SharedPhotoImport.prepare(file: invalid, name: "broken.jpg", site: site, ownerID: 7, store: store)
+            _ = try await SharedPhotoImport.prepare(file: invalid, name: "broken.jpg", site: site, ownerID: 7, store: store)
             fatalError("Invalid image accepted")
         } catch is UploadFailure { }
-        print("Shared photo import: actual format, original bytes, EXIF, account scope, request fields, recovery and invalid-file checks passed.")
+        let fixture = try await SharedMediaFixtures.create(in: root.appendingPathComponent("live"))
+        let video = try await SharedPhotoImport.prepare(.file(fixture.movie, name: "视频测试.mov", video: true), site: site, ownerID: 7, store: store)
+        precondition(video.mediaType == "video" && video.phase == .ready && video.resources.count == 1)
+        precondition(video.resources[0].mimeType == "video/quicktime")
+        let videoBytes = try Data(contentsOf: store.file(video.resources[0], itemID: video.id))
+        let movieBytes = try Data(contentsOf: fixture.movie)
+        precondition(videoBytes == movieBytes)
+        let videoFields = try JSONSerialization.jsonObject(with: video.body()) as! [String: Any]
+        precondition(videoFields["media_type"] as? String == "video" && (videoFields["duration_ms"] as? Int ?? 0) > 0)
+        let imageMetadata = try OriginalMetadata.image(fixture.photo)
+        let movieMetadata = try await OriginalMetadata.movie(fixture.movie)
+        precondition(imageMetadata["ContentIdentifier"] as? String == movieMetadata["com.apple.quicktime.content.identifier"] as? String)
+        print("Shared media import: photo/video bytes, EXIF, Live Photo pair identifiers, account scope, request fields, recovery and invalid-file checks passed.")
     }
 }

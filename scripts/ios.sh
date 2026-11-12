@@ -30,6 +30,7 @@ USAGE
 verify() {
   mkdir -p "$BUILD_ROOT"
   plutil -lint "$IOS_ROOT/Yearly/Info.plist" "$IOS_ROOT/YearlyShare/Info.plist" "$IOS_ROOT/Yearly/Yearly.entitlements" "$IOS_ROOT/YearlyShare/YearlyShare.entitlements" "$IOS_ROOT/Yearly/PrivacyInfo.xcprivacy" "$IOS_ROOT/Yearly.xcodeproj/project.pbxproj"
+  plutil -lint "$IOS_ROOT/YearlyAction/Info.plist" "$IOS_ROOT/YearlyAction/YearlyAction.entitlements"
   python3 "$IOS_ROOT/scripts/verify-project.py"
   python3 -m unittest discover -s "$IOS_ROOT/Tests" -p 'test_*.py'
   swiftc -frontend -parse "$IOS_ROOT"/Yearly/*.swift "$IOS_ROOT"/YearlyShare/*.swift
@@ -52,8 +53,8 @@ verify() {
     "$IOS_ROOT/Tests/UploadPreferencesTests.swift" -o "$BUILD_ROOT/upload-preferences-tests"
   "$BUILD_ROOT/upload-preferences-tests"
   swiftc "$IOS_ROOT/Yearly/UploadCore.swift" "$IOS_ROOT/Yearly/SiteOrigin.swift" \
-    "$IOS_ROOT/Yearly/OriginalMetadata.swift" "$IOS_ROOT/Yearly/SharedPhotoImport.swift" \
-    "$IOS_ROOT/Tests/SharedPhotoImportTests.swift" -o "$BUILD_ROOT/shared-photo-tests"
+    "$IOS_ROOT/Yearly/OriginalMetadata.swift" "$IOS_ROOT/Yearly/PhotoOriginals.swift" "$IOS_ROOT/Yearly/SharedPhotoImport.swift" \
+    "$IOS_ROOT/Tests/SharedMediaFixtures.swift" "$IOS_ROOT/Tests/SharedPhotoImportTests.swift" -o "$BUILD_ROOT/shared-photo-tests"
   "$BUILD_ROOT/shared-photo-tests"
 }
 

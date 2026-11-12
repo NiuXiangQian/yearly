@@ -1,6 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import ImageIO
+import Photos
+import AVFoundation
 
 final class ShareViewController: UIViewController {
     override func viewDidLoad() {
@@ -35,7 +37,7 @@ struct ShareUploadView: View {
     @State private var loading = false
     @State private var started = false
     @State private var loaded = false
-    @State private var status = "正在读取照片…"
+    @State private var status = "正在读取影像…"
     @State private var message = ""
     @State private var useArchiveDate = false
     @State private var archiveDate = Date()
@@ -65,11 +67,9 @@ struct ShareUploadView: View {
                     if !loaded && !loading {
                         Button("重新读取") { Task { await load() } }
                     }
-                } footer: {
-                    Text("上传相册实际分享的图片版本。视频与完整实况照片请在 App 内导入。")
                 }
                 if !items.isEmpty {
-                    Section("照片（\(items.count)）") {
+                    Section("影像（\(items.count)）") {
                         ForEach(items) { item in
                             HStack(alignment: .top, spacing: 12) {
                                 if let thumbnail = thumbnails[item.id] {
@@ -80,6 +80,9 @@ struct ShareUploadView: View {
                                 }
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(item.name).font(.subheadline).lineLimit(2)
+                                    Label(item.mediaType == "live_photo" ? "实况照片" : item.mediaType == "video" ? "视频" : "照片",
+                                          systemImage: item.mediaType == "live_photo" ? "livephoto" : item.mediaType == "video" ? "video" : "photo")
+                                        .font(.caption).foregroundStyle(.secondary)
                                     Text(item.phase.label).font(.caption).foregroundStyle(item.phase == .failed ? .red : .secondary)
                                     if item.phase == .uploading {
                                         let inFlight = queue.transfer.flatMap { $0.itemID == item.id ? $0.inFlightBytes : nil } ?? 0
@@ -123,12 +126,12 @@ struct ShareUploadView: View {
                 if !ready.isEmpty {
                     VStack(spacing: 8) {
                         Button { upload() } label: {
-                            Label("上传 \(ready.count) 张照片", systemImage: "square.and.arrow.up")
+                            Label("上传 \(ready.count) 项影像", systemImage: "square.and.arrow.up")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(NativeActionStyle(kind: .primary))
                         .disabled(loading || queue.running || session?.canEdit != true)
-                        Text("保持窗口打开。关闭或切到后台会暂停，下次分享时可继续。")
+                        Text("保持窗口打开。关闭或切到后台会暂停，下次打开此入口时可继续。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 10)
@@ -161,13 +164,13 @@ struct ShareUploadView: View {
         defer { loading = false }
         do {
             guard let site = try ShareDestinationStore().read() else {
-                throw UploadFailure(message: "请先打开新版 yearly，设置站点并登录，然后回到相册分享照片。")
+                throw UploadFailure(message: "请先打开新版 yearly，设置站点并登录，然后回到相册分享影像。")
             }
             let session = NativeSession(site: site)
             self.session = session
             await session.restore()
             guard let account = session.account else {
-                throw UploadFailure(message: session.error.isEmpty ? "请先在 yearly 登录，然后重新分享照片。" : session.error)
+                throw UploadFailure(message: session.error.isEmpty ? "请先在 yearly 登录，然后重新分享影像。" : session.error)
             }
             guard session.canEdit else { throw UploadFailure(message: "当前为只读账号，请在 yearly 切换到有上传权限的账号后重试。") }
             profiles = try await session.get("/children", refresh: true)
@@ -175,38 +178,58 @@ struct ShareUploadView: View {
             queue.configure(session: session)
             visibleIDs.formUnion(queue.items.filter { $0.site == session.site.url.absoluteString && $0.ownerID == account.id && !$0.isTerminal }.map(\.id))
             guard !providers.isEmpty, providers.count <= 20 else {
-                throw UploadFailure(message: "请从相册分享 1 至 20 张照片。")
+                throw UploadFailure(message: "请从相册分享 1 至 20 项影像。")
             }
             var failures: [String] = []
             for (index, provider) in providers.enumerated() {
                 try Task.checkCancellation()
-                status = "正在读取第 \(index + 1) / \(providers.count) 张照片…"
+                status = "正在读取第 \(index + 1) / \(providers.count) 项影像…"
                 do {
-                    if provider.hasItemConformingToTypeIdentifier("com.apple.live-photo") {
-                        throw UploadFailure(message: "实况照片请在 App 内导入，以保留图片与动态原片。")
-                    }
-                    guard let type = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .image) == true }) else {
-                        throw UploadFailure(message: "此项目不是支持的图片，请在 App 内导入。")
-                    }
-                    // Provider URLs expire when the callback returns; copy before resuming.
-                    let suggestedName = provider.suggestedName
-                    let imported: (URL, String) = try await withCheckedThrowingContinuation { continuation in
-                        provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
-                            do {
-                                if let error { throw error }
-                                guard let url else { throw UploadFailure(message: "相册未提供可读取的图片，请下载 iCloud 照片后重试。") }
-                                let copy = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-                                try FileManager.default.copyItem(at: url, to: copy)
-                                continuation.resume(returning: (copy, suggestedName ?? url.lastPathComponent))
-                            } catch { continuation.resume(throwing: error) }
+                    let source: SharedPhotoImport.Source
+                    var temporaryFile: URL?
+                    defer { if let temporaryFile { try? FileManager.default.removeItem(at: temporaryFile) } }
+                    if provider.canLoadObject(ofClass: PHLivePhoto.self) {
+                        let livePhoto: PHLivePhoto = try await withCheckedThrowingContinuation { continuation in
+                            provider.loadObject(ofClass: PHLivePhoto.self) { value, error in
+                                if let value = value as? PHLivePhoto { continuation.resume(returning: value) }
+                                else { continuation.resume(throwing: error ?? UploadFailure(message: "相册暂未提供完整的实况资源，请重试。")) }
+                            }
                         }
+                        source = .livePhoto(livePhoto)
+                    } else {
+                        let movie = provider.registeredTypeIdentifiers.first { UTType($0)?.conforms(to: .movie) == true }
+                        guard let type = movie ?? provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .image) == true }) else {
+                            throw UploadFailure(message: "相册未提供可读取的影像。")
+                        }
+                        // Provider URLs expire when the callback returns; copy before resuming.
+                        let suggestedName = provider.suggestedName
+                        let imported: (URL, String) = try await withCheckedThrowingContinuation { continuation in
+                            provider.loadFileRepresentation(forTypeIdentifier: type) { url, error in
+                                do {
+                                    if let error { throw error }
+                                    guard let url else { throw UploadFailure(message: "相册暂未提供可读取的文件，请重试。") }
+                                    let ext = url.pathExtension.isEmpty ? UTType(type)?.preferredFilenameExtension ?? "" : url.pathExtension
+                                    let copy = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
+                                    try FileManager.default.copyItem(at: url, to: copy)
+                                    continuation.resume(returning: (copy, suggestedName ?? url.lastPathComponent))
+                                } catch { continuation.resume(throwing: error) }
+                            }
+                        }
+                        temporaryFile = imported.0
+                        source = .file(imported.0, name: imported.1, video: movie != nil)
                     }
-                    let (file, name) = imported
-                    defer { try? FileManager.default.removeItem(at: file) }
-                    let id = try await queue.addSharedPhoto(file: file, name: name)
+                    let id = try await queue.addSharedMedia(source)
                     visibleIDs.insert(id)
                     importedIDs.insert(id)
-                    let thumbnail = await Task.detached(priority: .utility) { () -> CGImage? in
+                    guard let file = queue.sharedPreviewFile(id) else { continue }
+                    let video = queue.items.first { $0.id == id }?.mediaType == "video"
+                    let thumbnail = await Task.detached(priority: .utility) { () async -> CGImage? in
+                        if video {
+                            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: file))
+                            generator.maximumSize = CGSize(width: 168, height: 168)
+                            generator.appliesPreferredTrackTransform = true
+                            return try? await generator.image(at: .zero).image
+                        }
                         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil) else { return nil }
                         return CGImageSourceCreateThumbnailAtIndex(source, 0, [
                             kCGImageSourceCreateThumbnailFromImageAlways: true,

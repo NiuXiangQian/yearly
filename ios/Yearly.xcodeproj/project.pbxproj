@@ -5,6 +5,34 @@
 	};
 	objectVersion = 56;
 	objects = {
+        E00000000000000000000001 = {isa = "PBXFileReference"; lastKnownFileType = "text.plist.xml"; path = "Info.plist"; sourceTree = "<group>";};
+        E00000000000000000000002 = {isa = "PBXFileReference"; lastKnownFileType = "text.plist.entitlements"; path = "YearlyAction.entitlements"; sourceTree = "<group>";};
+        E00000000000000000000003 = {isa = "PBXFileReference"; explicitFileType = "wrapper.app-extension"; path = "YearlyAction.appex"; sourceTree = "BUILT_PRODUCTS_DIR"; includeInIndex = 0;};
+        E00000000000000000000004 = {isa = "PBXGroup"; children = ("E00000000000000000000001", "E00000000000000000000002"); path = "YearlyAction"; sourceTree = "<group>";};
+        E00000000000000000000014 = {isa = "PBXBuildFile"; fileRef = "D00000000000000000000001";};
+        E00000000000000000000015 = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000000";};
+        E00000000000000000000016 = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000001";};
+        E00000000000000000000017 = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000002";};
+        E00000000000000000000018 = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000003";};
+        E00000000000000000000019 = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000004";};
+        E0000000000000000000001A = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000006";};
+        E0000000000000000000001B = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000011";};
+        E0000000000000000000001C = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000021";};
+        E0000000000000000000001D = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000032";};
+        E0000000000000000000001E = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000033";};
+        E0000000000000000000001F = {isa = "PBXBuildFile"; fileRef = "F00000000000000000000015";};
+        E00000000000000000000028 = {isa = "PBXSourcesBuildPhase"; buildActionMask = 2147483647; files = ("E00000000000000000000014", "E00000000000000000000015", "E00000000000000000000016", "E00000000000000000000017", "E00000000000000000000018", "E00000000000000000000019", "E0000000000000000000001A", "E0000000000000000000001B", "E0000000000000000000001C", "E0000000000000000000001D", "E0000000000000000000001E", "E0000000000000000000001F"); runOnlyForDeploymentPostprocessing = 0;};
+        E00000000000000000000029 = {isa = "PBXFrameworksBuildPhase"; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+        E0000000000000000000002A = {isa = "PBXBuildFile"; fileRef = "F00000000000000000000019";};
+        E0000000000000000000002B = {isa = "PBXResourcesBuildPhase"; buildActionMask = 2147483647; files = ("E0000000000000000000002A"); runOnlyForDeploymentPostprocessing = 0;};
+        E0000000000000000000002C = {isa = "PBXBuildFile"; fileRef = "E00000000000000000000003"; settings = {ATTRIBUTES = ("RemoveHeadersOnCopy");};};
+        E0000000000000000000002D = {isa = "PBXContainerItemProxy"; containerPortal = "F00000000000000000000041"; proxyType = 1; remoteGlobalIDString = "E00000000000000000000032"; remoteInfo = "YearlyAction";};
+        E0000000000000000000002E = {isa = "PBXTargetDependency"; target = "E00000000000000000000032"; targetProxy = "E0000000000000000000002D";};
+        E00000000000000000000032 = {isa = "PBXNativeTarget"; buildConfigurationList = "E00000000000000000000033"; buildPhases = ("E00000000000000000000028", "E00000000000000000000029", "E0000000000000000000002B"); buildRules = (); dependencies = (); name = "YearlyAction"; productName = "YearlyAction"; productReference = "E00000000000000000000003"; productType = "com.apple.product-type.app-extension";};
+        E00000000000000000000033 = {isa = "XCConfigurationList"; buildConfigurations = ("E00000000000000000000034", "E00000000000000000000035"); defaultConfigurationIsVisible = 0; defaultConfigurationName = "Release";};
+        E00000000000000000000034 = {isa = "XCBuildConfiguration"; buildSettings = {LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); APPLICATION_EXTENSION_API_ONLY = "YES"; DEVELOPMENT_TEAM = "5MC89AP7JM"; SUPPORTS_MACCATALYST = "NO"; MARKETING_VERSION = "1.0"; INFOPLIST_FILE = "YearlyAction/Info.plist"; SKIP_INSTALL = "YES"; TARGETED_DEVICE_FAMILY = "1"; GENERATE_INFOPLIST_FILE = "NO"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; CODE_SIGN_ENTITLEMENTS = "YearlyAction/YearlyAction.entitlements"; PRODUCT_NAME = "$(TARGET_NAME)"; CODE_SIGN_STYLE = "Automatic"; SWIFT_VERSION = "5.0"; IPHONEOS_DEPLOYMENT_TARGET = "16.0"; PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID).action"; CURRENT_PROJECT_VERSION = "1";}; name = "Debug";};
+        E00000000000000000000035 = {isa = "XCBuildConfiguration"; buildSettings = {LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); APPLICATION_EXTENSION_API_ONLY = "YES"; DEVELOPMENT_TEAM = "5MC89AP7JM"; SUPPORTS_MACCATALYST = "NO"; MARKETING_VERSION = "1.0"; INFOPLIST_FILE = "YearlyAction/Info.plist"; SKIP_INSTALL = "YES"; TARGETED_DEVICE_FAMILY = "1"; GENERATE_INFOPLIST_FILE = "NO"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; CODE_SIGN_ENTITLEMENTS = "YearlyAction/YearlyAction.entitlements"; PRODUCT_NAME = "$(TARGET_NAME)"; CODE_SIGN_STYLE = "Automatic"; SWIFT_VERSION = "5.0"; IPHONEOS_DEPLOYMENT_TARGET = "16.0"; PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID).action"; CURRENT_PROJECT_VERSION = "1";}; name = "Release";};
+
 
 /* Begin PBXBuildFile section */
 		B00000000000000000000000 /* UploadCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000000 /* UploadCore.swift */; };
@@ -71,6 +99,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				D0000000000000000000002C /* YearlyShare.appex in Embed App Extensions */,
+                E0000000000000000000002C /* YearlyAction.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -147,6 +176,7 @@
 			isa = PBXGroup;
 			children = (
 				D00000000000000000000005 /* YearlyShare */,
+                E00000000000000000000004 /* YearlyAction */,
 				F00000000000000000000021 /* Yearly */,
 				F00000000000000000000022 /* Products */,
 			);
@@ -194,6 +224,7 @@
 			children = (
 				F00000000000000000000014 /* Yearly.app */,
 				D00000000000000000000004 /* YearlyShare.appex */,
+                E00000000000000000000003 /* YearlyAction.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -231,6 +262,7 @@
 			);
 			dependencies = (
 				D0000000000000000000002F /* PBXTargetDependency */,
+                E0000000000000000000002E /* YearlyAction dependency */,
 			);
 			name = Yearly;
 			productName = Yearly;
@@ -260,6 +292,7 @@
 			targets = (
 				F00000000000000000000040 /* Yearly */,
 				D00000000000000000000032 /* YearlyShare */,
+                E00000000000000000000032 /* YearlyAction */,
 			);
 		};
 /* End PBXProject section */
