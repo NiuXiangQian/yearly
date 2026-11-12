@@ -41,6 +41,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
 import org.json.JSONArray
 
 @Composable
@@ -904,6 +905,8 @@ fun EmptyState(title: String, detail: String = "") {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AISearchSheet(model: AppModel, close: () -> Unit, open: (Memory) -> Unit) {
+    var stage by remember { mutableStateOf("waiting") }
+    var elapsed by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val filter = remember { model.filter }
     var query by remember { mutableStateOf("") }
@@ -939,10 +942,21 @@ private fun AISearchSheet(model: AppModel, close: () -> Unit, open: (Memory) -> 
             }
             item {
                 Button(onClick = {
-                    busy = true; error = ""; searched = false; items = emptyList()
+                    busy = true; error = ""; searched = false; items = emptyList(); elapsed = 0; stage = "waiting"
+                    val requestID = java.util.UUID.randomUUID().toString()
                     scope.launch {
+                        val progressTask = launch {
+                            val started = android.os.SystemClock.elapsedRealtime()
+                            while (isActive) {
+                                try { stage = model.api.getObject("/ai-search/progress/$requestID", refresh = true).optString("stage", "waiting") }
+                                catch (e: CancellationException) { throw e }
+                                catch (_: Exception) { break }
+                                elapsed = ((android.os.SystemClock.elapsedRealtime() - started) / 1000).toInt()
+                                delay(1000)
+                            }
+                        }
                         try {
-                            val body = json("query" to query.trim(), "child_ids" to JSONArray(filter.people.toList()))
+                            val body = json("request_id" to requestID, "query" to query.trim(), "child_ids" to JSONArray(filter.people.toList()))
                             filter.uploader?.let { body.put("owner_id", it) }
                             if (filter.type.isNotBlank()) body.put("media_type", filter.type)
                             if (filter.start.isNotBlank()) body.put("start", filter.start + "T00:00:00")
@@ -951,13 +965,24 @@ private fun AISearchSheet(model: AppModel, close: () -> Unit, open: (Memory) -> 
                             items = result.objects("items").map(::Memory); searched = true
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) { error = e.message ?: "搜索失败，请重试" }
-                        finally { busy = false }
+                        finally { progressTask.cancel(); busy = false }
                     }
                 }, enabled = !busy && query.isNotBlank() && status?.optBoolean("enabled") == true && (status?.optInt("indexed") ?: 0) > 0,
                     modifier = Modifier.fillMaxWidth()) {
                     if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Text(if (busy) "正在寻找…" else "查找回忆")
                 }
+            }
+            if (busy) item {
+                val label = when (stage) {
+                    "understanding" -> "正在理解描述…"
+                    "matching" -> "正在查找候选影像…"
+                    "ranking" -> "正在核对画面并筛选结果…"
+                    "complete" -> "正在整理结果…"
+                    else -> "正在提交搜索…"
+                }
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("$label · 已等待 $elapsed 秒", style = MaterialTheme.typography.bodySmall)
             }
             item {
                 val current = status

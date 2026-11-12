@@ -900,5 +900,12 @@
   "本月智能搜索预算已用完，下月可继续使用": "The monthly smart search budget is exhausted. Try again next month.",
   "智能搜索服务暂时不可用，请稍后重试": "Smart search is temporarily unavailable. Please try again later.",
   "智能搜索未能完成分析，请稍后重试": "Smart search could not finish the analysis. Please try again later.",
-  "智能搜索未能理解筛选条件，请换一种描述": "Smart search could not understand the filters. Try rephrasing."
+  "智能搜索未能理解筛选条件，请换一种描述": "Smart search could not understand the filters. Try rephrasing.",
+  "正在提交搜索…": "Submitting search…",
+  "正在理解描述…": "Understanding your description…",
+  "正在查找候选影像…": "Finding candidate memories…",
+  "正在核对画面并筛选结果…": "Checking scenes and filtering matches…",
+  "正在整理结果…": "Preparing results…",
+  "已等待": "Elapsed",
+  "秒": "seconds"
 }

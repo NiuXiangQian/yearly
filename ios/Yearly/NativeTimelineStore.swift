@@ -486,3 +486,5 @@ struct NativeSearchPage: Decodable {
     let items: [NativeTimelineItem]
     let indexed: Int
 }
+
+struct NativeSearchProgress: Decodable { let stage: String }

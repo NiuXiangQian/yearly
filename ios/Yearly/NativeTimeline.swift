@@ -1289,6 +1289,11 @@ private struct NativeAISearch: View {
     @State private var searched = false
     @State private var message = ""
     @State private var searchTask: Task<Void, Never>?
+    @State private var searchStage = "waiting"
+    @State private var searchStarted = Date()
+    private var stageLabel: String {
+        ["waiting": "正在提交搜索…", "understanding": "正在理解描述…", "matching": "正在查找候选影像…", "ranking": "正在核对画面并筛选结果…", "complete": "正在整理结果…"][searchStage] ?? "正在搜索…"
+    }
     private var scope: String {
         var labels = store.profiles.filter { store.selected.contains($0.id) }.map(\.label)
         if let id = store.uploaderID { labels.append(store.uploaders.first { $0.id == id }?.displayName ?? "上传人") }
@@ -1309,6 +1314,14 @@ private struct NativeAISearch: View {
                         HStack { if busy { ProgressView() }; Text(busy ? "正在寻找…" : "查找回忆") }.frame(maxWidth: .infinity)
                     }.buttonStyle(NativeActionStyle(kind: .primary))
                         .disabled(busy || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || status?.enabled != true || status?.indexed == 0)
+                    if busy {
+                        TimelineView(.periodic(from: searchStarted, by: 1)) { context in
+                            VStack(alignment: .leading, spacing: 6) {
+                                ProgressView(stageLabel)
+                                Text("已等待 \(Int(context.date.timeIntervalSince(searchStarted))) 秒").font(.caption).foregroundStyle(.secondary)
+                            }.accessibilityElement(children: .combine)
+                        }
+                    }
                     if let status {
                         Text(status.enabled ? "已分析 \(status.indexed) / \(status.total) 项影像" : "智能搜索尚未启用，请管理员配置 OpenAI API Key 并建立索引")
                             .font(.caption).foregroundStyle(.secondary)
@@ -1368,8 +1381,20 @@ private struct NativeAISearch: View {
             body["start"] = NativeDay.string(store.startDate) + "T00:00:00"
             body["end"] = NativeDay.string(Calendar.current.date(byAdding: .day, value: 1, to: store.endDate)!) + "T00:00:00"
         }
+        let requestID = UUID().uuidString
+        body["request_id"] = requestID
+        searchStage = "waiting"; searchStarted = Date()
         searchTask = Task {
-            defer { busy = false }
+            let progressTask = Task {
+                while !Task.isCancelled {
+                    do {
+                        let progress: NativeSearchProgress = try await store.session.get("/ai-search/progress/" + requestID, refresh: true)
+                        searchStage = progress.stage
+                        try await Task.sleep(nanoseconds: 1_000_000_000)
+                    } catch { break }
+                }
+            }
+            defer { progressTask.cancel(); busy = false }
             do {
                 let result: NativeSearchPage = try await store.session.searchMemories(body)
                 items = result.items; searched = true

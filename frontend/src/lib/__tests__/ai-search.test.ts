@@ -27,7 +27,7 @@ it("submits explicit scope only once, honors IME composition, and opens a matchi
   form.dispatchEvent(new Event("submit",{cancelable:true}));form.dispatchEvent(new Event("submit",{cancelable:true}));
   await vi.waitFor(()=>expect(host.textContent).toContain("草地上的小狗"));
   expect(post).toHaveBeenCalledTimes(1);
-  expect(post).toHaveBeenCalledWith("/ai-search",{query:"小狗跑步",child_ids:[7],media_type:"video"});
+  expect(post).toHaveBeenCalledWith("/ai-search",{query:"小狗跑步",child_ids:[7],media_type:"video",request_id:expect.any(String)});
   (host.querySelector('.test-media') as HTMLButtonElement).click();await nextTick();
   expect(host.querySelector('[data-detail="42"]')).not.toBeNull();
   expect(host.textContent).toContain("2025-06-01");
@@ -47,4 +47,16 @@ it("does not call the provider while no images have been analyzed",async()=>{
   const {host,button,form}=await mount(true,0);
   expect(button.disabled).toBe(true);expect(host.textContent).toContain("等待后台建立索引");
   form.dispatchEvent(new Event("submit",{cancelable:true}));expect(post).not.toHaveBeenCalled();
+});
+
+it("displays server progress while preserving a pending search",async()=>{
+  const {host,form}=await mount();
+  let finish!: (value: unknown)=>void;
+  vi.mocked(post).mockImplementation(()=>new Promise(resolve=>{finish=resolve}));
+  vi.mocked(api).mockResolvedValue({stage:"ranking"});
+  form.dispatchEvent(new Event("submit",{cancelable:true}));
+  await vi.waitFor(()=>expect(host.textContent).toContain("正在核对画面"),{timeout:2000});
+  expect(host.textContent).toContain("已等待");
+  finish({items:[]});
+  await vi.waitFor(()=>expect(host.textContent).toContain("没有找到相关影像"));
 });

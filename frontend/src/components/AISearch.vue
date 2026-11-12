@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { Search, Sparkles } from "lucide-vue-next";
 import { api, post, localDate } from "../lib/api";
 import { t } from "../lib/i18n";
@@ -11,6 +11,11 @@ const emit = defineEmits(["close"]);
 const query = ref("");
 const busy = ref(false), composing = ref(false), searched = ref(false);
 const error = ref("");
+const stage = ref("waiting"), elapsed = ref(0);
+const stageLabels: Record<string, string> = { waiting: "正在提交搜索…", understanding: "正在理解描述…", matching: "正在查找候选影像…", ranking: "正在核对画面并筛选结果…", complete: "正在整理结果…" };
+let activeRequestID: string | undefined;
+let progressTimer: ReturnType<typeof setInterval> | undefined;
+onUnmounted(() => clearInterval(progressTimer));
 const items = ref<any[]>([]), detail = ref<number | null>(null);
 const status = ref<{ enabled: boolean; indexed: number; total: number; failed: number }>();
 const interpreted = ref<{ start?: string; end?: string; media_type?: string }>();
@@ -28,11 +33,24 @@ async function loadStatus() {
 async function search() {
   if (composing.value || busy.value || !query.value.trim() || !status.value?.enabled || !status.value.indexed) return;
   busy.value = true; error.value = ""; items.value = []; searched.value = false; interpreted.value = undefined;
+  const requestID = crypto.randomUUID(); activeRequestID = requestID;
+  stage.value = "waiting"; elapsed.value = 0;
+  let polling = false;
+  progressTimer = setInterval(async () => {
+    elapsed.value++;
+    if (polling) return;
+    polling = true;
+    try {
+      const progress = await api(`/ai-search/progress/${requestID}`);
+      if (busy.value && activeRequestID === requestID && progress.stage in stageLabels) stage.value = progress.stage;
+    } catch { /* An older server can still return the normal search result. */ }
+    finally { polling = false; }
+  }, 1000);
   try {
-    const result = await post("/ai-search", { ...props.filters, query: query.value.trim() });
+    const result = await post("/ai-search", { ...props.filters, query: query.value.trim(), request_id: requestID });
     items.value = result.items; interpreted.value = result.filters; searched.value = true;
   } catch (e) { error.value = (e as Error).message; }
-  finally { busy.value = false; }
+  finally { clearInterval(progressTimer); activeRequestID = undefined; busy.value = false; }
 }
 onMounted(loadStatus);
 </script>
@@ -55,7 +73,7 @@ onMounted(loadStatus);
     <p class="ai-search-note">{{ t("仅搜索已分析的影像。视频按抽样画面匹配，可能遗漏短暂片段；Live Photo 按静态照片匹配。") }}</p>
     <p v-if="error" role="alert" class="ai-search-error">{{ error }}</p>
     <p v-if="interpreted?.start || interpreted?.end" class="ai-search-note">{{ t("识别到的归档日期") }}：{{ interpreted?.start || '…' }} — {{ interpreted?.end || '…' }}{{ t("（含起止日）") }}</p>
-    <p v-if="busy" role="status">{{ t("正在理解描述并查找相关画面…") }}</p>
+    <p v-if="busy" role="status">{{ t(stageLabels[stage]) }} · {{ t("已等待") }} {{ elapsed }} {{ t("秒") }}</p>
     <template v-else-if="searched">
       <p class="ai-search-count" role="status">{{ items.length }} {{ t("项相关回忆") }} · {{ t("按相关程度排列，最多显示 40 项") }}</p>
       <div v-if="items.length" class="ai-search-grid">
