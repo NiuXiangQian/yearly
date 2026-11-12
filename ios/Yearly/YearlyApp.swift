@@ -10,11 +10,12 @@ struct YearlyRootView: View {
     @AppStorage("yearlySite") private var address = AppConfiguration.defaultSite
     @StateObject private var uploads = UploadQueue()
     @State private var editingSite = false
+    @State private var shareSetupError = ""
     var body: some View {
         Group {
             if let site = SiteOrigin(address) {
                 NativeAppShell(site: site, queue: uploads) { editingSite = true }.id(address)
-                    .sheet(isPresented: $editingSite) {
+                    .nativeSheet(isPresented: $editingSite) {
                         SiteSettings(address: address, canCancel: true) { newAddress in
                             uploads.pauseAll(); address = newAddress; editingSite = false
                         }
@@ -24,6 +25,13 @@ struct YearlyRootView: View {
             }
         }
         .tint(NativeTheme.accent)
+        .task(id: address) {
+            do { try ShareDestinationStore().save(address) }
+            catch { shareSetupError = error.localizedDescription }
+        }
+        .alert("相册分享设置未更新", isPresented: Binding(get: { !shareSetupError.isEmpty }, set: { if !$0 { shareSetupError = "" } })) {
+            Button("知道了", role: .cancel) { shareSetupError = "" }
+        } message: { Text(shareSetupError) }
         .onChange(of: scenePhase) { phase in
             if phase == .background { uploads.enteredBackground() }
             if phase == .active { uploads.enteredForeground() }
@@ -60,15 +68,13 @@ struct NativeAppShell: View {
             } else if session.account == nil {
                 NativeLoginView(session: session, editSite: editSite)
             } else {
-                TabView(selection: Binding(get: { tab }, set: { selected in
-                    if selected == 0 && tab == 0 { timelineTopRequest += 1 }
-                    tab = selected
-                })) {
+                TabView(selection: $tab) {
                     NativeTimelineView(store: timeline, topRequest: timelineTopRequest) { day in
                         uploadDay = NativeDay.date(day)
                         tab = 1
                     }
                         .tabItem { Label("时间线", systemImage: "photo.on.rectangle") }.tag(0)
+                        .toolbar(.hidden, for: .tabBar)
                     Group {
                         if session.canEdit {
                             NativeUploadView(queue: queue, session: session, profileRevision: profileRevision, requestedDay: $uploadDay) { destination in
@@ -89,12 +95,14 @@ struct NativeAppShell: View {
                             NavigationStack { Text("此账号为只读账号，可以浏览家庭回忆。上传需要家庭编辑权限。").padding().navigationTitle("珍藏原片") }
                         }
                     }.tabItem { Label("上传", systemImage: "square.and.arrow.up") }.tag(1)
+                        .toolbar(.hidden, for: .tabBar)
                     NativeFamilyView(store: timeline, showTimeline: { profile in
                         timeline.focusOnUploads([])
                         timeline.selected = [profile.id]
                         tab = 0
                     }, onProfileUpdated: { profileRevision += 1 })
                     .tabItem { Label("家人", systemImage: "person.2") }.tag(2)
+                        .toolbar(.hidden, for: .tabBar)
                     NavigationStack {
                         Form {
                             Section {
@@ -164,10 +172,14 @@ struct NativeAppShell: View {
                                 }
                             }
                     }.tabItem { Label("账号", systemImage: "person.crop.circle") }.tag(3)
+                        .toolbar(.hidden, for: .tabBar)
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    NativeLiquidNavigation(selection: $tab) { timelineTopRequest += 1 }
                 }
             }
         }
-        .sheet(isPresented: $showingShares) { NativeSharingView(session: session) }
+        .nativeSheet(isPresented: $showingShares) { NativeSharingView(session: session) }
         .task { await session.restore(); queue.configure(session: session) }
         .onChange(of: session.account?.id) { _ in
             NativeImageCache.clear()
@@ -250,7 +262,7 @@ struct NativeLoginView: View {
 }
 
 struct SiteSettings: View {
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var draft: String
     let canCancel: Bool
     let onConnect: (String) -> Void

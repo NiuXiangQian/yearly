@@ -1,89 +1,178 @@
 // !$*UTF8*$!
 {
 	archiveVersion = 1;
-	classes = {};
+	classes = {
+	};
 	objectVersion = 56;
 	objects = {
-        A00000000000000000000022 /* NativeTimelineFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineFilters.swift; sourceTree = "<group>"; };
-        B00000000000000000000022 /* NativeTimelineFilters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022; };
-        A00000000000000000000021 /* NativeDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDesign.swift; sourceTree = "<group>"; };
-        B00000000000000000000021 /* NativeDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021; };
-        A00000000000000000000020 /* NativeAuditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuditView.swift; sourceTree = "<group>"; };
-        B00000000000000000000020 /* NativeAuditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000020; };
-        A00000000000000000000019 /* NativeAccountsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountsView.swift; sourceTree = "<group>"; };
-        B00000000000000000000019 /* NativeAccountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000019; };
-        A00000000000000000000018 /* NativeAccountsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountsStore.swift; sourceTree = "<group>"; };
-        B00000000000000000000018 /* NativeAccountsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000018; };
-        A00000000000000000000017 /* NativeTimelineRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineRail.swift; sourceTree = "<group>"; };
-        B00000000000000000000017 /* NativeTimelineRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000017; };
-        A00000000000000000000016 /* NativeFamilyAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFamilyAvatar.swift; sourceTree = "<group>"; };
-        B00000000000000000000016 /* NativeFamilyAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000016; };
-        A00000000000000000000014 /* NativeFamilyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFamilyView.swift; sourceTree = "<group>"; };
-        B00000000000000000000014 /* NativeFamilyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014; };
-        A00000000000000000000015 /* NativeTimelineEditing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineEditing.swift; sourceTree = "<group>"; };
-        B00000000000000000000015 /* NativeTimelineEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000015; };
-        A00000000000000000000013 /* NativeMediaEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaEditor.swift; sourceTree = "<group>"; };
-        B00000000000000000000013 /* NativeMediaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000013; };
-        A00000000000000000000012 /* NativePhotoExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePhotoExport.swift; sourceTree = "<group>"; };
-        B00000000000000000000012 /* NativePhotoExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000012; };
-        A00000000000000000000011 /* UploadPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadPreferences.swift; sourceTree = "<group>"; };
-        B00000000000000000000011 /* UploadPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011; };
-        A00000000000000000000010 /* NativeSharingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSharingView.swift; sourceTree = "<group>"; };
-        B00000000000000000000010 /* NativeSharingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000010; };
-        A00000000000000000000009 /* NativeSharingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSharingStore.swift; sourceTree = "<group>"; };
-        B00000000000000000000009 /* NativeSharingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000009; };
-        A00000000000000000000008 /* NativeTimelineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineStore.swift; sourceTree = "<group>"; };
-        B00000000000000000000008 /* NativeTimelineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000008; };
-		A00000000000000000000007 /* NativeTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimeline.swift; sourceTree = "<group>"; };
-		B00000000000000000000007 /* NativeTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000007; };
-		A00000000000000000000006 /* NativeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSession.swift; sourceTree = "<group>"; };
-		B00000000000000000000006 /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000006; };
-		A00000000000000000000000 /* UploadCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadCore.swift; sourceTree = "<group>"; };
-		B00000000000000000000000 /* UploadCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000000 /* UploadCore.swift */; };
-		A00000000000000000000001 /* UploadAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadAPI.swift; sourceTree = "<group>"; };
-		B00000000000000000000001 /* UploadAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000001 /* UploadAPI.swift */; };
-		A00000000000000000000002 /* PhotoOriginals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoOriginals.swift; sourceTree = "<group>"; };
-		B00000000000000000000002 /* PhotoOriginals.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000002 /* PhotoOriginals.swift */; };
-		A00000000000000000000003 /* OriginalMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OriginalMetadata.swift; sourceTree = "<group>"; };
-		B00000000000000000000003 /* OriginalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000003 /* OriginalMetadata.swift */; };
-		A00000000000000000000004 /* UploadQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadQueue.swift; sourceTree = "<group>"; };
-		B00000000000000000000004 /* UploadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* UploadQueue.swift */; };
-		A00000000000000000000005 /* NativeUploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUploadView.swift; sourceTree = "<group>"; };
-		B00000000000000000000005 /* NativeUploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* NativeUploadView.swift */; };
-		F00000000000000000000004 /* SiteOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000015; };
-		F00000000000000000000015 /* SiteOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteOrigin.swift; sourceTree = "<group>"; };
-		F00000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000018; };
-		F00000000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		F00000000000000000000008 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000019; };
-		F00000000000000000000019 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		F00000000000000000000001 /* YearlyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000011 /* YearlyApp.swift */; };
 
+/* Begin PBXBuildFile section */
+		B00000000000000000000000 /* UploadCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000000 /* UploadCore.swift */; };
+		B00000000000000000000001 /* UploadAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000001 /* UploadAPI.swift */; };
+		B00000000000000000000002 /* PhotoOriginals.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000002 /* PhotoOriginals.swift */; };
+		B00000000000000000000003 /* OriginalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000003 /* OriginalMetadata.swift */; };
+		B00000000000000000000004 /* UploadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* UploadQueue.swift */; };
+		B00000000000000000000005 /* NativeUploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* NativeUploadView.swift */; };
+		B00000000000000000000006 /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000006 /* NativeSession.swift */; };
+		B00000000000000000000007 /* NativeTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000007 /* NativeTimeline.swift */; };
+		B00000000000000000000008 /* NativeTimelineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000008 /* NativeTimelineStore.swift */; };
+		B00000000000000000000009 /* NativeSharingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000009 /* NativeSharingStore.swift */; };
+		B00000000000000000000010 /* NativeSharingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000010 /* NativeSharingView.swift */; };
+		B00000000000000000000011 /* UploadPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* UploadPreferences.swift */; };
+		B00000000000000000000012 /* NativePhotoExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000012 /* NativePhotoExport.swift */; };
+		B00000000000000000000013 /* NativeMediaEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000013 /* NativeMediaEditor.swift */; };
+		B00000000000000000000014 /* NativeFamilyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014 /* NativeFamilyView.swift */; };
+		B00000000000000000000015 /* NativeTimelineEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000015 /* NativeTimelineEditing.swift */; };
+		B00000000000000000000016 /* NativeFamilyAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000016 /* NativeFamilyAvatar.swift */; };
+		B00000000000000000000017 /* NativeTimelineRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000017 /* NativeTimelineRail.swift */; };
+		B00000000000000000000018 /* NativeAccountsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000018 /* NativeAccountsStore.swift */; };
+		B00000000000000000000019 /* NativeAccountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000019 /* NativeAccountsView.swift */; };
+		B00000000000000000000020 /* NativeAuditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000020 /* NativeAuditView.swift */; };
+		B00000000000000000000021 /* NativeDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021 /* NativeDesign.swift */; };
+		B00000000000000000000022 /* NativeTimelineFilters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* NativeTimelineFilters.swift */; };
+		B00000000000000000000031 /* NativeMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* NativeMotion.swift */; };
+		B00000000000000000000032 /* ShareDestinationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* ShareDestinationStore.swift */; };
+		B00000000000000000000033 /* SharedPhotoImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000033 /* SharedPhotoImport.swift */; };
+		D00000000000000000000014 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000001 /* ShareViewController.swift */; };
+		D00000000000000000000015 /* UploadCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000000 /* UploadCore.swift */; };
+		D00000000000000000000016 /* UploadAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000001 /* UploadAPI.swift */; };
+		D00000000000000000000017 /* PhotoOriginals.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000002 /* PhotoOriginals.swift */; };
+		D00000000000000000000018 /* OriginalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000003 /* OriginalMetadata.swift */; };
+		D00000000000000000000019 /* UploadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* UploadQueue.swift */; };
+		D0000000000000000000001A /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000006 /* NativeSession.swift */; };
+		D0000000000000000000001B /* UploadPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* UploadPreferences.swift */; };
+		D0000000000000000000001C /* NativeDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021 /* NativeDesign.swift */; };
+		D0000000000000000000001D /* ShareDestinationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* ShareDestinationStore.swift */; };
+		D0000000000000000000001E /* SharedPhotoImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000033 /* SharedPhotoImport.swift */; };
+		D0000000000000000000001F /* SiteOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000015 /* SiteOrigin.swift */; };
+		D0000000000000000000002A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000019 /* PrivacyInfo.xcprivacy */; };
+		D0000000000000000000002C /* YearlyShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D00000000000000000000004 /* YearlyShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F00000000000000000000001 /* YearlyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000011 /* YearlyApp.swift */; };
+		F00000000000000000000004 /* SiteOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000015 /* SiteOrigin.swift */; };
+		F00000000000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000018 /* Assets.xcassets */; };
+		F00000000000000000000008 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000019 /* PrivacyInfo.xcprivacy */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D0000000000000000000002E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F00000000000000000000041 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D00000000000000000000032;
+			remoteInfo = YearlyShare;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D0000000000000000000002D /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D0000000000000000000002C /* YearlyShare.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		A00000000000000000000000 /* UploadCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadCore.swift; sourceTree = "<group>"; };
+		A00000000000000000000001 /* UploadAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadAPI.swift; sourceTree = "<group>"; };
+		A00000000000000000000002 /* PhotoOriginals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoOriginals.swift; sourceTree = "<group>"; };
+		A00000000000000000000003 /* OriginalMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OriginalMetadata.swift; sourceTree = "<group>"; };
+		A00000000000000000000004 /* UploadQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadQueue.swift; sourceTree = "<group>"; };
+		A00000000000000000000005 /* NativeUploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUploadView.swift; sourceTree = "<group>"; };
+		A00000000000000000000006 /* NativeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSession.swift; sourceTree = "<group>"; };
+		A00000000000000000000007 /* NativeTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimeline.swift; sourceTree = "<group>"; };
+		A00000000000000000000008 /* NativeTimelineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000009 /* NativeSharingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSharingStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000010 /* NativeSharingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSharingView.swift; sourceTree = "<group>"; };
+		A00000000000000000000011 /* UploadPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadPreferences.swift; sourceTree = "<group>"; };
+		A00000000000000000000012 /* NativePhotoExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePhotoExport.swift; sourceTree = "<group>"; };
+		A00000000000000000000013 /* NativeMediaEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaEditor.swift; sourceTree = "<group>"; };
+		A00000000000000000000014 /* NativeFamilyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFamilyView.swift; sourceTree = "<group>"; };
+		A00000000000000000000015 /* NativeTimelineEditing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineEditing.swift; sourceTree = "<group>"; };
+		A00000000000000000000016 /* NativeFamilyAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFamilyAvatar.swift; sourceTree = "<group>"; };
+		A00000000000000000000017 /* NativeTimelineRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineRail.swift; sourceTree = "<group>"; };
+		A00000000000000000000018 /* NativeAccountsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountsStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000019 /* NativeAccountsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAccountsView.swift; sourceTree = "<group>"; };
+		A00000000000000000000020 /* NativeAuditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuditView.swift; sourceTree = "<group>"; };
+		A00000000000000000000021 /* NativeDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDesign.swift; sourceTree = "<group>"; };
+		A00000000000000000000022 /* NativeTimelineFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimelineFilters.swift; sourceTree = "<group>"; };
+		A00000000000000000000031 /* NativeMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMotion.swift; sourceTree = "<group>"; };
+		A00000000000000000000032 /* ShareDestinationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareDestinationStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000033 /* SharedPhotoImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedPhotoImport.swift; sourceTree = "<group>"; };
+		D00000000000000000000001 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		D00000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		D00000000000000000000003 /* YearlyShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = YearlyShare.entitlements; sourceTree = "<group>"; };
+		D00000000000000000000004 /* YearlyShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = YearlyShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F00000000000000000000011 /* YearlyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyApp.swift; sourceTree = "<group>"; };
 		F00000000000000000000014 /* Yearly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Yearly.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F00000000000000000000015 /* SiteOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteOrigin.swift; sourceTree = "<group>"; };
+		F00000000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F00000000000000000000019 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+/* End PBXFileReference section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		D00000000000000000000029 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F00000000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D00000000000000000000005 /* YearlyShare */ = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000001 /* ShareViewController.swift */,
+				D00000000000000000000002 /* Info.plist */,
+				D00000000000000000000003 /* YearlyShare.entitlements */,
+			);
+			path = YearlyShare;
+			sourceTree = "<group>";
+		};
 		F00000000000000000000020 = {
 			isa = PBXGroup;
-			children = (F00000000000000000000021 /* Yearly */, F00000000000000000000022 /* Products */);
+			children = (
+				D00000000000000000000005 /* YearlyShare */,
+				F00000000000000000000021 /* Yearly */,
+				F00000000000000000000022 /* Products */,
+			);
 			sourceTree = "<group>";
 		};
 		F00000000000000000000021 /* Yearly */ = {
 			isa = PBXGroup;
 			children = (
-                A00000000000000000000022 /* NativeTimelineFilters.swift */,
-                A00000000000000000000021 /* NativeDesign.swift */,
-                A00000000000000000000020 /* NativeAuditView.swift */,
-                A00000000000000000000019 /* NativeAccountsView.swift */,
-                A00000000000000000000018 /* NativeAccountsStore.swift */,
-                A00000000000000000000017 /* NativeTimelineRail.swift */,
-                A00000000000000000000012 /* NativePhotoExport.swift */,
-                A00000000000000000000014 /* NativeFamilyView.swift */,
-                A00000000000000000000016 /* NativeFamilyAvatar.swift */,
-                A00000000000000000000013 /* NativeMediaEditor.swift */,
-                A00000000000000000000015 /* NativeTimelineEditing.swift */,
-                A00000000000000000000011 /* UploadPreferences.swift */,
-                A00000000000000000000010 /* NativeSharingView.swift */,
-                A00000000000000000000009 /* NativeSharingStore.swift */,
-                A00000000000000000000008 /* NativeTimelineStore.swift */,
+				A00000000000000000000032 /* ShareDestinationStore.swift */,
+				A00000000000000000000033 /* SharedPhotoImport.swift */,
+				A00000000000000000000022 /* NativeTimelineFilters.swift */,
+				A00000000000000000000031 /* NativeMotion.swift */,
+				A00000000000000000000021 /* NativeDesign.swift */,
+				A00000000000000000000020 /* NativeAuditView.swift */,
+				A00000000000000000000019 /* NativeAccountsView.swift */,
+				A00000000000000000000018 /* NativeAccountsStore.swift */,
+				A00000000000000000000017 /* NativeTimelineRail.swift */,
+				A00000000000000000000012 /* NativePhotoExport.swift */,
+				A00000000000000000000014 /* NativeFamilyView.swift */,
+				A00000000000000000000016 /* NativeFamilyAvatar.swift */,
+				A00000000000000000000013 /* NativeMediaEditor.swift */,
+				A00000000000000000000015 /* NativeTimelineEditing.swift */,
+				A00000000000000000000011 /* UploadPreferences.swift */,
+				A00000000000000000000010 /* NativeSharingView.swift */,
+				A00000000000000000000009 /* NativeSharingStore.swift */,
+				A00000000000000000000008 /* NativeTimelineStore.swift */,
 				F00000000000000000000011 /* YearlyApp.swift */,
 				F00000000000000000000015 /* SiteOrigin.swift */,
 				A00000000000000000000000 /* UploadCore.swift */,
@@ -102,89 +191,259 @@
 		};
 		F00000000000000000000022 /* Products */ = {
 			isa = PBXGroup;
-			children = (F00000000000000000000014 /* Yearly.app */);
+			children = (
+				F00000000000000000000014 /* Yearly.app */,
+				D00000000000000000000004 /* YearlyShare.appex */,
+			);
 			name = Products;
 			sourceTree = "<group>";
 		};
+/* End PBXGroup section */
 
-		F00000000000000000000030 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-                B00000000000000000000022 /* NativeTimelineFilters.swift in Sources */,
-                B00000000000000000000021 /* NativeDesign.swift in Sources */,
-                B00000000000000000000020 /* NativeAuditView.swift in Sources */,
-                B00000000000000000000019 /* NativeAccountsView.swift in Sources */,
-                B00000000000000000000018 /* NativeAccountsStore.swift in Sources */,B00000000000000000000017, B00000000000000000000016, B00000000000000000000015, B00000000000000000000014, B00000000000000000000013, B00000000000000000000012, B00000000000000000000011, B00000000000000000000010, B00000000000000000000009, B00000000000000000000008, B00000000000000000000007, B00000000000000000000006, B00000000000000000000000, B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000005, F00000000000000000000001 /* YearlyApp.swift in Sources */, F00000000000000000000004 /* SiteOrigin.swift in Sources */);
-			runOnlyForDeploymentPostprocessing = 0;
+/* Begin PBXNativeTarget section */
+		D00000000000000000000032 /* YearlyShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D00000000000000000000033 /* Build configuration list for PBXNativeTarget "YearlyShare" */;
+			buildPhases = (
+				D00000000000000000000028 /* Sources */,
+				D00000000000000000000029 /* Frameworks */,
+				D0000000000000000000002B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = YearlyShare;
+			productName = YearlyShare;
+			productReference = D00000000000000000000004 /* YearlyShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
-		F00000000000000000000031 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		F00000000000000000000032 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (F00000000000000000000007 /* Assets.xcassets in Resources */, F00000000000000000000008 /* PrivacyInfo.xcprivacy in Resources */); runOnlyForDeploymentPostprocessing = 0; };
-
 		F00000000000000000000040 /* Yearly */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F00000000000000000000051 /* Target configurations */;
-			buildPhases = (F00000000000000000000030 /* Sources */, F00000000000000000000031 /* Frameworks */, F00000000000000000000032 /* Resources */);
-			buildRules = ();
-			dependencies = ();
+			buildConfigurationList = F00000000000000000000051 /* Build configuration list for PBXNativeTarget "Yearly" */;
+			buildPhases = (
+				F00000000000000000000030 /* Sources */,
+				F00000000000000000000031 /* Frameworks */,
+				F00000000000000000000032 /* Resources */,
+				D0000000000000000000002D /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D0000000000000000000002F /* PBXTargetDependency */,
+			);
 			name = Yearly;
 			productName = Yearly;
 			productReference = F00000000000000000000014 /* Yearly.app */;
 			productType = "com.apple.product-type.application";
 		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
 		F00000000000000000000041 /* Project object */ = {
 			isa = PBXProject;
-			attributes = {LastUpgradeCheck = 1600; };
-			buildConfigurationList = F00000000000000000000050 /* Project configurations */;
+			attributes = {
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = F00000000000000000000050 /* Build configuration list for PBXProject "Yearly" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
-			knownRegions = ("zh-Hans", Base);
+			knownRegions = (
+				"zh-Hans",
+				Base,
+			);
 			mainGroup = F00000000000000000000020;
 			productRefGroup = F00000000000000000000022 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (F00000000000000000000040 /* Yearly */);
+			targets = (
+				F00000000000000000000040 /* Yearly */,
+				D00000000000000000000032 /* YearlyShare */,
+			);
 		};
+/* End PBXProject section */
 
-		F00000000000000000000050 /* Project configurations */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (F00000000000000000000060 /* Debug */, F00000000000000000000061 /* Release */);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+/* Begin PBXResourcesBuildPhase section */
+		D0000000000000000000002B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D0000000000000000000002A /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F00000000000000000000051 /* Target configurations */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (F00000000000000000000062 /* Debug */, F00000000000000000000063 /* Release */);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+		F00000000000000000000032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F00000000000000000000007 /* Assets.xcassets in Resources */,
+				F00000000000000000000008 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D00000000000000000000028 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D00000000000000000000014 /* ShareViewController.swift in Sources */,
+				D00000000000000000000015 /* UploadCore.swift in Sources */,
+				D00000000000000000000016 /* UploadAPI.swift in Sources */,
+				D00000000000000000000017 /* PhotoOriginals.swift in Sources */,
+				D00000000000000000000018 /* OriginalMetadata.swift in Sources */,
+				D00000000000000000000019 /* UploadQueue.swift in Sources */,
+				D0000000000000000000001A /* NativeSession.swift in Sources */,
+				D0000000000000000000001B /* UploadPreferences.swift in Sources */,
+				D0000000000000000000001C /* NativeDesign.swift in Sources */,
+				D0000000000000000000001D /* ShareDestinationStore.swift in Sources */,
+				D0000000000000000000001E /* SharedPhotoImport.swift in Sources */,
+				D0000000000000000000001F /* SiteOrigin.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F00000000000000000000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000032 /* ShareDestinationStore.swift in Sources */,
+				B00000000000000000000033 /* SharedPhotoImport.swift in Sources */,
+				B00000000000000000000022 /* NativeTimelineFilters.swift in Sources */,
+				B00000000000000000000031 /* NativeMotion.swift in Sources */,
+				B00000000000000000000021 /* NativeDesign.swift in Sources */,
+				B00000000000000000000020 /* NativeAuditView.swift in Sources */,
+				B00000000000000000000019 /* NativeAccountsView.swift in Sources */,
+				B00000000000000000000018 /* NativeAccountsStore.swift in Sources */,
+				B00000000000000000000017 /* NativeTimelineRail.swift in Sources */,
+				B00000000000000000000016 /* NativeFamilyAvatar.swift in Sources */,
+				B00000000000000000000015 /* NativeTimelineEditing.swift in Sources */,
+				B00000000000000000000014 /* NativeFamilyView.swift in Sources */,
+				B00000000000000000000013 /* NativeMediaEditor.swift in Sources */,
+				B00000000000000000000012 /* NativePhotoExport.swift in Sources */,
+				B00000000000000000000011 /* UploadPreferences.swift in Sources */,
+				B00000000000000000000010 /* NativeSharingView.swift in Sources */,
+				B00000000000000000000009 /* NativeSharingStore.swift in Sources */,
+				B00000000000000000000008 /* NativeTimelineStore.swift in Sources */,
+				B00000000000000000000007 /* NativeTimeline.swift in Sources */,
+				B00000000000000000000006 /* NativeSession.swift in Sources */,
+				B00000000000000000000000 /* UploadCore.swift in Sources */,
+				B00000000000000000000001 /* UploadAPI.swift in Sources */,
+				B00000000000000000000002 /* PhotoOriginals.swift in Sources */,
+				B00000000000000000000003 /* OriginalMetadata.swift in Sources */,
+				B00000000000000000000004 /* UploadQueue.swift in Sources */,
+				B00000000000000000000005 /* NativeUploadView.swift in Sources */,
+				F00000000000000000000001 /* YearlyApp.swift in Sources */,
+				F00000000000000000000004 /* SiteOrigin.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D0000000000000000000002F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D00000000000000000000032 /* YearlyShare */;
+			targetProxy = D0000000000000000000002E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		D00000000000000000000034 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = YearlyShare/YearlyShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5MC89AP7JM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = YearlyShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID).share";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		D00000000000000000000035 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = YearlyShare/YearlyShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5MC89AP7JM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = YearlyShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID).share";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
 		};
 		F00000000000000000000060 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			buildSettings = {SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; CLANG_ENABLE_MODULES = YES; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; };
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				YEARLY_APP_BUNDLE_ID = family.yearly.app;
+			};
 			name = Debug;
 		};
 		F00000000000000000000061 /* Release */ = {
 			isa = XCBuildConfiguration;
-			buildSettings = {SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; CLANG_ENABLE_MODULES = YES; SWIFT_COMPILATION_MODE = wholemodule; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; };
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				YEARLY_APP_BUNDLE_ID = family.yearly.app;
+			};
 			name = Release;
 		};
 		F00000000000000000000062 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Yearly/Yearly.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Yearly/Info.plist;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = family.yearly.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -193,24 +452,56 @@
 		F00000000000000000000063 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Yearly/Yearly.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Yearly/Info.plist;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = family.yearly.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		D00000000000000000000033 /* Build configuration list for PBXNativeTarget "YearlyShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D00000000000000000000034 /* Debug */,
+				D00000000000000000000035 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F00000000000000000000050 /* Build configuration list for PBXProject "Yearly" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F00000000000000000000060 /* Debug */,
+				F00000000000000000000061 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F00000000000000000000051 /* Build configuration list for PBXNativeTarget "Yearly" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F00000000000000000000062 /* Debug */,
+				F00000000000000000000063 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
 	};
 	rootObject = F00000000000000000000041 /* Project object */;
 }

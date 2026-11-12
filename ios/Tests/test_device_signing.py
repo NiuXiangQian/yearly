@@ -44,7 +44,7 @@ class DeviceSigningTests(unittest.TestCase):
                 self.assertNotIn('-allowProvisioningUpdates', arguments)
                 self.assertNotIn('-allowProvisioningDeviceRegistration', arguments)
                 self.assertIn('DEVELOPMENT_TEAM=TESTTEAM', arguments)
-                self.assertIn('PRODUCT_BUNDLE_IDENTIFIER=test.yearly.app', arguments)
+                self.assertIn('YEARLY_APP_BUNDLE_ID=test.yearly.app', arguments)
                 self.assertEqual(arguments[arguments.index('-destination') + 1], 'id=test-device')
                 self.assertEqual('Built:' in result.stdout, build_status == 0)
 

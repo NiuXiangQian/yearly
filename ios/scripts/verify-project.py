@@ -18,6 +18,8 @@ source_group = objects['F00000000000000000000021']
 group_children = set(source_group['children'])
 packaged = {}
 for phase in phases:
+    if phase['isa'] == 'PBXCopyFilesBuildPhase':
+        continue
     refs = [objects[key]['fileRef'] for key in phase['files']]
     paths = [objects[ref]['path'] for ref in refs]
     packaged[phase['isa']] = paths
@@ -51,4 +53,21 @@ for entry in json.loads((icons / 'Contents.json').read_text())['images']:
     assert color == 2, 'App icons must be RGB without transparency'
 scheme = ET.parse(root / 'Yearly.xcodeproj/xcshareddata/xcschemes/Yearly.xcscheme')
 assert scheme.find('ArchiveAction').attrib['buildConfiguration'] == 'Release'
+extension = next(value for value in objects.values() if value.get('isa') == 'PBXNativeTarget' and value.get('name') == 'YearlyShare')
+assert extension['productType'] == 'com.apple.product-type.app-extension'
+embed = next(phase for phase in phases if phase['isa'] == 'PBXCopyFilesBuildPhase')
+assert embed['dstSubfolderSpec'] == '13' or embed['dstSubfolderSpec'] == 13
+assert extension['productReference'] in [objects[key]['fileRef'] for key in embed['files']]
+assert any(objects[key]['target'] in objects[project['rootObject']]['targets'] and
+           objects[objects[key]['target']]['name'] == 'YearlyShare' for key in target['dependencies'])
+for name in ('Yearly', 'YearlyShare'):
+    entitlement = plistlib.loads((root / name / f'{name}.entitlements').read_bytes())
+    assert entitlement['keychain-access-groups'] == ['$(AppIdentifierPrefix)$(YEARLY_APP_BUNDLE_ID)']
+for key in objects[extension['buildConfigurationList']]['buildConfigurations']:
+    settings = objects[key]['buildSettings']
+    assert settings['APPLICATION_EXTENSION_API_ONLY'] == 'YES'
+    assert settings['PRODUCT_BUNDLE_IDENTIFIER'] == '$(YEARLY_APP_BUNDLE_ID).share'
+extension_info = plistlib.loads((root / 'YearlyShare/Info.plist').read_bytes())['NSExtension']
+assert extension_info['NSExtensionPointIdentifier'] == 'com.apple.share-services'
+assert extension_info['NSExtensionAttributes']['NSExtensionActivationRule']['NSExtensionActivationSupportsImageWithMaxCount'] == 20
 print('Xcode source membership, resources, icon sizes, plist and shared scheme checks passed.')
