@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MotionDialog from "../components/MotionDialog.vue";
 import {
   computed,
   ref,
@@ -469,7 +470,7 @@ onBeforeUnmount(() => {
       </div>
     </template>
     <div v-else-if="loading" class="shared-empty">{{ t("正在加载…") }}</div>
-    <ElDialog
+    <MotionDialog
       :model-value="!!folder"
       :title="folder?.name"
       width="850px"
@@ -498,9 +499,9 @@ onBeforeUnmount(() => {
         :has-more="folder.items.length < folder.total"
         :error="folderError"
         @load="openFolder(folder, true)"
-      /></ElDialog
+      /></MotionDialog
     >
-    <ElDialog
+    <MotionDialog
       :model-value="!!selected"
       :title="selected?.title || t('影像预览')"
       width="1000px"
@@ -557,7 +558,7 @@ onBeforeUnmount(() => {
           {{ live ? t("静态照片") : t("实况照片") }}
         </button></template
       >
-    </ElDialog>
+    </MotionDialog>
   </main>
 </template>
 <style scoped>

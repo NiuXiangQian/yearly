@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MotionDialog from "./MotionDialog.vue";
 import { t } from "../lib/i18n";
 import { ref, watch, computed } from "vue";
 import { useRouter } from "vue-router";
@@ -255,7 +256,7 @@ async function changed() {
 }
 </script>
 <template>
-  <ElDialog
+  <MotionDialog
     :model-value="!!id"
     width="1080px"
     class="folder-panel"
@@ -449,7 +450,7 @@ async function changed() {
       @close="moving = false"
       @saved="changed"
     />
-    <ElDialog
+    <MotionDialog
       v-model="renaming"
       :title="t('编辑文件夹')"
       width="440px"
@@ -471,9 +472,9 @@ async function changed() {
             {{ t("保存设置") }}
           </button>
         </div>
-      </form></ElDialog
+      </form></MotionDialog
     >
-  </ElDialog>
+  </MotionDialog>
 </template>
 <style scoped>
 .folder-drop-out {

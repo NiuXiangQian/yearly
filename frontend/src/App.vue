@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { t, elementLocale } from "./lib/i18n";
+import MotionNav from "./components/MotionNav.vue";
 import LanguageSwitch from "./components/LanguageSwitch.vue";
 import { ElConfigProvider } from "element-plus";
 import { computed, onMounted, watch } from "vue";
@@ -41,6 +42,12 @@ const titles = computed<Record<string, string>>(() => ({
   "/backup": t("备份与导出"),
   "/trash": t("回收站"),
 }));
+const mobileItems = computed(() => [
+  { path: "/", label: t("时间线"), icon: Images },
+  { path: "/events", label: t("日记"), icon: BookHeart },
+  ...(yearly.canEdit ? [{ path: "/upload", label: t("上传"), icon: Upload }] : []),
+  { path: "/settings", label: t("我的"), icon: Settings },
+]);
 const title = computed(() => titles.value[route.path] || "yearly");
 watch(
   () => yearly.user,
@@ -177,16 +184,7 @@ async function logout() {
           <span> {{ t("每一份原件，都值得好好保存") }} </span>
         </footer>
       </div>
-      <nav class="mobile-nav">
-        <RouterLink to="/"><Images :size="21" /> {{ t("时间线") }} </RouterLink
-        ><RouterLink to="/events"
-          ><BookHeart :size="21" /> {{ t("日记") }} </RouterLink
-        ><RouterLink v-if="yearly.canEdit" to="/upload"
-          ><Upload :size="21" /> {{ t("上传") }} </RouterLink
-        ><RouterLink to="/settings"
-          ><Settings :size="21" /> {{ t("我的") }}
-        </RouterLink>
-      </nav>
+      <MotionNav :items="mobileItems" />
     </div>
   </ElConfigProvider>
 </template>

@@ -88,13 +88,13 @@ struct NativeFamilyView: View {
             .navigationTitle("家人与宠物")
             .refreshable { await store.loadProfiles() }
             .task { await store.loadProfiles() }
-            .sheet(item: $auditing) { profile in
+            .nativeSheet(item: $auditing) { profile in
                 NavigationStack {
                     NativeAuditView(session: store.session, resourceType: "child", resourceID: String(profile.id))
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { auditing = nil } } }
                 }
             }
-            .sheet(item: $editing) { profile in
+            .nativeSheet(item: $editing) { profile in
                 NativeFamilyEditor(session: store.session, profile: profile) { updated in
                     if let index = store.profiles.firstIndex(where: { $0.id == updated.id }) {
                         store.profiles[index] = updated
@@ -119,7 +119,7 @@ private struct NativeFamilyEditor: View {
     @ObservedObject var session: NativeSession
     let profile: UploadProfile
     let onSaved: (UploadProfile) -> Void
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var name: String
     @State private var nickname: String
     @State private var type: String
@@ -281,7 +281,7 @@ private struct NativeFamilyEditor: View {
             }
             .disabled(saving || preparingAvatar)
             .scrollDismissesKeyboard(.interactively)
-            .interactiveDismissDisabled(saving)
+            .nativeInteractiveDismissDisabled(saving)
             .scrollContentBackground(.hidden).background(NativeTheme.background)
             .navigationTitle("编辑家人资料")
             .navigationBarTitleDisplayMode(.inline)
@@ -293,7 +293,7 @@ private struct NativeFamilyEditor: View {
                         .disabled(saving || preparingAvatar || !profile.editable(by: session.account) || validation != nil)
                 }
             }
-            .sheet(isPresented: $choosingExisting, onDismiss: {
+            .nativeSheet(isPresented: $choosingExisting, onDismiss: {
                 if let id = existingAvatarToCrop {
                     existingAvatarToCrop = nil
                     Task { await prepareExistingAvatar(id) }
@@ -303,7 +303,7 @@ private struct NativeFamilyEditor: View {
                     existingAvatarToCrop = id
                 }
             }
-            .sheet(item: $croppingAvatar) { source in
+            .nativeSheet(item: $croppingAvatar) { source in
                 NativeAvatarCropView(source: source) { cropped in
                     avatarSource = source
                     avatarDraft = cropped

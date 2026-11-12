@@ -275,11 +275,11 @@ fun MediaChooser(
             loading = false
         }
     }
-    ModalBottomSheet(onDismissRequest = close) {
+    MotionBottomSheet(onDismissRequest = close) { dismissSheet ->
         Column(Modifier.fillMaxHeight(.9f).padding(horizontal = 20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("选择影像", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                TextButton({ selected(ids) }) { Text("完成（${ids.size}）") }
+                TextButton({ dismissSheet { selected(ids) } }) { Text("完成（${ids.size}）") }
             }
             if (error.isNotBlank()) ErrorBanner(error)
             LazyColumn(Modifier.weight(1f)) {

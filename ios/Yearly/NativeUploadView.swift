@@ -384,7 +384,7 @@ struct NativeUploadView: View {
                 }
             }
             .refreshable { await loadAccount() }
-            .sheet(isPresented: $showingPeople, onDismiss: {
+            .nativeSheet(isPresented: $showingPeople, onDismiss: {
                 choosingPeopleForUpload = false
                 if confirmingAfterPeople {
                     confirmingAfterPeople = false

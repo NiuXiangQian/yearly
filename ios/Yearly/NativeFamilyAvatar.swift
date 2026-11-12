@@ -90,7 +90,7 @@ struct NativeFamilyPhotoSearch: View {
     let session: NativeSession
     let selectedID: Int?
     let select: (Int) -> Void
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var query = ""
     @State private var loadedQuery: String?
     @State private var items: [NativeTimelineItem] = []
@@ -178,7 +178,7 @@ struct NativeFamilyPhotoSearch: View {
 struct NativeAvatarCropView: View {
     private let image: UIImage?
     let save: (NativeAvatarDraft) -> Void
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var zoom: CGFloat = 1
     @State private var initialZoom: CGFloat = 1
     @State private var offset: CGSize = .zero

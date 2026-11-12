@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -115,6 +117,8 @@ fun YearlyApp(model: AppModel) {
         onDispose { lifecycle.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(account?.id) { route = null }
+    val backdrop = remember { MotionBackdrop() }
+    CompositionLocalProvider(LocalMotionBackdrop provides backdrop) {
     YearlyTheme(theme) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (model.restoring)
@@ -127,27 +131,15 @@ fun YearlyApp(model: AppModel) {
                 val close: () -> Unit = { route = null }
                 BackHandler(route != null) { close() }
                 Scaffold(
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = 1 - backdrop.progress * .08f; scaleY = scaleX
+                        shape = RoundedCornerShape((24 * backdrop.progress).dp); clip = backdrop.progress > 0
+                    },
                     containerColor = MaterialTheme.colorScheme.background,
                     bottomBar = {
                         if (route == null)
-                            NavigationBar {
-                                val titles = listOf("时间线", "上传", "家人", "我的")
-                                val icons =
-                                    listOf(
-                                        Icons.Outlined.PhotoLibrary,
-                                        Icons.Outlined.CloudUpload,
-                                        Icons.Outlined.People,
-                                        Icons.Outlined.Person,
-                                    )
-                                titles.forEachIndexed { index, label ->
-                                    NavigationBarItem(
-                                        selected = model.tab == index,
-                                        onClick = { model.tab = index },
-                                        icon = { Icon(icons[index], label) },
-                                        label = { Text(label) },
-                                    )
-                                }
-                            }
+                            LiquidNavigation(model.tab) { model.tab = it }
+
                     },
                 ) { padding ->
                     Column(Modifier.padding(padding).fillMaxSize()) {
@@ -217,6 +209,7 @@ fun YearlyApp(model: AppModel) {
             }
         }
     }
+}
 }
 
 @Composable

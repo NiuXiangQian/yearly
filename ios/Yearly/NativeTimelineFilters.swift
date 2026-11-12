@@ -2,7 +2,7 @@ import SwiftUI
 
 struct NativeTimelineFilters: View {
     @ObservedObject var store: NativeTimelineStore
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var uploaderID: Int?
     @State private var selected: Set<Int>
     @State private var mediaType: String
@@ -23,7 +23,8 @@ struct NativeTimelineFilters: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            NativeSegmentPages(titles: ["影像", "人物与宠物", "日期"], pages: [
+                AnyView(Form {
                 Section("影像类型") {
                     Picker("影像类型", selection: $mediaType) {
                         Text("全部").tag("")
@@ -50,6 +51,8 @@ struct NativeTimelineFilters: View {
                 } header: { Text("谁上传的") } footer: {
                     if store.uploaders.count == 1 { Text("目前的影像由同一位成员上传。") }
                 }
+                }.scrollContentBackground(.hidden)),
+                AnyView(Form {
                 if !store.profiles.isEmpty {
                     Section {
                         NativeFilterOption(title: "全部家人与宠物", selected: selected.isEmpty) { selected = [] }
@@ -61,6 +64,8 @@ struct NativeTimelineFilters: View {
                         }
                     } header: { Text("影像中的家人 · 可多选") }
                 }
+                }.scrollContentBackground(.hidden)),
+                AnyView(Form {
                 Section {
                     Toggle("指定日期范围", isOn: $useDateRange)
                     if useDateRange {
@@ -73,7 +78,8 @@ struct NativeTimelineFilters: View {
                 } header: { Text(store.usesUploadOrder ? "上传日期" : "归档日期") } footer: {
                     Text("包含开始和结束当天。日期未知的影像不参与日期范围筛选。")
                 }
-            }
+                }.scrollContentBackground(.hidden))
+            ])
             .scrollContentBackground(.hidden).background(NativeTheme.background)
             .navigationTitle("筛选影像").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MotionDialog from "../components/MotionDialog.vue";
 import { t } from "../lib/i18n";
 import DateField from "../components/DateField.vue";
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
@@ -939,7 +940,7 @@ onBeforeUnmount(() => {
         </p>
       </details>
     </template>
-    <ElDialog
+    <MotionDialog
       :model-value="!!dateReview"
       :title="t('文件日期与追加日期不同')"
       width="560px"
@@ -991,8 +992,8 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </template>
-    </ElDialog>
-    <ElDialog
+    </MotionDialog>
+    <MotionDialog
       :model-value="!!editingItem"
       :title="t('文件详情')"
       width="680px"
@@ -1101,8 +1102,8 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </template>
-    </ElDialog>
-    <ElDialog
+    </MotionDialog>
+    <MotionDialog
       :model-value="!!metadataItem"
       :title="t('原文件元数据')"
       width="740px"
@@ -1113,7 +1114,7 @@ onBeforeUnmount(() => {
           {{ metadataItem.original.hash.crc64 }}</code
         >
         <pre>{{ JSON.stringify(metadataItem.original.raw, null, 2) }}</pre>
-      </template></ElDialog
+      </template></MotionDialog
     >
   </div>
 </template>

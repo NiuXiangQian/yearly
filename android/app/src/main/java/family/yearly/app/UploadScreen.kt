@@ -211,7 +211,7 @@ fun UploadScreen(model: AppModel, showRecent: () -> Unit, showUploaded: (Int) ->
             }
     }
     if (confirming)
-        ModalBottomSheet(onDismissRequest = { confirming = false }) {
+        MotionBottomSheet(onDismissRequest = { confirming = false }) { dismissSheet ->
             Column(
                 Modifier.padding(20.dp)
                     .imePadding()
@@ -279,7 +279,7 @@ fun UploadScreen(model: AppModel, showRecent: () -> Unit, showUploaded: (Int) ->
                         try {
                             if (archive.isNotBlank()) LocalDate.parse(archive)
                             model.uploads.confirm(confirmIds, children, batch, archive)
-                            confirming = false
+                            dismissSheet {}
                         } catch (failure: Exception) {
                             error = failure.message.orEmpty()
                         }

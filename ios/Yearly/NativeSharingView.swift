@@ -17,7 +17,7 @@ struct NativeSharingView: View {
     let selectedItems: [NativeTimelineItem]?
     private var selectionMode: Bool { selectedItems != nil }
     @StateObject private var store: NativeSharingStore
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var title = ""
     @State private var profiles: [UploadProfile] = []
     @State private var profileID: Int?

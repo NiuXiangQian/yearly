@@ -3116,3 +3116,49 @@ html[lang="en"] .sidebar .nav-caption {
 }
 
 .content-lock { position:absolute; top:8px; right:8px; z-index:2; display:flex; gap:4px; align-items:center; background:rgb(20 30 24 / 80%); color:#fff; border-radius:6px; padding:5px 7px; font-size:11px; pointer-events:none; }
+
+/* Shared 400ms motion; continuous gestures write positions without transitions. */
+.motion-nav { isolation: isolate; }
+.motion-nav a { position: relative; flex: 1; transition: color 400ms ease; }
+.motion-nav-capsule { position: absolute; top: 5px; height: 52px; z-index: -1; border: 5px solid transparent; background: var(--sage-light); background-clip: padding-box; border-radius: 999px; pointer-events: none; }
+.motion-nav .router-link-exact-active svg { animation: motion-icon 400ms both; }
+@keyframes motion-icon { 0% { transform: scale(1); } 22% { transform: scale(.78); } 70% { transform: scale(1.10); } 100% { transform: scale(1); } }
+.motion-tabs { position: relative; display: flex; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.motion-tabs button { flex: 1; min-height: 44px; border: 0; background: transparent; padding: 10px; }
+.motion-tabs button:disabled { opacity: .4; }
+.motion-tab-ink { position: absolute; bottom: 0; height: 3px; background: var(--sage); border-radius: 3px; pointer-events: none; }
+.motion-page-viewport { overflow: hidden; touch-action: pan-y; }
+.motion-page-track { display: flex; align-items: flex-start; }
+.motion-page { flex: 0 0 100%; min-width: 0; }
+
+.motion-header { position: relative; isolation: isolate; min-height: 150px; }
+.motion-header-art { position: absolute; inset: 0; overflow: hidden; z-index: -1; pointer-events: none; transform: translateY(var(--header-parallax, 0)) scale(var(--header-stretch, 1)); transform-origin: center top; }
+.motion-header-art img { width: 100%; height: 100%; object-fit: cover; }
+.motion-header .page-heading { position: relative; }
+@media (max-width: 700px) {
+  .motion-nav { padding-inline: 0; }
+  .motion-dialog.el-dialog:not(.is-fullscreen) { width: 100% !important; max-width: 100%; max-height: calc(100dvh - 36px); margin: auto 0 0; border-radius: 24px 24px 0 0; padding-bottom: max(20px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; }
+  .el-overlay-dialog:has(.motion-dialog:not(.is-fullscreen)) { display: flex; align-items: flex-end; }
+  .motion-dialog:not(.is-fullscreen) .el-dialog__header { touch-action: none; padding-top: 22px; flex: none; }
+  .motion-dialog:not(.is-fullscreen) .el-dialog__header::before { content: ''; position: absolute; width: 36px; height: 4px; border-radius: 3px; background: var(--muted); opacity: .4; top: 9px; left: calc(50% - 18px); }
+  .motion-dialog:not(.is-fullscreen) .el-dialog__body { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+  html[data-motion-sheet] .shell { transform: scale(calc(1 - var(--sheet-progress, 0) * .08)); transform-origin: 50% calc(var(--sheet-scroll, 0px) + 50dvh); border-radius: calc(var(--sheet-progress, 0) * 24px); filter: brightness(calc(1 - var(--sheet-progress, 0) * .16)); }
+  .motion-header { min-height: 180px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-nav a { transition: none; }
+  .motion-nav .router-link-exact-active svg { animation: none; }
+  .shell { transform: none; }
+}
+
+.motion-header-art { opacity: .26; border-radius: 20px; }
+.motion-flying-title { position: fixed; z-index: 35; pointer-events: none; font-weight: 700; line-height: 1.2; max-width: calc(100vw - 40px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.motion-sticky-glass { position: fixed; inset: 0 0 auto; height: 52px; z-index: 34; pointer-events: none; background: color-mix(in srgb, var(--surface) 86%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border-bottom: 1px solid var(--line); }
+html[data-motion-sheet] .motion-flying-title, html[data-motion-sheet] .motion-sticky-glass { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) { html[data-motion-sheet] .shell { transform: none; } }
+.motion-header { overflow: hidden; border-radius: 20px; }
+@media (max-width: 700px) {
+  html[data-motion-sheet] .shell {
+    clip-path: inset(var(--sheet-scroll, 0px) 0 max(0px, calc(100% - var(--sheet-scroll, 0px) - 100dvh)) round 24px);
+  }
+}

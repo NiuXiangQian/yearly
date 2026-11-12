@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MotionDialog from "../components/MotionDialog.vue";
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { UserPlus, Pencil, ShieldCheck, Users } from "lucide-vue-next";
@@ -129,7 +130,7 @@ onMounted(load);
     </div>
     <p v-if="!users.length" class="muted">{{ t("暂无账户") }}</p>
   </section>
-  <ElDialog
+  <MotionDialog
     v-model="open"
     :title="editing ? t('编辑账户') : t('创建账户')"
     width="500px"
@@ -202,7 +203,7 @@ onMounted(load);
         </button>
       </div>
     </form>
-  </ElDialog>
+  </MotionDialog>
 </template>
 <style scoped>
 .account-policy {

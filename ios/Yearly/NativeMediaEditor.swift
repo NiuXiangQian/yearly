@@ -31,7 +31,7 @@ struct NativeMediaInfo: View {
     let item: NativeTimelineItem
     let profiles: [UploadProfile]
     let onSaved: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var draft: NativeTimelineItem?
     @State private var tags = ""
     @State private var latitude = ""
@@ -161,9 +161,9 @@ struct NativeMediaInfo: View {
                     }
                 }
             }
-            .interactiveDismissDisabled(saving)
+            .nativeInteractiveDismissDisabled(saving)
             .task { if item.kind != "event" { await load() } }
-            .sheet(isPresented: $moving) {
+            .nativeSheet(isPresented: $moving) {
                 NativeFolderMove(session: session, items: [current]) { onSaved() }
             }
         }
@@ -240,7 +240,7 @@ struct NativeMediaInfo: View {
 
 struct NativeMediaTrash: View {
     @ObservedObject var store: NativeTimelineStore
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var items: [NativeTimelineItem] = []
     @State private var cursor: String?
     @State private var busy = false

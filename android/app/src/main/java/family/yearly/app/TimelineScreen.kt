@@ -1,5 +1,16 @@
 package family.yearly.app
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.*
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Brush
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.max
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -20,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +40,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import org.json.JSONArray
 
 @Composable
 fun PreviewImage(
@@ -179,9 +193,50 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
         selecting = false
         if (model.filter.anchor != railDay) railDay = null
     }
-    Column(Modifier.fillMaxSize()) {
-        PageBar(
-            "家庭时光",
+    val motionScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val collapseHeight = with(density) { 160.dp.toPx() }
+    var collapse by rememberSaveable { mutableFloatStateOf(0f) }
+    var headerAnimation by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val headerScroll = remember(listState, collapseHeight) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.Drag) return Offset.Zero
+                headerAnimation?.cancel()
+                if (available.y < 0 || (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0)) {
+                    val previous = collapse
+                    collapse = (collapse - available.y).coerceIn(0f, collapseHeight)
+                    return Offset(0f, previous - collapse)
+                }
+                return Offset.Zero
+            }
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.Drag && available.y > 0) {
+                    collapse = max(-collapseHeight / 2, collapse - available.y * .5f)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (collapse >= collapseHeight || collapse == 0f) return Velocity.Zero
+                val target = if (collapse < 0) 0f else if (abs(available.y) > 150) {
+                    if (available.y < 0) collapseHeight else 0f
+                } else if (collapse > collapseHeight / 2) collapseHeight else 0f
+                headerAnimation = motionScope.launch { Animatable(collapse).animateTo(target, spring(dampingRatio = .84f, stiffness = 500f)) { collapse = value } }
+                return available
+            }
+        }
+    }
+    val headerProgress = (collapse / collapseHeight).coerceIn(0f, 1f)
+    val headerCover = model.memories.firstOrNull { it.type != "video" && it.primary != null }
+    Column(Modifier.fillMaxSize().nestedScroll(headerScroll)) {
+        Box {
+        if (headerCover != null && headerProgress > 0) {
+            PreviewImage(model.api, headerCover, Modifier.matchParentSize().blur(18.dp).graphicsLayer { alpha = headerProgress * .3f })
+        }
+        TopAppBar(
+            title = { Text("家庭时光", Modifier.graphicsLayer { alpha = headerProgress }, fontWeight = FontWeight.SemiBold) },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background.copy(alpha = 1 - headerProgress * .18f)),
             actions = {
                 if (account.canWrite)
                     TextButton({
@@ -248,6 +303,18 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
                 }
             },
         )
+        }
+        Box(Modifier.fillMaxWidth().height(with(density) { (collapseHeight - collapse).toDp() }).clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))) {
+            if (headerCover != null) PreviewImage(model.api, headerCover, Modifier.fillMaxWidth().height(160.dp).graphicsLayer {
+                translationY = -collapse * .5f
+                scaleX = 1 + max(0f, -collapse) / collapseHeight; scaleY = scaleX
+            })
+            Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background.copy(alpha = .15f), MaterialTheme.colorScheme.background))))
+            Text("家庭时光", Modifier.align(Alignment.BottomStart).padding(20.dp).graphicsLayer {
+                scaleX = 1 - headerProgress * .4f; scaleY = scaleX
+                alpha = 1 - headerProgress
+            }, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -703,7 +770,7 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
     }
     if (filtering) FilterSheet(model) { filtering = false }
     if (locating)
-        ModalBottomSheet(onDismissRequest = { locating = false }) {
+        MotionBottomSheet(onDismissRequest = { locating = false }) { dismissSheet ->
             Column(
                 Modifier.padding(20.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -719,7 +786,7 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
                     Button(
                         {
                             model.applyFilter(model.filter.copy(anchor = selectedDay))
-                            locating = false
+                            dismissSheet {}
                         },
                         Modifier.fillMaxWidth(),
                     ) {
@@ -732,7 +799,7 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
                             days.forEach { day ->
                                 TextButton({
                                     model.applyFilter(model.filter.copy(anchor = day))
-                                    locating = false
+                                    dismissSheet {}
                                 }) {
                                     Text(day)
                                 }
@@ -763,59 +830,33 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
 fun FilterSheet(model: AppModel, close: () -> Unit) {
     var filter by remember { mutableStateOf(model.filter.copy(anchor = "")) }
     var error by remember { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = close) {
-        Column(
-            Modifier.padding(horizontal = 20.dp).imePadding().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+    MotionBottomSheet(onDismissRequest = close) { dismissSheet ->
+        Column(Modifier.fillMaxWidth().fillMaxHeight(.82f).padding(horizontal = 20.dp)) {
             Text("筛选与排序", style = MaterialTheme.typography.titleLarge)
-            Field("关键词", filter.search) { filter = filter.copy(search = it) }
-            Choice(
-                "影像类型",
-                filter.type,
-                listOf("" to "全部", "photo" to "照片", "video" to "视频", "live_photo" to "动态照片"),
-            ) {
-                filter = filter.copy(type = it)
-            }
-            Choice(
-                "排序依据",
-                if (filter.byUpload) "upload" else "timeline",
-                listOf("timeline" to "归档日期", "upload" to "上传时间"),
-            ) {
-                filter = filter.copy(byUpload = it == "upload")
-            }
-            ToggleRow("从较早日期开始", filter.ascending) { filter = filter.copy(ascending = it) }
-            DateField("开始日期", filter.start) { filter = filter.copy(start = it) }
-            DateField("结束日期", filter.end) { filter = filter.copy(end = it) }
-            Text("人物与宠物", fontWeight = FontWeight.SemiBold)
-            PeoplePicker(model.profiles, filter.people) { filter = filter.copy(people = it) }
-            Choice(
-                "上传人",
-                filter.uploader?.toString().orEmpty(),
-                listOf("" to "全部上传人") +
-                    model.uploaders.map { it.getInt("id").toString() to it.text("username") },
-            ) {
-                filter = filter.copy(uploader = it.toIntOrNull())
+            MotionSegmentPages(listOf("影像", "人物与宠物", "日期"), Modifier.weight(1f)) { page ->
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (page) {
+                        0 -> {
+                            Field("关键词", filter.search) { filter = filter.copy(search = it) }
+                            Choice("影像类型", filter.type, listOf("" to "全部", "photo" to "照片", "video" to "视频", "live_photo" to "动态照片")) { filter = filter.copy(type = it) }
+                            Choice("上传人", filter.uploader?.toString().orEmpty(), listOf("" to "全部上传人") + model.uploaders.map { it.getInt("id").toString() to it.text("username") }) { filter = filter.copy(uploader = it.toIntOrNull()) }
+                        }
+                        1 -> PeoplePicker(model.profiles, filter.people) { filter = filter.copy(people = it) }
+                        else -> {
+                            Choice("排序依据", if (filter.byUpload) "upload" else "timeline", listOf("timeline" to "归档日期", "upload" to "上传时间")) { filter = filter.copy(byUpload = it == "upload") }
+                            ToggleRow("从较早日期开始", filter.ascending) { filter = filter.copy(ascending = it) }
+                            DateField("开始日期", filter.start) { filter = filter.copy(start = it) }
+                            DateField("结束日期", filter.end) { filter = filter.copy(end = it) }
+                        }
+                    }
+                }
             }
             if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
-            Button(
-                {
-                    if (
-                        filter.start.isNotBlank() &&
-                            filter.end.isNotBlank() &&
-                            filter.start > filter.end
-                    )
-                        error = "结束日期不能早于开始日期"
-                    else {
-                        model.applyFilter(filter)
-                        close()
-                    }
-                },
-                Modifier.fillMaxWidth(),
-            ) {
-                Text("应用筛选")
-            }
-            Spacer(Modifier.height(30.dp))
+            Button({
+                if (filter.start.isNotBlank() && filter.end.isNotBlank() && filter.start > filter.end) error = "结束日期不能早于开始日期"
+                else { model.applyFilter(filter); dismissSheet {} }
+            }, Modifier.fillMaxWidth()) { Text("应用筛选") }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

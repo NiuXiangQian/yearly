@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import MotionDialog from "../components/MotionDialog.vue";
 import { hasGrowthTimeline } from "../lib/profiles";
 import { t, ageLabel } from "../lib/i18n";
+import MotionHeader from "../components/MotionHeader.vue";
+import MotionPager from "../components/MotionPager.vue";
 import ShareDialog from "../components/ShareDialog.vue";
 import TimelineMonths from "../components/TimelineMonths.vue";
 import ScrollLoader from "../components/ScrollLoader.vue";
@@ -795,7 +798,9 @@ function saveStages() {
 </script>
 <template>
   <div class="timeline-page">
-    <div class="page-heading">
+    <MotionHeader>
+      <template #image><EventCover :media-id="items.find((item) => item.kind === 'media' && item.media_type !== 'video')?.id ?? null" /></template>
+      <div class="page-heading">
       <div>
         <span class="eyebrow">OUR FAMILY, FRAME BY FRAME</span>
         <h1>
@@ -836,6 +841,7 @@ function saveStages() {
         </RouterLink>
       </div>
     </div>
+    </MotionHeader>
     <div v-if="!trash" class="memory-summary">
       <div>
         <span class="summary-icon sage"><LayoutGrid :size="21" /></span
@@ -885,22 +891,6 @@ function saveStages() {
         </select>
       </div>
       <div class="view-bar">
-        <div class="view-tabs">
-          <button
-            :class="{ active: view === 'calendar' }"
-            @click="view = 'calendar'"
-          >
-            <CalendarDays :size="15" /> {{ t("按日历") }}</button
-          ><button
-            v-if="!activeChild || growthChild"
-            :class="{ active: view === 'age' }"
-            :disabled="!growthChild?.birthday"
-            :title="t('选择一个已填写生日的档案后浏览年龄阶段')"
-            @click="view = 'age'"
-          >
-            {{ t("按年龄") }}
-          </button>
-        </div>
         <div class="filter-tools">
           <TimelineOrder v-model="timelineOrder" />
           <div class="search-box">
@@ -938,7 +928,11 @@ function saveStages() {
           </button>
         </div>
       </div>
-      <div class="date-filters" v-if="view === 'calendar'">
+      <MotionPager v-model="view" :tabs="[
+        { value: 'calendar', label: t('按日历') },
+        ...(!activeChild || growthChild ? [{ value: 'age', label: t('按年龄'), disabled: !growthChild?.birthday }] : []),
+      ]">
+      <template #calendar><div class="date-filters">
         <div class="date-mode" role="group" :aria-label="t('日期筛选方式')">
           <button
             v-for="mode in dateModes"
@@ -998,7 +992,7 @@ function saveStages() {
           >{{ total }} {{ t("条记录 · 按天归档") }}
         </span>
       </div>
-      <div v-else class="age-stage-list">
+      </template><template #age><div class="age-stage-list">
         <button
           class="chip"
           :class="{ active: stage === -1 }"
@@ -1016,7 +1010,8 @@ function saveStages() {
         ><button class="text-button" @click="stageDialog = true">
           {{ t("设置阶段") }}
         </button>
-      </div>
+      </div></template>
+      </MotionPager>
     </div>
     <div v-if="growthChild && markers.length && !trash" class="milestone-bar">
       <span> {{ t("成长足迹") }} </span
@@ -1494,7 +1489,7 @@ function saveStages() {
         load(true, true);
       "
     />
-    <ElDialog v-model="folderCreate" :title="t('新建当天文件夹')" width="440px"
+    <MotionDialog v-model="folderCreate" :title="t('新建当天文件夹')" width="440px"
       ><form @submit.prevent="saveFolder">
         <p class="muted">
           {{ folderDay }} {{ t("· 文件夹仅用于整理当天影像") }}
@@ -1514,9 +1509,9 @@ function saveStages() {
             {{ t("创建文件夹") }}
           </button>
         </div>
-      </form></ElDialog
+      </form></MotionDialog
     >
-    <ElDialog v-model="batchOpen" :title="t('批量关联人物与宠物')" width="540px"
+    <MotionDialog v-model="batchOpen" :title="t('批量关联人物与宠物')" width="540px"
       ><p class="muted">
         {{ t("将调整已选") }} {{ selected.length }}
         {{ t("份回忆的关联，原文件保持独立保存。") }}
@@ -1533,9 +1528,9 @@ function saveStages() {
         <button class="button primary" @click="batch">
           {{ t("保存关联") }}
         </button>
-      </div></ElDialog
+      </div></MotionDialog
     >
-    <ElDialog v-model="dateDialog" :title="t('添加一个时间节点')" width="440px">
+    <MotionDialog v-model="dateDialog" :title="t('添加一个时间节点')" width="440px">
       <p class="muted">{{ t("选择日期，再把这一天的回忆一起上传。") }}</p>
       <label>
         {{ t("时间节点日期") }} <DateField v-model="newDate" type="date"
@@ -1549,8 +1544,8 @@ function saveStages() {
           {{ t("选择这一天的文件") }}
         </button>
       </div>
-    </ElDialog>
-    <ElDialog
+    </MotionDialog>
+    <MotionDialog
       v-model="organizeOpen"
       :title="
         organizeAction === 'name' ? t('给所选回忆命名') : t('调整归档日期')
@@ -1595,8 +1590,8 @@ function saveStages() {
           {{ organizeSaving ? t("正在保存…") : t("应用到所选回忆") }}
         </button>
       </div>
-    </ElDialog>
-    <ElDialog v-model="stageDialog" :title="t('自定义年龄阶段')" width="600px"
+    </MotionDialog>
+    <MotionDialog v-model="stageDialog" :title="t('自定义年龄阶段')" width="600px"
       ><p class="muted">
         {{ t("按真实日历月龄筛选，结束月龄不包含在本阶段内。") }}
       </p>
@@ -1626,7 +1621,7 @@ function saveStages() {
         <button class="button primary" @click="saveStages">
           {{ t("保存阶段") }}
         </button>
-      </div></ElDialog
+      </div></MotionDialog
     >
   </div>
 </template>

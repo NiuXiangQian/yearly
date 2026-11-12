@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MotionDialog from "./MotionDialog.vue";
 import { t, ageLabel } from "../lib/i18n";
 import AuditHistory from "./AuditHistory.vue";
 import DateField from "./DateField.vue";
@@ -118,7 +119,7 @@ async function trash() {
 }
 </script>
 <template>
-  <ElDialog
+  <MotionDialog
     append-to-body
     :model-value="!!id"
     width="1080px"
@@ -300,6 +301,6 @@ async function trash() {
         </div>
       </div>
     </div>
-    <div v-else class="loading-panel">{{ t("正在翻开回忆…") }}</div></ElDialog
+    <div v-else class="loading-panel">{{ t("正在翻开回忆…") }}</div></MotionDialog
   >
 </template>

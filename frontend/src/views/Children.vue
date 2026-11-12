@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MotionDialog from "../components/MotionDialog.vue";
 import { t } from "../lib/i18n";
 import {
   hasGrowthTimeline,
@@ -330,7 +331,7 @@ function browse(id: number) {
       <Plus :size="16" /> {{ t("创建人物档案") }}
     </button></EmptyState
   >
-  <ElDialog
+  <MotionDialog
     v-model="open"
     :title="
       form.profile_type === 'pet'
@@ -562,8 +563,8 @@ function browse(id: number) {
           {{ busy ? t("正在保存…") : t("保存档案") }}
         </button>
       </div>
-    </form></ElDialog
-  ><ElDialog v-model="deleteOpen" :title="t('确认删除档案')" width="480px"
+    </form></MotionDialog
+  ><MotionDialog v-model="deleteOpen" :title="t('确认删除档案')" width="480px"
     ><p>{{ t("删除会解除 TA 与照片、日记的关联。家庭原件会继续保留。") }}</p>
     <label>
       {{ t("再次输入名字「") }} {{ form.name }}」<input v-model="confirmation"
@@ -577,7 +578,7 @@ function browse(id: number) {
       >
         {{ t("确认删除档案") }}
       </button>
-    </div></ElDialog
+    </div></MotionDialog
   >
 </template>
 

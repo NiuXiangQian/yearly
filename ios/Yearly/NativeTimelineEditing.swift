@@ -12,7 +12,7 @@ struct NativeDiaryEditor: View {
     var existing: NativeTimelineItem?
     var request: NativeDiaryRequest?
     let onSaved: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var title = ""
     @State private var content = ""
     @State private var start = NativeLocalDateTime.localNow
@@ -120,7 +120,7 @@ struct NativeDiaryEditor: View {
                                   title.unicodeScalars.count > 255 || content.unicodeScalars.count > 50_000 || (useStart && useEnd && end < start))
                 }
             }
-            .interactiveDismissDisabled(busy)
+            .nativeInteractiveDismissDisabled(busy)
             .task { await load() }
             .confirmationDialog("将日记移到回收站？", isPresented: $deleting, titleVisibility: .visible) {
                 Button("移到回收站", role: .destructive) { Task { await save(remove: true) } }
@@ -193,7 +193,7 @@ private struct NativeFolder: Decodable, Identifiable {
 struct NativeDaySettings: View {
     @ObservedObject var store: NativeTimelineStore
     let day: String
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var folders: [NativeFolder] = []
     @State private var busy = false
     @State private var status = ""
@@ -248,10 +248,10 @@ struct NativeDaySettings: View {
                     }
                 }
             } message: { Text("当天的影像及文件夹会恢复默认排序。") }
-            .sheet(item: $editingFolder) { folder in
+            .nativeSheet(item: $editingFolder) { folder in
                 NativeFolderEditor(session: store.session, day: day, folder: folder, onSaved: folderChanged)
             }
-            .sheet(isPresented: $creatingFolder) {
+            .nativeSheet(isPresented: $creatingFolder) {
                 NativeFolderEditor(session: store.session, day: day, folder: nil, onSaved: folderChanged)
             }
         }
@@ -279,7 +279,7 @@ private struct NativeFolderEditor: View {
     let day: String
     let folder: NativeFolder?
     let onSaved: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var name = ""
     @State private var allowed = true
     @State private var busy = false
@@ -315,7 +315,7 @@ private struct NativeFolderEditor: View {
                 }
             }
             .onAppear { name = folder?.name ?? ""; allowed = folder?.share_allowed ?? true }
-            .interactiveDismissDisabled(busy)
+            .nativeInteractiveDismissDisabled(busy)
             .confirmationDialog("删除文件夹？", isPresented: $deleting, titleVisibility: .visible) {
                 Button("删除文件夹", role: .destructive) { Task { await save(remove: true) } }
             } message: { Text("文件夹内的影像会回到当天时间线。") }
@@ -343,7 +343,7 @@ struct NativeFolderMove: View {
     let session: NativeSession
     let items: [NativeTimelineItem]
     let onSaved: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var folders: [NativeFolder] = []
     @State private var busy = false
     @State private var failure = ""
@@ -377,7 +377,7 @@ struct NativeFolderMove: View {
                 do { folders = try await session.get("/folders?day=\(day)") }
                 catch { failure = friendly(error) }
             }
-            .interactiveDismissDisabled(busy)
+            .nativeInteractiveDismissDisabled(busy)
         }
     }
 
@@ -405,7 +405,7 @@ struct NativeBatchMediaEditor: View {
     @ObservedObject var store: NativeTimelineStore
     let items: [NativeTimelineItem]
     let onSaved: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var editBatch = false
     @State private var editArchive = false
     @State private var clearArchive = false
@@ -457,11 +457,11 @@ struct NativeBatchMediaEditor: View {
             .disabled(busy)
             .navigationTitle("整理 \(items.count) 项影像")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
-            .interactiveDismissDisabled(busy)
+            .nativeInteractiveDismissDisabled(busy)
             .confirmationDialog("\(mode.label) \(items.count) 项影像的人物关联？", isPresented: $confirmingPeople, titleVisibility: .visible) {
                 Button("保存关联") { Task { await savePeople() } }
             } message: { if mode == .replace && people.isEmpty { Text("将清空所选影像的人物关联。") } }
-            .sheet(isPresented: $moving, onDismiss: finishFolderMove) {
+            .nativeSheet(isPresented: $moving, onDismiss: finishFolderMove) {
                 NativeFolderMove(session: store.session, items: items) { moved = true }
             }
         }

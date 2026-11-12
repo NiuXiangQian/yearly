@@ -757,29 +757,29 @@ struct NativeTimelineView: View {
                 }
             }
             .alert("一次最多选择 200 项", isPresented: $selectionLimit) { Button("知道了", role: .cancel) { } }
-            .sheet(item: $shareRequest) { request in
+            .nativeSheet(item: $shareRequest) { request in
                 NativeSharingView(session: store.session, day: request.day, selectedItems: request.items)
             }
-            .sheet(isPresented: $showingFilter) { NativeTimelineFilters(store: store) }
-            .sheet(isPresented: $showingTrash) { NativeMediaTrash(store: store) }
-            .sheet(item: $editingItem) { item in
+            .nativeSheet(isPresented: $showingFilter) { NativeTimelineFilters(store: store) }
+            .nativeSheet(isPresented: $showingTrash) { NativeMediaTrash(store: store) }
+            .nativeSheet(item: $editingItem) { item in
                 if item.kind == "event" {
                     NativeDiaryEditor(session: store.session, profiles: store.profiles, existing: item) { Task { await store.load() } }
                 } else {
                     NativeMediaInfo(session: store.session, item: item, profiles: store.profiles) { Task { await store.load() } }
                 }
             }
-            .sheet(item: $diaryRequest) { request in
+            .nativeSheet(item: $diaryRequest) { request in
                 NativeDiaryEditor(session: store.session, profiles: store.profiles, request: request) {
                     chosen = []
                     selecting = false
                     Task { await store.load() }
                 }
             }
-            .sheet(isPresented: Binding(get: { daySettings != nil }, set: { if !$0 { daySettings = nil } })) {
+            .nativeSheet(isPresented: Binding(get: { daySettings != nil }, set: { if !$0 { daySettings = nil } })) {
                 if let day = daySettings { NativeDaySettings(store: store, day: day) }
             }
-            .sheet(isPresented: $batchEdit) {
+            .nativeSheet(isPresented: $batchEdit) {
                 NativeBatchMediaEditor(store: store, items: chosen) {
                     chosen = []
                     selecting = false
@@ -835,7 +835,7 @@ struct NativePreviewPosition {
 
 private struct NativeMediaPager: View {
     @ObservedObject var store: NativeTimelineStore
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var pages: [NativeTimelineItem]
     @State private var selection: String
     @State private var uploadTotal: Int
@@ -980,7 +980,7 @@ struct NativeMediaDetail: View {
     let onSaved: () -> Void
     let onDeleted: () -> Void
     let onLocate: ((NativeTimelineItem) -> Void)?
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var detail: NativeTimelineItem?
     @State private var player: AVPlayer?
@@ -1129,8 +1129,8 @@ struct NativeMediaDetail: View {
                 Button("移到回收站", role: .destructive) { Task { await trash() } }
                 Button("取消", role: .cancel) {}
             } message: { Text("可以从时间线的回收站恢复这项影像。") }
-            .sheet(isPresented: $showingShare) { NativeSharingView(session: session, day: item.day, selectedItems: item.kind == "event" ? nil : [item]) }
-            .sheet(isPresented: $showingInfo) {
+            .nativeSheet(isPresented: $showingShare) { NativeSharingView(session: session, day: item.day, selectedItems: item.kind == "event" ? nil : [item]) }
+            .nativeSheet(isPresented: $showingInfo) {
                 if item.kind == "event" {
                     NativeDiaryEditor(session: session, profiles: profiles, existing: item) { Task { await reloadDiary() } }
                 } else {

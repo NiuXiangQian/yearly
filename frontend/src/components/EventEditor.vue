@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MotionDialog from "./MotionDialog.vue";
 import { t } from "../lib/i18n";
 import AuditHistory from "./AuditHistory.vue";
 import DateField from "./DateField.vue";
@@ -124,7 +125,7 @@ async function trash() {
 }
 </script>
 <template>
-  <ElDialog
+  <MotionDialog
     :model-value="open"
     :title="eventId ? t('成长日记') : t('写一篇成长日记')"
     width="760px"
@@ -265,5 +266,5 @@ async function trash() {
       </div>
     </form>
     <MediaDetail :id="previewId" @close="previewId = null"
-  /></ElDialog>
+  /></MotionDialog>
 </template>

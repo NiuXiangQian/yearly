@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MotionDialog from "./MotionDialog.vue";
 import { t } from "../lib/i18n";
 import { ref, watch } from "vue";
 import { api, post, notify } from "../lib/api";
@@ -46,7 +47,7 @@ async function save() {
 }
 </script>
 <template>
-  <ElDialog
+  <MotionDialog
     append-to-body
     :model-value="open"
     :title="t('移动到文件夹')"
@@ -82,5 +83,5 @@ async function save() {
         {{ busy ? t("正在移动…") : t("移动所选影像") }}
       </button>
     </div>
-  </ElDialog>
+  </MotionDialog>
 </template>

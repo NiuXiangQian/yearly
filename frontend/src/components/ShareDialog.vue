@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MotionDialog from "./MotionDialog.vue";
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Link, X } from "lucide-vue-next";
@@ -139,7 +140,7 @@ async function copyRecord(item: any) {
 }
 </script>
 <template>
-  <ElDialog
+  <MotionDialog
     :model-value="open"
     :title="t('分享时间线')"
     width="620px"
@@ -274,7 +275,7 @@ async function copyRecord(item: any) {
         )
       }}
     </p>
-  </ElDialog>
+  </MotionDialog>
 </template>
 <style scoped>
 .share-fields {

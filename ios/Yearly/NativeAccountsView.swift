@@ -55,15 +55,15 @@ struct NativeAccountsView: View {
         }
         .task { await store.load() }
         .refreshable { await store.load() }
-        .sheet(item: $editing) { user in NativeAccountEditor(store: store, existing: user) }
-        .sheet(isPresented: $creating) { NativeAccountEditor(store: store, existing: nil) }
+        .nativeSheet(item: $editing) { user in NativeAccountEditor(store: store, existing: user) }
+        .nativeSheet(isPresented: $creating) { NativeAccountEditor(store: store, existing: nil) }
     }
 }
 
 private struct NativeAccountEditor: View {
     @ObservedObject var store: NativeAccountsStore
     let existing: NativeManagedUser?
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var username: String
     @State private var nickname: String
     @State private var password = ""
@@ -140,14 +140,14 @@ private struct NativeAccountEditor: View {
                     }.buttonStyle(NativeActionStyle(kind: .primary, compact: true)).disabled(busy || !valid)
                 }
             }
-            .interactiveDismissDisabled(busy)
+            .nativeInteractiveDismissDisabled(busy)
         }
     }
 }
 
 struct NativePasswordView: View {
     @ObservedObject var session: NativeSession
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var current = ""
     @State private var new = ""
     @State private var confirmation = ""
@@ -185,6 +185,6 @@ struct NativePasswordView: View {
         .disabled(busy)
         .scrollContentBackground(.hidden).background(NativeTheme.background)
         .navigationTitle("修改密码")
-        .interactiveDismissDisabled(busy)
+        .nativeInteractiveDismissDisabled(busy)
     }
 }

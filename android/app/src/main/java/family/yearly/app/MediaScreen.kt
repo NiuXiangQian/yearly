@@ -233,7 +233,7 @@ fun MediaScreen(
         }
     }
     if (info)
-        ModalBottomSheet(onDismissRequest = { info = false }) {
+        MotionBottomSheet(onDismissRequest = { info = false }) { dismissSheet ->
             Column(
                 Modifier.padding(20.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -307,7 +307,7 @@ fun MediaScreen(
         }
     }
     if (reorder)
-        ModalBottomSheet(onDismissRequest = { reorder = false }) {
+        MotionBottomSheet(onDismissRequest = { reorder = false }) { dismissSheet ->
             Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState())) {
                 Text("移到下列影像之前", style = MaterialTheme.typography.titleLarge)
                 dataset
@@ -319,7 +319,7 @@ fun MediaScreen(
                     }
                     .forEach { target ->
                         TextButton({
-                            reorder = false
+                            dismissSheet {}
                             model.run {
                                 model.change(
                                     "/media/reorder",

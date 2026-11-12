@@ -129,7 +129,7 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
         }
     }
     if (creating)
-        ModalBottomSheet(onDismissRequest = { if (!saving) creating = false }) {
+        MotionBottomSheet(onDismissRequest = { creating = false }, dismissible = !saving) { dismissSheet ->
             Column(
                 Modifier.padding(20.dp).imePadding().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -184,7 +184,7 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
                                 }
                                 link = shareLink(created)
                                 revision++
-                                creating = false
+                                dismissSheet {}
                             } catch (failure: Exception) {
                                 error = failure.message.orEmpty()
                             } finally {
