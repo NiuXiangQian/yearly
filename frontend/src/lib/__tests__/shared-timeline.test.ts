@@ -120,6 +120,28 @@ it("shows the selected person's title and avatar and updates the expiry countdow
     date.mockRestore();
   }
 });
+it.each([
+  [7 * 86400 + 3723, "7 天 01:02:03", "7d 01:02:03"],
+  [86400, "1 天 00:00:00", "1d 00:00:00"],
+  [86399, "23:59:59", "23:59:59"],
+  [59, "00:00:59", "00:00:59"],
+])("formats %i seconds of share validity with days when needed", async (seconds, chinese, english) => {
+  const timestamp = Date.now();
+  const date = vi.spyOn(Date, "now").mockReturnValue(timestamp);
+  const data = response();
+  data.share.expires_at = new Date(timestamp + Number(seconds) * 1000).toISOString();
+  vi.mocked(api).mockResolvedValue(data);
+  try {
+    await mount();
+    await vi.waitFor(() => expect(host.querySelector(".share-countdown time")?.textContent).toBe(chinese));
+    setLocale("en");
+    await nextTick();
+    expect(host.querySelector(".share-countdown time")?.textContent).toBe(english);
+  } finally {
+    setLocale("zh-CN");
+    date.mockRestore();
+  }
+});
 it("automatically fills a day at its end without a manual expand button", async () => {
   await mount();
   await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));

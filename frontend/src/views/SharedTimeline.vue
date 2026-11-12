@@ -111,8 +111,9 @@ let expiryTimer: ReturnType<typeof setTimeout>;
 const clock = ref(Date.now());
 const countdown = computed(() => {
   const seconds = Math.max(0, Math.ceil((new Date(share.value?.expires_at).getTime() - clock.value) / 1000));
-  const hours = Math.floor(seconds / 3600);
-  return `${String(hours).padStart(2, "0")}:${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  const days = Math.floor(seconds / 86400);
+  const time = `${String(Math.floor(seconds / 3600) % 24).padStart(2, "0")}:${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  return days ? t("{p0} 天 {p1}", { p0: days, p1: time }) : time;
 });
 let countdownTimer: ReturnType<typeof setInterval>;
 const avatar = computed(() => share.value?.has_avatar ? import.meta.env.BASE_URL + `api/public/shares/${encodeURIComponent(String(route.params.token))}/avatar` : "");
