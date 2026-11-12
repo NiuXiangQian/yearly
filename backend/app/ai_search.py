@@ -88,7 +88,7 @@ def openai_call(db, endpoint, payload):
     spend.amount += reserve
     db.commit()
     try:
-        with httpx.Client(proxy=settings().openai_proxy_url or None, timeout=httpx.Timeout(45, connect=10)) as client:
+        with httpx.Client(proxy=settings().openai_proxy_url or None, timeout=httpx.Timeout(45, connect=30)) as client:
             response = client.post(
                 "https://api.openai.com/v1/" + endpoint,
                 headers={"Authorization": "Bearer " + settings().openai_api_key},
