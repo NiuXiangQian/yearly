@@ -22,6 +22,10 @@ def main():
     previews = sub.add_parser("generate-previews")
     previews.add_argument("--watch", action="store_true")
     previews.add_argument("--retry-failed", action="store_true")
+    search = sub.add_parser("build-search-index")
+    search.add_argument("--watch", action="store_true")
+    search.add_argument("--retry-failed", action="store_true")
+    search.add_argument("--limit", type=int, default=100)
     backup = sub.add_parser("backup")
     backup.add_argument("directory")
     restore = sub.add_parser("restore")
@@ -29,7 +33,15 @@ def main():
     restore.add_argument("--owner-id", required=True, type=int)
     restore.add_argument("--objects")
     args = parser.parse_args()
-    if args.command == "generate-previews":
+    if args.command == "build-search-index":
+        import logging
+        from .ai_search import build_index
+        if args.limit < 1:
+            parser.error("--limit 必须大于 0")
+        logging.basicConfig(level=logging.INFO)
+        logging.getLogger("oss2").setLevel(logging.WARNING)
+        print("已处理索引:", build_index(OSSStorage(internal=True), args.limit, args.watch, args.retry_failed))
+    elif args.command == "generate-previews":
         import logging
         import signal
         from .previews import generate_previews

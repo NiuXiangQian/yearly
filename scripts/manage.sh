@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ "$#" -lt 2 ]; then
-  echo 'Usage: manage.sh test|production migrate|create-admin|cleanup|verify-oss|configure-archive|generate-previews|backup|restore [arguments]' >&2
+  echo 'Usage: manage.sh test|production migrate|create-admin|cleanup|verify-oss|configure-archive|generate-previews|build-search-index|backup|restore [arguments]' >&2
   exit 2
 fi
 export APP_ENV=$1

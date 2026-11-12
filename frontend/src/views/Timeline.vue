@@ -4,6 +4,7 @@ import { hasGrowthTimeline } from "../lib/profiles";
 import { t, ageLabel } from "../lib/i18n";
 import MotionHeader from "../components/MotionHeader.vue";
 import MotionPager from "../components/MotionPager.vue";
+import AISearch from "../components/AISearch.vue";
 import ShareDialog from "../components/ShareDialog.vue";
 import TimelineMonths from "../components/TimelineMonths.vue";
 import ScrollLoader from "../components/ScrollLoader.vue";
@@ -50,6 +51,7 @@ const yearly = useYearly(),
   route = useRoute(),
   router = useRouter();
 const shareOpen = ref(false);
+const aiSearchOpen = ref(false);
 const timelineOrder = ref(
   localStorage.getItem("yearly-timeline-order") === "asc" ? "asc" : "desc",
 );
@@ -893,6 +895,7 @@ function saveStages() {
       <div class="view-bar">
         <div class="filter-tools">
           <TimelineOrder v-model="timelineOrder" />
+          <button v-if="!trash" class="button small" @click="aiSearchOpen = true"><Search :size="16" />{{ t("智能找回忆") }}</button>
           <div class="search-box">
             <Search :size="16" /><input
               v-model="q"
@@ -1448,6 +1451,7 @@ function saveStages() {
         height: rect.height + 'px',
       }"
     ></div>
+    <AISearch v-if="aiSearchOpen" :filters="{ child_ids: yearly.selected, match, owner_id: uploader ? Number(uploader) : null, media_type: type || null, ...range() }" @close="aiSearchOpen = false" />
     <ShareDialog
       :open="shareOpen"
       :initial-date="day"

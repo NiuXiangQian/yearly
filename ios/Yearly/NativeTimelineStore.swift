@@ -475,3 +475,14 @@ struct NativeTimelineScale {
     }
 }
 
+
+struct NativeSearchStatus: Decodable {
+    let enabled: Bool
+    let total: Int
+    let indexed: Int
+    let failed: Int
+}
+struct NativeSearchPage: Decodable {
+    let items: [NativeTimelineItem]
+    let indexed: Int
+}

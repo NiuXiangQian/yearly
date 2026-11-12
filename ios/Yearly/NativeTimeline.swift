@@ -126,6 +126,7 @@ struct NativeTimelineView: View {
     var topRequest = 0
     let appendToDay: (String) -> Void
     @State private var showingFilter = false
+    @State private var showingAISearch = false
     @State private var shareRequest: NativeShareRequest?
     @State private var selecting = false
     @State private var chosen: [NativeTimelineItem] = []
@@ -648,6 +649,9 @@ struct NativeTimelineView: View {
     private var filtersBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                Button { showingAISearch = true } label: {
+                    Label("智能找回忆", systemImage: "sparkles")
+                }.buttonStyle(NativeActionStyle(compact: true))
                 Button { showingFilter = true } label: {
                     Label(filterCount == 0 ? "筛选" : "筛选 \(filterCount)", systemImage: "slider.horizontal.3")
                 }.buttonStyle(NativeActionStyle(kind: filterCount == 0 ? .secondary : .primary, compact: true))
@@ -761,6 +765,7 @@ struct NativeTimelineView: View {
                 NativeSharingView(session: store.session, day: request.day, selectedItems: request.items)
             }
             .nativeSheet(isPresented: $showingFilter) { NativeTimelineFilters(store: store) }
+            .nativeSheet(isPresented: $showingAISearch) { NativeAISearch(store: store) }
             .nativeSheet(isPresented: $showingTrash) { NativeMediaTrash(store: store) }
             .nativeSheet(item: $editingItem) { item in
                 if item.kind == "event" {
@@ -1268,6 +1273,108 @@ struct NativeMediaDetail: View {
                 value.play()
             } catch { if !Task.isCancelled { message = friendly(error) } }
             if !Task.isCancelled { loading = false }
+        }
+    }
+}
+
+
+private struct NativeAISearch: View {
+    @ObservedObject var store: NativeTimelineStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    @State private var status: NativeSearchStatus?
+    @State private var items: [NativeTimelineItem] = []
+    @State private var selected: NativeTimelineItem?
+    @State private var busy = false
+    @State private var searched = false
+    @State private var message = ""
+    @State private var searchTask: Task<Void, Never>?
+    private var scope: String {
+        var labels = store.profiles.filter { store.selected.contains($0.id) }.map(\.label)
+        if let id = store.uploaderID { labels.append(store.uploaders.first { $0.id == id }?.displayName ?? "上传人") }
+        if !store.mediaType.isEmpty { labels.append(["photo": "照片", "video": "视频", "live_photo": "实况"][store.mediaType] ?? "") }
+        if store.useDateRange { labels.append("归档日期 " + NativeDay.string(store.startDate) + " 至 " + NativeDay.string(store.endDate)) }
+        return labels.joined(separator: " · ")
+    }
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("描述一个画面，找回照片和视频里的瞬间。")
+                    if !scope.isEmpty { Text("沿用当前筛选：" + scope).font(.caption).foregroundStyle(.secondary) }
+                    TextField("例如：去年夏天在海边玩沙子", text: $query, axis: .vertical)
+                        .textFieldStyle(.roundedBorder).lineLimit(2...4).disabled(busy)
+                        .onChange(of: query) { value in if value.count > 200 { query = String(value.prefix(200)) } }
+                    Button { performSearch() } label: {
+                        HStack { if busy { ProgressView() }; Text(busy ? "正在寻找…" : "查找回忆") }.frame(maxWidth: .infinity)
+                    }.buttonStyle(NativeActionStyle(kind: .primary))
+                        .disabled(busy || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || status?.enabled != true || status?.indexed == 0)
+                    if let status {
+                        Text(status.enabled ? "已分析 \(status.indexed) / \(status.total) 项影像" : "智能搜索尚未启用，请管理员配置 OpenAI API Key 并建立索引")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if status.enabled && status.indexed == 0 { Text("正在等待后台建立索引，完成后即可搜索。").font(.caption) }
+                    }
+                    Button("刷新状态") { Task { await loadStatus() } }.disabled(busy)
+                    Text("仅搜索已分析的影像。视频按抽样画面匹配，可能遗漏短暂片段；Live Photo 按静态照片匹配。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !message.isEmpty { Text(message).foregroundStyle(.red) }
+                    if searched {
+                        Text("\(items.count) 项相关回忆 · 最多显示 40 项").font(.subheadline)
+                        if items.isEmpty { Text("没有找到相关影像，试试描述场景、物体或动作，或放宽时间线筛选。").foregroundStyle(.secondary) }
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                            ForEach(items) { item in
+                                Button { selected = item } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        if let file = item.primary {
+                                            NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
+                                                .frame(height: 150).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+                                        }
+                                        Text(item.day + (item.media_type == "video" ? " · 视频" : "")).font(.caption)
+                                    }
+                                }.buttonStyle(.plain).accessibilityLabel("查看 " + item.label)
+                            }
+                        }
+                    } else if !busy {
+                        ForEach(["在草地上奔跑的小狗", "吹生日蜡烛的视频", "穿黄色雨衣踩水坑"], id: \.self) { example in
+                            Button(example) { query = example }.buttonStyle(NativeActionStyle(compact: true))
+                        }
+                    }
+                }.padding(20)
+            }
+            .background(NativeTheme.background)
+            .navigationTitle("智能找回忆").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
+            .task { await loadStatus() }
+            .onDisappear { searchTask?.cancel() }
+            .fullScreenCover(item: $selected) { item in
+                NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
+                                  pagePosition: nil, previous: nil, next: nil, onSaved: { performSearch() },
+                                  onDeleted: { items.removeAll { $0.id == item.id } }, onLocate: nil)
+            }
+        }
+    }
+    private func loadStatus() async {
+        message = ""
+        do { status = try await store.session.get("/ai-search/status", refresh: true) }
+        catch { message = error.localizedDescription }
+    }
+    private func performSearch() {
+        guard !busy else { return }
+        busy = true; searched = false; message = ""; items = []
+        var body: [String: Any] = ["query": query.trimmingCharacters(in: .whitespacesAndNewlines), "child_ids": Array(store.selected)]
+        if let id = store.uploaderID { body["owner_id"] = id }
+        if !store.mediaType.isEmpty { body["media_type"] = store.mediaType }
+        if store.useDateRange {
+            body["start"] = NativeDay.string(store.startDate) + "T00:00:00"
+            body["end"] = NativeDay.string(Calendar.current.date(byAdding: .day, value: 1, to: store.endDate)!) + "T00:00:00"
+        }
+        searchTask = Task {
+            defer { busy = false }
+            do {
+                let result: NativeSearchPage = try await store.session.searchMemories(body)
+                items = result.items; searched = true
+            } catch is CancellationError { }
+            catch { message = error.localizedDescription }
         }
     }
 }

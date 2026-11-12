@@ -241,6 +241,9 @@ class YearlyApi(private val context: Context, transport: OkHttpClient? = null) {
         File(cacheRoot, digest(scope)).deleteRecursively()
     }
 
+    suspend fun searchMemories(body: JSONObject): JSONObject =
+        JSONObject(send("/ai-search", "POST", body).first)
+
     suspend fun resource(
         memory: Memory,
         file: MediaFile,
@@ -293,7 +296,8 @@ class YearlyApi(private val context: Context, transport: OkHttpClient? = null) {
                 if (authenticated) account.value?.let { request.header("X-CSRF-Token", it.csrf) }
             }
             key?.let { request.header("Idempotency-Key", it) }
-            client.newCall(request.build()).execute().use { response ->
+            val transport = if (path == "/ai-search") client.newBuilder().readTimeout(150, TimeUnit.SECONDS).build() else client
+            transport.newCall(request.build()).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     if (response.code == 401 && authenticated && token == usedToken)

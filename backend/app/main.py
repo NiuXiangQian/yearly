@@ -73,6 +73,7 @@ from .accounts import require_editable
 from .storage import get_storage, preview_resource
 from .shares import router as share_router
 from .uploads import router as upload_router
+from .ai_search import router as ai_search_router
 from .folders import (
     router as folder_router,
     folder_data,
@@ -109,6 +110,7 @@ app = FastAPI(
 app.include_router(upload_router)
 app.include_router(folder_router)
 app.include_router(share_router)
+app.include_router(ai_search_router)
 
 
 @app.middleware("http")

@@ -124,6 +124,7 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
     val observedAccount by model.api.account.collectAsStateWithLifecycle()
     val account = observedAccount ?: return
     var filtering by remember { mutableStateOf(false) }
+    var aiSearching by remember { mutableStateOf(false) }
     var locating by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<Int>>(emptySet()) }
@@ -192,6 +193,12 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
         selected = emptySet()
         selecting = false
         if (model.filter.anchor != railDay) railDay = null
+    }
+    if (aiSearching) {
+        AISearchSheet(model, { aiSearching = false }) { memory ->
+            aiSearching = false
+            navigate(Destination("media", memory))
+        }
     }
     val motionScope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -325,6 +332,7 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.weight(1f))
+            TextButton({ aiSearching = true }) { Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("智能找回忆") }
             if (model.filter != TimelineFilter())
                 TextButton({ model.applyFilter(TimelineFilter()) }) { Text("清除筛选") }
         }
@@ -889,5 +897,94 @@ fun EmptyState(title: String, detail: String = "") {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
             )
+    }
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AISearchSheet(model: AppModel, close: () -> Unit, open: (Memory) -> Unit) {
+    val scope = rememberCoroutineScope()
+    val filter = remember { model.filter }
+    var query by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var error by remember { mutableStateOf("") }
+    var items by remember { mutableStateOf<List<Memory>>(emptyList()) }
+    var searched by remember { mutableStateOf(false) }
+    var reload by remember { mutableIntStateOf(0) }
+    LaunchedEffect(reload) {
+        error = ""
+        try { status = model.api.getObject("/ai-search/status", refresh = true) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { error = e.message ?: "搜索状态读取失败" }
+    }
+    MotionBottomSheet(onDismissRequest = close) { dismissSheet ->
+        LazyColumn(Modifier.fillMaxWidth().imePadding().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            item {
+                Text("智能找回忆", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(10.dp))
+                Text("描述一个画面，找回照片和视频里的瞬间。")
+            }
+            item {
+                val labels = buildList {
+                    addAll(model.profiles.filter { it.id in filter.people }.map { it.label })
+                    if (filter.uploader != null) add("已选上传人")
+                    if (filter.type.isNotBlank()) add(when(filter.type) { "video" -> "视频"; "photo" -> "照片"; else -> "Live Photo" })
+                    if (filter.start.isNotBlank() || filter.end.isNotBlank()) add("归档日期 ${filter.start} 至 ${filter.end}")
+                }
+                if (labels.isNotEmpty()) Text("沿用当前筛选：" + labels.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(query, { query = it.take(200) }, Modifier.fillMaxWidth(), enabled = !busy,
+                    label = { Text("描述想找的回忆") }, placeholder = { Text("例如：去年夏天在海边玩沙子") }, maxLines = 4)
+            }
+            item {
+                Button(onClick = {
+                    busy = true; error = ""; searched = false; items = emptyList()
+                    scope.launch {
+                        try {
+                            val body = json("query" to query.trim(), "child_ids" to JSONArray(filter.people.toList()))
+                            filter.uploader?.let { body.put("owner_id", it) }
+                            if (filter.type.isNotBlank()) body.put("media_type", filter.type)
+                            if (filter.start.isNotBlank()) body.put("start", filter.start + "T00:00:00")
+                            if (filter.end.isNotBlank()) body.put("end", java.time.LocalDate.parse(filter.end).plusDays(1).toString() + "T00:00:00")
+                            val result = model.api.searchMemories(body)
+                            items = result.objects("items").map(::Memory); searched = true
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { error = e.message ?: "搜索失败，请重试" }
+                        finally { busy = false }
+                    }
+                }, enabled = !busy && query.isNotBlank() && status?.optBoolean("enabled") == true && (status?.optInt("indexed") ?: 0) > 0,
+                    modifier = Modifier.fillMaxWidth()) {
+                    if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text(if (busy) "正在寻找…" else "查找回忆")
+                }
+            }
+            item {
+                val current = status
+                Text(if (current == null) "正在读取搜索状态…" else if (!current.optBoolean("enabled")) "智能搜索尚未启用，请管理员配置 OpenAI API Key 并建立索引"
+                    else "已分析 ${current.optInt("indexed")} / ${current.optInt("total")} 项影像", style = MaterialTheme.typography.bodySmall)
+                TextButton({ reload++ }, enabled = !busy) { Text("刷新状态") }
+                Text("仅搜索已分析的影像。视频按抽样画面匹配，可能遗漏短暂片段；Live Photo 按静态照片匹配。", style = MaterialTheme.typography.bodySmall)
+                if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
+            }
+            if (searched) {
+                item { Text("${items.size} 项相关回忆 · 最多显示 40 项") }
+                if (items.isEmpty()) item { Text("没有找到相关影像，试试描述场景、物体或动作，或放宽时间线筛选。") }
+                items(items.size, key = { items[it].id }) { index ->
+                    val memory = items[index]
+                    Card(onClick = { open(memory) }) {
+                        PreviewImage(model.api, memory, Modifier.fillMaxWidth().height(200.dp))
+                        Text(memory.day + if (memory.type == "video") " · 视频" else "", Modifier.padding(12.dp))
+                    }
+                }
+            } else if (!busy) item {
+                Column {
+                    listOf("在草地上奔跑的小狗", "吹生日蜡烛的视频", "穿黄色雨衣踩水坑").forEach { sample ->
+                        TextButton({ query = sample }) { Text(sample) }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(28.dp)) }
+        }
     }
 }

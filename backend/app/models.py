@@ -198,6 +198,22 @@ class VideoPreview(Base, Timestamp):
     error: Mapped[str] = mapped_column(String(255), default="")
 
 
+class MediaSearchIndex(Base, Timestamp):
+    __tablename__ = "media_search_index"
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    embedding: Mapped[list] = mapped_column(JSON, default=list)
+    frame_seconds: Mapped[list] = mapped_column(JSON, default=list)
+    error: Mapped[str] = mapped_column(String(255), default="")
+
+
+class AISpend(Base):
+    __tablename__ = "ai_spend"
+    month: Mapped[str] = mapped_column(String(7), primary_key=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0)
+
+
 class MediaMetadata(Base):
     __tablename__ = "media_metadata"
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id"), primary_key=True)

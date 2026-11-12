@@ -52,6 +52,7 @@ private final class SessionHTTP: URLProtocol {
             else { body = request.httpMethod == "POST" ? #"{"id":3}"# : #"[{"id":1,"username":"synthetic","role":"admin","active":true},{"id":2,"username":"other","role":"member","active":false}]"# }
         case "/yearly/api/users/1", "/yearly/api/users/2": body = #"{"ok":true}"#
         case "/yearly/api/audit-logs": body = #"{"items":[{"id":1,"actor_name":"synthetic","resource_type":"media","resource_id":"42","action":"update","created_at":"2026-11-09T07:00:00.123","changes":{"title":{"before":"old","after":"new"},"password":{"changed":true},"tags":{"before":[],"after":["family"]}}}],"total":1}"#
+        case "/yearly/api/ai-search": body = #"{"items":[{"id":42,"media_type":"photo"}],"indexed":1}"#
         case "/yearly/api/children": body = "[]"
         case "/yearly/api/children/1":
             body = #"{"id":1,"name":"家庭成员","nickname":"新昵称","profile_type":"person","birthday":"2020-01-03","avatar_media_id":42,"status":"archived"}"#
@@ -516,6 +517,12 @@ private final class SessionHTTP: URLProtocol {
         SessionHTTP.role = "viewer"
         try await session.login(username: "synthetic", password: "not-saved-password", captcha: captcha, answer: "ABCDE")
         precondition(!session.canEdit)
+        let aiResult: NativeSearchPage = try await session.searchMemories(["query": "海边玩沙"])
+        precondition(aiResult.items.first?.id == 42)
+        let aiRequest = SessionHTTP.requests.last!
+        precondition(aiRequest.httpMethod == "POST" && aiRequest.timeoutInterval == 150)
+        precondition(aiRequest.value(forHTTPHeaderField: "X-CSRF-Token") == "test-csrf")
+        precondition(aiRequest.value(forHTTPHeaderField: "Origin") == "https://native.invalid")
         let count = SessionHTTP.requests.count
         do { try await session.write("/media/42", json: [:]); fatalError("viewer cannot write") }
         catch { precondition(SessionHTTP.requests.count == count) }

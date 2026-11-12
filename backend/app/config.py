@@ -3,7 +3,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     upload_part_size: int = 16 * 1024 * 1024
     max_file_size: int = 50 * 1024**3
     session_hours: int = 168
+    ai_search_enabled: bool = False
+    openai_api_key: str = Field(default="", repr=False)
+    openai_proxy_url: str = Field(default="", repr=False)
+    ai_monthly_budget_usd: float = Field(default=80, ge=0, le=100)
 
     @field_validator("app_base_path")
     @classmethod

@@ -1,0 +1,27 @@
+[Unit]
+Description=yearly visual search index
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yearly
+Group=yearly
+WorkingDirectory=/opt/yearly
+EnvironmentFile=/opt/yearly/.env.production
+Environment=APP_ENV=production
+Environment=PYTHONPATH=/opt/yearly/backend
+ExecStart=/opt/yearly/.venv/bin/python -m app.cli build-search-index --watch --limit 10000
+# Exit on exhausted budget or provider configuration failure; do not loop paid retries.
+Restart=no
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/yearly
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

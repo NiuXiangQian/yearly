@@ -108,6 +108,7 @@ Create profiles for parents, grandparents, children, friends, and pets. Set cust
 
 | Use case | Capabilities |
 | --- | --- |
+| Smart search | [Find photos and videos with a sentence](docs/ai-search.md), optional OpenAI integration with scene and date matching |
 | Organize memories | Daily grouping, named folders, mixed folder/media ordering, bulk selection and moves, default-order reset |
 | Record growth | People and pet profiles, individual avatars, age-based browsing, one-month / 100-day / birthday navigation, shared growth journals |
 | Upload in batches | Batch names, EXIF / QuickTime date parsing, date checks when appending, cross-batch deduplication, multipart uploads and retries |
