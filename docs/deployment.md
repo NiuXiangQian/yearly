@@ -6,6 +6,12 @@
 
 本地测试使用 `.env.test`、`yearly_test` 与测试数据库账号，启动命令为 `scripts/start-local.sh`。正式部署使用 `.env.production`、`yearly` 与正式数据库账号。两套配置均使用 MySQL，页面和健康检查显示当前环境。以下步骤针对正式环境，首次数据库初始化完成后可跳过建库与建表步骤。
 
+## 当前线上入口
+
+当前站点统一使用 `https://refblogs.com/yearly/`，`yearly.refblogs.com` 自 2026-11-12 起废弃，服务器对旧域名返回 HTTP 410。后续发布仅构建和切换 `/yearly/` 子路径版本，不再部署旧域名的根路径版本。网页、App 的站点地址和分享链接均使用上述 HTTPS 入口。
+
+前端构建设置 `VITE_SHARE_ORIGIN=https://refblogs.com`，执行 `npm run build -- --base /yearly/`；后端对应 `ALLOWED_ORIGIN=https://refblogs.com`、`APP_BASE_PATH=/yearly`。旧站点配置中仍被 HTTPS 入口引用的共享限流区应保留，停用旧入口不删除数据库、媒体或历史发布备份。
+
 ## 1. 运行依赖
 
 Linux、Python 3.12、Node.js 22.12+、已有 MySQL 5.7.8+、已有 Nginx。JSON 字段要求 MySQL 至少 5.7.8，推荐最新 5.7 补丁版本。无需 Docker，也无需新建 MySQL / Nginx 容器。建议数据库时间保持 UTC，拍摄当地时间单独按 DATETIME 保存。

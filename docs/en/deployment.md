@@ -6,6 +6,12 @@
 
 Local testing uses `.env.test`, `yearly_test`, and a dedicated test database account. Start it with `scripts/start-local.sh`. Production uses `.env.production`, `yearly`, and a separate production account. Both environments use MySQL; the interface and health endpoint identify the active environment. The following steps target production. Skip initial database/schema creation if it has already been completed.
 
+## Current public entry
+
+The site uses `https://refblogs.com/yearly/`. `yearly.refblogs.com` was retired on 2026-11-12 and returns HTTP 410. Future releases must build and switch only the `/yearly/` deployment; do not deploy the retired domain's root-path build. Use the HTTPS entry for the website, app site URL, and share links.
+
+Build with `VITE_SHARE_ORIGIN=https://refblogs.com` and `npm run build -- --base /yearly/`. The corresponding backend settings are `ALLOWED_ORIGIN=https://refblogs.com` and `APP_BASE_PATH=/yearly`. Preserve any shared rate-limit zone still referenced by the HTTPS entry. Retiring the old entry does not remove databases, media, or historical release backups.
+
 ## 1. Runtime dependencies
 
 Use Linux, Python 3.12, Node.js 22.12+, MySQL 5.7.8+, and Nginx. JSON columns require at least MySQL 5.7.8; use the latest available 5.7 patch release. Docker and additional MySQL / Nginx containers are not required. Keep the database clock in UTC; local capture times are stored separately as DATETIME values.
