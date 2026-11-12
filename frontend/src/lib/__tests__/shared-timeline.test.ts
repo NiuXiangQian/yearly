@@ -400,3 +400,78 @@ it("automatically appends shared folder contents when its end becomes visible", 
   await vi.waitFor(() => expect(document.querySelectorAll(".shared-folder-dialog .shared-card")).toHaveLength(12));
   expect(api).toHaveBeenLastCalledWith("/public/shares/virtual/folders/90?offset=8&order=desc");
 });
+
+
+it.each(["desc", "asc"])("continues backward automatically after a date jump (%s), preserving the reading anchor", async (order) => {
+  localStorage.setItem("yearly-shared-order", order);
+  const dates = Array.from({ length: 40 }, (_, index) => new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10));
+  const ordered = order === "asc" ? dates : [...dates].reverse();
+  let topVisible = false;
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const top = this.closest(".shared-previous") && !topVisible ? -1000 : 0;
+    return { top, bottom: top + 10, height: 10, width: 40, left: 0, right: 40, x: 0, y: top, toJSON() {} };
+  });
+  const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  const backwardCalls: string[] = [];
+  vi.mocked(api).mockImplementation(async (path: string) => {
+    if (path.endsWith("/dates")) return { dates };
+    const params = new URL(path, "http://fixture.invalid").searchParams;
+    let page = ordered.slice(0, 7);
+    const anchor = params.get("anchor");
+    if (anchor) page = ordered.slice(ordered.indexOf(anchor), ordered.indexOf(anchor) + 7);
+    if (params.has("backward")) {
+      const boundary = params.get(order === "asc" ? "before" : "after")!;
+      page = ordered.slice(Math.max(0, ordered.indexOf(boundary) - 7), ordered.indexOf(boundary));
+      backwardCalls.push(boundary);
+      topVisible = false;
+    }
+    return { ...response(), days: page.map(day => ({ day, total: 1, items: [items[0]] })), next_before: null, next_after: null };
+  });
+  try {
+    await mount();
+    await vi.waitFor(() => expect(host.querySelectorAll(".shared-day")).toHaveLength(7));
+    host.querySelector('[role="slider"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    await vi.waitFor(() => expect(host.querySelectorAll(".shared-day")).toHaveLength(8));
+    await vi.waitFor(() => expect(host.querySelector(".shared-previous .scroll-loader")?.textContent).not.toContain("正在加载"));
+    const first = host.querySelector<HTMLElement>(".shared-day")!;
+    const firstDay = first.dataset.day!;
+    Object.defineProperty(first, "getBoundingClientRect", { configurable: true, value: vi.fn().mockReturnValueOnce({ top: 50 }).mockReturnValue({ top: 750 }) });
+    topVisible = true;
+    intersect(host.querySelector(".shared-previous .scroll-loader")!);
+    await vi.waitFor(() => expect(host.querySelectorAll(".shared-day")).toHaveLength(15));
+    expect(backwardCalls).toContain(firstDay);
+    expect(scrollBy).toHaveBeenCalledWith(0, 700);
+    delete (first as any).getBoundingClientRect;
+    while (host.querySelector(".shared-previous .scroll-loader")) {
+      const before = host.querySelectorAll(".shared-day").length;
+      topVisible = true;
+      intersect(host.querySelector(".shared-previous .scroll-loader")!);
+      await vi.waitFor(() => expect(host.querySelectorAll(".shared-day").length).toBeGreaterThan(before));
+    }
+    expect([...host.querySelectorAll<HTMLElement>(".shared-day")].map(day => day.dataset.day)).toEqual(ordered);
+    expect(new Set(backwardCalls).size).toBe(backwardCalls.length);
+  } finally {
+    rect.mockRestore(); scrollBy.mockRestore();
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+  }
+});
+
+it("keeps shared days after a backward page fails and retries without an automatic request loop", async () => {
+  const data = { ...response(), dates: ["2024-01-01", "2024-01-02", "2024-01-03"] };
+  vi.mocked(api).mockResolvedValue(data);
+  await mount();
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
+  vi.mocked(api).mockRejectedValueOnce(new Error("向上加载失败"));
+  intersect(host.querySelector(".shared-previous .scroll-loader")!);
+  await vi.waitFor(() => expect(host.querySelector(".shared-previous")?.textContent).toContain("向上加载失败"));
+  expect(host.querySelectorAll(".shared-card")).toHaveLength(9);
+  await nextTick();
+  expect(api).toHaveBeenCalledTimes(3);
+  vi.mocked(api).mockResolvedValueOnce({ ...data, days: [{ day: "2024-01-03", total: 1, items: [items[0]] }] });
+  button("重试").click();
+  await vi.waitFor(() => expect(host.querySelector(".shared-previous")).toBeNull());
+  expect(host.querySelectorAll(".shared-card")).toHaveLength(10);
+  expect(api).toHaveBeenLastCalledWith("/public/shares/virtual?order=desc&backward=true&after=2024-01-02");
+});

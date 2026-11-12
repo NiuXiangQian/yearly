@@ -52,6 +52,10 @@ const pendingDay = computed(() => days.value.find((day) => day.items.length < da
 const currentDate = ref("");
 const currentFraction = ref(0);
 const railHeld = ref(false);
+function holdRail(held: boolean) {
+  railHeld.value = held;
+  if (!held) void applyScrub();
+}
 let scrubTarget: { date: string; fraction: number } | undefined;
 async function scrubDate(date: string, fraction: number) {
   scrubTarget = { date, fraction };
@@ -90,6 +94,7 @@ const loading = ref(false),
   selected = ref<any>(null);
 const dayErrors = ref<Record<string, string>>({}),
   pageError = ref(""),
+  previousError = ref(""),
   folderError = ref(""),
   busyDay = ref(""),
   folderBusy = ref(false);
@@ -134,7 +139,11 @@ async function load(direction: "replace" | "next" | "previous" = "replace", anch
   const order = timelineOrder.value;
   loading.value = true;
   error.value = "";
-  pageError.value = "";
+  if (direction === "previous") previousError.value = "";
+  else {
+    pageError.value = "";
+    if (!more) previousError.value = "";
+  }
   if (!more && !anchor) {
     days.value = [];
     nextDate.value = null;
@@ -182,7 +191,8 @@ async function load(direction: "replace" | "next" | "previous" = "replace", anch
     );
   } catch (e) {
     if (generation === loadGeneration) {
-      if (more) pageError.value = e instanceof Error ? e.message : t("请求失败");
+      if (direction === "previous") previousError.value = e instanceof Error ? e.message : t("请求失败");
+      else if (more) pageError.value = e instanceof Error ? e.message : t("请求失败");
       else if (anchor) notify(e);
       else error.value = e instanceof Error ? e.message : t("请求失败");
     }
@@ -361,17 +371,20 @@ onBeforeUnmount(() => {
           :dates="railDates"
           :current="currentDate" :fraction="currentFraction"
           :disabled="folderBusy"
-          @hold="railHeld = $event" @scrub="scrubDate"
+          @hold="holdRail" @scrub="scrubDate"
           @select="scrubTarget = undefined; seekDate($event)"
         />
         <div ref="reading" class="shared-reading">
           <p v-if="share.scope !== 'selection' && dateIndex.length" class="rail-hint">
             {{ t("拖动连续浏览，点击跳到日期节点") }}
           </p>
-          <div v-if="previousDate" class="shared-footer">
-            <button class="button" :disabled="loading" @click="load('previous')">
-              {{ loading ? t("正在加载…") : timelineOrder === "asc" ? t("更早的日子") : t("更晚的日子") }}
-            </button>
+          <div v-if="previousDate" class="shared-footer shared-previous">
+            <ScrollLoader
+              :loading="railHeld || loading || !!busyDay"
+              :has-more="!!previousDate"
+              :error="previousError"
+              @load="load('previous')"
+            />
           </div>
           <TimelineMonths ref="monthList" :days="days" :ungrouped="share.scope === 'selection'" v-slot="{ day }">
             <section
