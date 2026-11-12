@@ -31,3 +31,7 @@ credentials/
 # Local browser verification artifacts
 /output/playwright/
 /.playwright-cli/
+
+# Build artifacts for scripted test deployment
+/release/
+/yearly-test.tgz
