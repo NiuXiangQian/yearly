@@ -30,15 +30,8 @@ def provider(monkeypatch):
         if endpoint == "embeddings":
             return {"data": [{"embedding": vector()}]}
         schema = payload.get("response_format", {}).get("json_schema", {}).get("name")
-        if schema in ("QueryPlan", "SearchSelection"):
-            plan = dict(scene="海边玩沙", start=None, end=None, profile_ids=[], media_type=None)
-            if schema == "SearchSelection":
-                candidates = json.loads(payload["messages"][1]["content"])["candidates"]
-                plan["ids"] = [c["id"] for c in candidates if "海边" in c["description"]]
-            content = json.dumps(plan)
-        elif schema == "Matches":
-            candidates = json.loads(payload["messages"][1]["content"])["candidates"]
-            content = json.dumps({"ids": [c["id"] for c in candidates if "海边" in c["description"]]})
+        if schema == "QueryPlan":
+            content = json.dumps(dict(scene="海边玩沙", start=None, end=None, profile_ids=[], profile_mentions=[], media_type=None))
         else:
             content = "海边玩沙的孩子，旁边有蓝色小桶。"
         return {"choices": [{"finish_reason": "stop", "message": {"content": content}}]}
@@ -107,7 +100,7 @@ def test_empty_disabled_and_failed_provider(context, provider, monkeypatch):
     assert context.client.post("/api/ai-search", json={"query":"海边"}).json()["items"] == []
     mid = upload(context)["media_id"]
     add_index(context, mid, "室内睡觉")
-    assert context.client.post("/api/ai-search", json={"query":"海边"}).json()["items"] == []
+    assert [x["id"] for x in context.client.post("/api/ai-search", json={"query":"海边"}).json()["items"]] == [mid]
     monkeypatch.setattr(settings(), "ai_search_enabled", False)
     assert context.client.post("/api/ai-search", json={"query":"海边"}).status_code == 503
     assert context.client.get("/api/timeline").status_code == 200
@@ -180,8 +173,8 @@ def test_inferred_date_person_and_type_are_intersected(context, provider, monkey
     for mid in (wanted, old, other): add_index(context, mid)
     real_chat = ai.chat
     def planned(db, system, content, schema=None):
-        if schema in (ai.QueryPlan, ai.SearchSelection):
-            return schema(**({"ids": [wanted, old, other]} if schema is ai.SearchSelection else {}), scene='', start='2025-06-01',end='2025-08-31',profile_ids=[person['id']],media_type='photo')
+        if schema is ai.QueryPlan:
+            return schema(scene='', start='2025-06-01',end='2025-08-31',profile_ids=[person['id']],profile_mentions=['哥哥'],media_type='photo')
         return real_chat(db,system,content,schema)
     monkeypatch.setattr(ai,'chat',planned)
     response=context.client.post('/api/ai-search',json={'query':'去年夏天哥哥的照片'})
@@ -191,12 +184,52 @@ def test_inferred_date_person_and_type_are_intersected(context, provider, monkey
     assert response.json()['items'] == []
 
 
-def test_small_scope_uses_one_call_and_reports_owned_progress(context, provider):
+@pytest.mark.parametrize("large", [False, True])
+@pytest.mark.parametrize("query,mention,person_filter", [
+    ("一家人过生日吃蛋糕", "妈妈", False),
+    ("一家人过生日吃蛋糕", "一家人", False),
+    ("母亲过生日吃蛋糕", "母亲", True),
+])
+def test_person_filters_require_specific_mentions_in_query(context, provider, monkeypatch, large, query, mention, person_filter):
+    mother = child(context, "妈妈")["id"]
+    daughter = child(context, "女儿")["id"]
+    birthday = upload(context, [daughter])["media_id"]
+    together = upload(context, [mother, daughter])["media_id"]
+    for mid in (birthday, together):
+        add_index(context, mid, "生日蛋糕和燃烧的蜡烛")
+    if large:
+        for _ in range(39):
+            add_index(context, upload(context)["media_id"], "室内睡觉", vector(-1))
+
+    def planned(db, system, content, schema=None):
+        if schema is ai.QueryPlan:
+            return schema(scene="过生日吃蛋糕", start=None, end=None,
+                          profile_ids=[mother], profile_mentions=[mention], media_type=None)
+        raise AssertionError("Search must not call a model to filter recalled candidates")
+
+    monkeypatch.setattr(ai, "chat", planned)
+    response = context.client.post("/api/ai-search", json={"query": query})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    hits = {x["id"] for x in data["items"]}
+    if person_filter:
+        assert hits == {together}
+    else:
+        assert {birthday, together} <= hits
+        assert len(hits) == (40 if large else 2)
+    assert data["filters"]["profile_ids"] == ([mother] if person_filter else [])
+    assert set(data["filters"]) == {"scene", "start", "end", "profile_ids", "media_type"}
+    if not person_filter:
+        response = context.client.post("/api/ai-search", json={"query": query, "child_ids": [mother]})
+        assert [x["id"] for x in response.json()["items"]] == [together]
+
+
+def test_small_scope_uses_vector_recall_and_reports_owned_progress(context, provider):
     mid = upload(context)["media_id"]
     add_index(context, mid)
     response = context.client.post("/api/ai-search", json={"query":"海边", "request_id":"my-search"})
     assert response.status_code == 200
-    assert len(provider) == 1
+    assert [c[0] for c in provider] == ["chat/completions", "embeddings"]
     assert context.client.get("/api/ai-search/progress/my-search").json() == {"stage":"complete"}
     act(context,"viewer")
     assert context.client.get("/api/ai-search/progress/my-search").json() == {"stage":"waiting"}
@@ -207,7 +240,20 @@ def test_large_scope_preserves_vector_search_and_scope(context, provider):
     response=context.client.post("/api/ai-search",json={"query":"海边"})
     assert response.status_code == 200
     assert len(response.json()["items"]) == 40
-    assert [c[0] for c in provider] == ["chat/completions","embeddings","chat/completions"]
+    assert [c[0] for c in provider] == ["chat/completions","embeddings"]
+
+
+def test_new_indexed_photo_is_returned_in_vector_order_without_model_filter(context, provider):
+    old = upload(context, taken="2026-11-03T20:36:00")["media_id"]
+    newest = upload(context, taken="2026-10-14T21:11:00")["media_id"]
+    add_index(context, old, "旧照片海边", [0.8, 0.6] + [0] * (ai.DIMENSIONS - 2))
+    add_index(context, newest, "新上传照片海边", vector())
+    response = context.client.post("/api/ai-search", json={"query": "海边"})
+    assert response.status_code == 200, response.text
+    assert [x["id"] for x in response.json()["items"]] == [newest, old]
+    assert [c[0] for c in provider] == ["chat/completions", "embeddings"]
+    assert "candidates" not in json.loads(provider[0][1]["messages"][1]["content"])
+
 
 
 @pytest.mark.parametrize("duration,expected",[(12,6),(120,24),(600,60)])
