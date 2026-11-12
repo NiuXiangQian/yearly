@@ -237,9 +237,6 @@ function browse(id: number) {
     <div>
       <span class="eyebrow">LITTLE LIVES, SHARED STORIES</span>
       <h1>{{ t("每一位家人，都在时光里。") }}</h1>
-      <p>
-        {{ t("记录爸爸妈妈、长辈、孩子和宠物，按名字或分类找到共同回忆。") }}
-      </p>
     </div>
     <div v-if="yearly.canEdit" class="profile-create-actions">
       <button class="button" @click="edit(undefined, 'pet')">
@@ -461,7 +458,7 @@ function browse(id: number) {
       <p class="muted">
         {{
           t(
-            "孩子、宠物通常开启；家长等人物可关闭。关闭后仍能标记和筛选影像，不显示年龄与成长节点。",
+            "关闭后仍可关联和筛选影像。",
           )
         }}
       </p>

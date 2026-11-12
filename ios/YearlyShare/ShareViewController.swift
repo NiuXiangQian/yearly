@@ -188,10 +188,11 @@ struct ShareUploadView: View {
                     let source: SharedPhotoImport.Source
                     var temporaryFile: URL?
                     defer { if let temporaryFile { try? FileManager.default.removeItem(at: temporaryFile) } }
-                    if provider.canLoadObject(ofClass: PHLivePhoto.self) {
+                    // A declared live representation must never fall through to its JPEG poster.
+                    if provider.canLoadObject(ofClass: PHLivePhoto.self) || provider.hasItemConformingToTypeIdentifier(UTType.livePhoto.identifier) {
                         let livePhoto: PHLivePhoto = try await withCheckedThrowingContinuation { continuation in
-                            provider.loadObject(ofClass: PHLivePhoto.self) { value, error in
-                                if let value = value as? PHLivePhoto { continuation.resume(returning: value) }
+                            YLLoadSharedLivePhoto(provider) { value, error in
+                                if let value { continuation.resume(returning: value) }
                                 else { continuation.resume(throwing: error ?? UploadFailure(message: "相册暂未提供完整的实况资源，请重试。")) }
                             }
                         }

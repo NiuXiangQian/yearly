@@ -129,16 +129,16 @@ struct NativeAppShell: View {
                             Section("管理与记录") {
                                 if session.isAdmin {
                                     NavigationLink { NativeAccountsView(session: session) } label: {
-                                        NativeSettingsLabel(title: "账号管理", symbol: "person.2.badge.gearshape", detail: "家庭成员、角色与账号状态")
+                                        NativeSettingsLabel(title: "账号管理", symbol: "person.2.badge.gearshape")
                                     }
                                 }
                                 NavigationLink { NativeAuditView(session: session) } label: {
-                                    NativeSettingsLabel(title: "修改记录", symbol: "clock.arrow.circlepath", detail: "查看文件与设置的变更")
+                                    NativeSettingsLabel(title: "修改记录", symbol: "clock.arrow.circlepath")
                                 }
                                 if session.canEdit {
                                     Button { showingShares = true } label: {
                                         HStack {
-                                            NativeSettingsLabel(title: "分享管理", symbol: "link", detail: "创建链接、查看访问与撤销分享")
+                                            NativeSettingsLabel(title: "分享管理", symbol: "link")
                                             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                                         }
                                     }.buttonStyle(.plain)
@@ -154,9 +154,7 @@ struct NativeAppShell: View {
                                         Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                                     }
                                 }.buttonStyle(.plain)
-                            } header: { Text("安全与设置") } footer: {
-                                Text("会话安全保存在 Keychain，密码不会保存到本机。")
-                            }
+                            } header: { Text("安全与设置") }
                             Section {
                                 Button { loggingOut = true } label: {
                                     Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right").frame(maxWidth: .infinity)
@@ -247,8 +245,6 @@ struct NativeLoginView: View {
                 Section {
                     Text(session.site.url.absoluteString).font(.caption)
                     Button("修改家庭站点地址", action: editSite)
-                    Text("首次使用原生版本需重新登录。密码不会写入本机存储，登录会话仅保存到 Keychain。")
-                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }.navigationTitle("Yearly")
                 .task { await refreshCaptcha() }
@@ -299,7 +295,7 @@ struct SiteSettings: View {
                     }
                     .disabled(SiteOrigin(draft) == nil)
                 } header: { Text("家庭站点") } footer: {
-                    Text("请输入已部署的 Yearly HTTPS 地址，可包含安装路径，例如 /yearly/。请去掉查询参数和页面锚点。更换站点会中断当前上传。")
+                    Text("填写家庭站点 HTTPS 地址，保留安装路径。更换站点会中断当前上传。")
                 }
                 Section("数据与隐私") {
                     Label("照片仅在你选择并上传后发送至家庭站点配置的存储。", systemImage: "photo.on.rectangle")
@@ -313,8 +309,6 @@ struct SiteSettings: View {
                 }.font(.subheadline)
                 Section("关于") {
                     LabeledContent("yearly", value: version)
-                    Text("原生上传任务自动保存，进入后台暂停，回到前台续传。强制退出后请打开上传任务并继续；不保证后台持续上传。")
-                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
             .navigationTitle(canCancel ? "站点与关于" : "欢迎使用 yearly")

@@ -21,7 +21,7 @@
         E0000000000000000000001D = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000032";};
         E0000000000000000000001E = {isa = "PBXBuildFile"; fileRef = "A00000000000000000000033";};
         E0000000000000000000001F = {isa = "PBXBuildFile"; fileRef = "F00000000000000000000015";};
-        E00000000000000000000028 = {isa = "PBXSourcesBuildPhase"; buildActionMask = 2147483647; files = ("E00000000000000000000014", "E00000000000000000000015", "E00000000000000000000016", "E00000000000000000000017", "E00000000000000000000018", "E00000000000000000000019", "E0000000000000000000001A", "E0000000000000000000001B", "E0000000000000000000001C", "E0000000000000000000001D", "E0000000000000000000001E", "E0000000000000000000001F"); runOnlyForDeploymentPostprocessing = 0;};
+        E00000000000000000000028 = {isa = "PBXSourcesBuildPhase"; buildActionMask = 2147483647; files = ("D10000000000000000000002", "E00000000000000000000014", "E00000000000000000000015", "E00000000000000000000016", "E00000000000000000000017", "E00000000000000000000018", "E00000000000000000000019", "E0000000000000000000001A", "E0000000000000000000001B", "E0000000000000000000001C", "E0000000000000000000001D", "E0000000000000000000001E", "E0000000000000000000001F"); runOnlyForDeploymentPostprocessing = 0;};
         E00000000000000000000029 = {isa = "PBXFrameworksBuildPhase"; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
         E0000000000000000000002A = {isa = "PBXBuildFile"; fileRef = "F00000000000000000000019";};
         E0000000000000000000002B = {isa = "PBXResourcesBuildPhase"; buildActionMask = 2147483647; files = ("E0000000000000000000002A"); runOnlyForDeploymentPostprocessing = 0;};
@@ -30,11 +30,13 @@
         E0000000000000000000002E = {isa = "PBXTargetDependency"; target = "E00000000000000000000032"; targetProxy = "E0000000000000000000002D";};
         E00000000000000000000032 = {isa = "PBXNativeTarget"; buildConfigurationList = "E00000000000000000000033"; buildPhases = ("E00000000000000000000028", "E00000000000000000000029", "E0000000000000000000002B"); buildRules = (); dependencies = (); name = "YearlyAction"; productName = "YearlyAction"; productReference = "E00000000000000000000003"; productType = "com.apple.product-type.app-extension";};
         E00000000000000000000033 = {isa = "XCConfigurationList"; buildConfigurations = ("E00000000000000000000034", "E00000000000000000000035"); defaultConfigurationIsVisible = 0; defaultConfigurationName = "Release";};
-        E00000000000000000000034 = {isa = "XCBuildConfiguration"; buildSettings = {LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); APPLICATION_EXTENSION_API_ONLY = "YES"; DEVELOPMENT_TEAM = "5MC89AP7JM"; SUPPORTS_MACCATALYST = "NO"; MARKETING_VERSION = "1.0"; INFOPLIST_FILE = "YearlyAction/Info.plist"; SKIP_INSTALL = "YES"; TARGETED_DEVICE_FAMILY = "1"; GENERATE_INFOPLIST_FILE = "NO"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; CODE_SIGN_ENTITLEMENTS = "YearlyAction/YearlyAction.entitlements"; PRODUCT_NAME = "$(TARGET_NAME)"; CODE_SIGN_STYLE = "Automatic"; SWIFT_VERSION = "5.0"; IPHONEOS_DEPLOYMENT_TARGET = "16.0"; PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID).action"; CURRENT_PROJECT_VERSION = "1";}; name = "Debug";};
-        E00000000000000000000035 = {isa = "XCBuildConfiguration"; buildSettings = {LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); APPLICATION_EXTENSION_API_ONLY = "YES"; DEVELOPMENT_TEAM = "5MC89AP7JM"; SUPPORTS_MACCATALYST = "NO"; MARKETING_VERSION = "1.0"; INFOPLIST_FILE = "YearlyAction/Info.plist"; SKIP_INSTALL = "YES"; TARGETED_DEVICE_FAMILY = "1"; GENERATE_INFOPLIST_FILE = "NO"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; CODE_SIGN_ENTITLEMENTS = "YearlyAction/YearlyAction.entitlements"; PRODUCT_NAME = "$(TARGET_NAME)"; CODE_SIGN_STYLE = "Automatic"; SWIFT_VERSION = "5.0"; IPHONEOS_DEPLOYMENT_TARGET = "16.0"; PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID).action"; CURRENT_PROJECT_VERSION = "1";}; name = "Release";};
+        E00000000000000000000034 = {isa = "XCBuildConfiguration"; buildSettings = {LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); APPLICATION_EXTENSION_API_ONLY = "YES"; SWIFT_OBJC_BRIDGING_HEADER = "YearlyShare/SharedLivePhoto.h"; DEVELOPMENT_TEAM = "5MC89AP7JM"; SUPPORTS_MACCATALYST = "NO"; MARKETING_VERSION = "1.0"; INFOPLIST_FILE = "YearlyAction/Info.plist"; SKIP_INSTALL = "YES"; TARGETED_DEVICE_FAMILY = "1"; GENERATE_INFOPLIST_FILE = "NO"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; CODE_SIGN_ENTITLEMENTS = "YearlyAction/YearlyAction.entitlements"; PRODUCT_NAME = "$(TARGET_NAME)"; CODE_SIGN_STYLE = "Automatic"; SWIFT_VERSION = "5.0"; IPHONEOS_DEPLOYMENT_TARGET = "16.0"; PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID).action"; CURRENT_PROJECT_VERSION = "1";}; name = "Debug";};
+        E00000000000000000000035 = {isa = "XCBuildConfiguration"; buildSettings = {LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); APPLICATION_EXTENSION_API_ONLY = "YES"; SWIFT_OBJC_BRIDGING_HEADER = "YearlyShare/SharedLivePhoto.h"; DEVELOPMENT_TEAM = "5MC89AP7JM"; SUPPORTS_MACCATALYST = "NO"; MARKETING_VERSION = "1.0"; INFOPLIST_FILE = "YearlyAction/Info.plist"; SKIP_INSTALL = "YES"; TARGETED_DEVICE_FAMILY = "1"; GENERATE_INFOPLIST_FILE = "NO"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; CODE_SIGN_ENTITLEMENTS = "YearlyAction/YearlyAction.entitlements"; PRODUCT_NAME = "$(TARGET_NAME)"; CODE_SIGN_STYLE = "Automatic"; SWIFT_VERSION = "5.0"; IPHONEOS_DEPLOYMENT_TARGET = "16.0"; PRODUCT_BUNDLE_IDENTIFIER = "$(YEARLY_APP_BUNDLE_ID).action"; CURRENT_PROJECT_VERSION = "1";}; name = "Release";};
 
 
 /* Begin PBXBuildFile section */
+        D10000000000000000000001 /* SharedLivePhoto.m in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000003; };
+        D10000000000000000000002 /* SharedLivePhoto.m in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000003; };
 		B00000000000000000000000 /* UploadCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000000 /* UploadCore.swift */; };
 		B00000000000000000000001 /* UploadAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000001 /* UploadAPI.swift */; };
 		B00000000000000000000002 /* PhotoOriginals.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000002 /* PhotoOriginals.swift */; };
@@ -107,6 +109,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        D10000000000000000000003 /* SharedLivePhoto.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SharedLivePhoto.m; sourceTree = "<group>"; };
+        D10000000000000000000004 /* SharedLivePhoto.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SharedLivePhoto.h; sourceTree = "<group>"; };
 		A00000000000000000000000 /* UploadCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadCore.swift; sourceTree = "<group>"; };
 		A00000000000000000000001 /* UploadAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadAPI.swift; sourceTree = "<group>"; };
 		A00000000000000000000002 /* PhotoOriginals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoOriginals.swift; sourceTree = "<group>"; };
@@ -166,6 +170,8 @@
 			isa = PBXGroup;
 			children = (
 				D00000000000000000000001 /* ShareViewController.swift */,
+                D10000000000000000000003 /* SharedLivePhoto.m */,
+                D10000000000000000000004 /* SharedLivePhoto.h */,
 				D00000000000000000000002 /* Info.plist */,
 				D00000000000000000000003 /* YearlyShare.entitlements */,
 			);
@@ -323,6 +329,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D00000000000000000000014 /* ShareViewController.swift in Sources */,
+                D10000000000000000000001 /* SharedLivePhoto.m in Sources */,
 				D00000000000000000000015 /* UploadCore.swift in Sources */,
 				D00000000000000000000016 /* UploadAPI.swift in Sources */,
 				D00000000000000000000017 /* PhotoOriginals.swift in Sources */,
@@ -386,7 +393,7 @@
 		D00000000000000000000034 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
+				APPLICATION_EXTENSION_API_ONLY = YES; SWIFT_OBJC_BRIDGING_HEADER = "YearlyShare/SharedLivePhoto.h";
 				CODE_SIGN_ENTITLEMENTS = YearlyShare/YearlyShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -413,7 +420,7 @@
 		D00000000000000000000035 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
+				APPLICATION_EXTENSION_API_ONLY = YES; SWIFT_OBJC_BRIDGING_HEADER = "YearlyShare/SharedLivePhoto.h";
 				CODE_SIGN_ENTITLEMENTS = YearlyShare/YearlyShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;

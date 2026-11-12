@@ -69,8 +69,8 @@ for key in objects[extension['buildConfigurationList']]['buildConfigurations']:
     assert settings['PRODUCT_BUNDLE_IDENTIFIER'] == '$(YEARLY_APP_BUNDLE_ID).share'
 extension_info = plistlib.loads((root / 'YearlyShare/Info.plist').read_bytes())['NSExtension']
 assert extension_info['NSExtensionPointIdentifier'] == 'com.apple.share-services'
-assert extension_info['NSExtensionAttributes']['NSExtensionActivationRule']['NSExtensionActivationSupportsImageWithMaxCount'] == 20
-assert extension_info['NSExtensionAttributes']['NSExtensionActivationRule']['NSExtensionActivationSupportsMovieWithMaxCount'] == 20
+rule = extension_info['NSExtensionAttributes']['NSExtensionActivationRule']
+assert isinstance(rule, str) and all(kind in rule for kind in ('public.image', 'public.movie', 'com.apple.live-photo'))
 action = next(value for value in objects.values() if value.get('isa') == 'PBXNativeTarget' and value.get('name') == 'YearlyAction')
 assert action['productReference'] in [objects[key]['fileRef'] for key in embed['files']]
 assert any(objects[objects[key]['target']]['name'] == 'YearlyAction' for key in target['dependencies'])
@@ -80,4 +80,11 @@ assert action_info['CFBundleIcons']['CFBundlePrimaryIcon']['CFBundleSymbolName']
 assert action_info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.ui-services'
 assert action_info['NSExtension']['NSExtensionAttributes']['NSExtensionActivationRule'] == extension_info['NSExtensionAttributes']['NSExtensionActivationRule']
 assert plistlib.loads((root / 'YearlyAction/YearlyAction.entitlements').read_bytes()) == plistlib.loads((root / 'YearlyShare/YearlyShare.entitlements').read_bytes())
+for media_extension in (extension, action):
+    sources = next(objects[key] for key in media_extension['buildPhases'] if objects[key]['isa'] == 'PBXSourcesBuildPhase')
+    assert 'SharedLivePhoto.m' in [objects[objects[key]['fileRef']]['path'] for key in sources['files']]
+    for key in objects[media_extension['buildConfigurationList']]['buildConfigurations']:
+        assert objects[key]['buildSettings']['SWIFT_OBJC_BRIDGING_HEADER'] == 'YearlyShare/SharedLivePhoto.h'
+assert (root / 'YearlyShare/SharedLivePhoto.h').is_file()
+assert (root / 'YearlyShare/SharedLivePhoto.m').is_file()
 print('Xcode source membership, resources, icon sizes, plist and shared scheme checks passed.')

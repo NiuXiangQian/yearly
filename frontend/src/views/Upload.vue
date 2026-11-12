@@ -536,7 +536,6 @@ onBeforeUnmount(() => {
       <div>
         <span class="eyebrow">KEEP TODAY FOR TOMORROW</span>
         <h1>{{ t("把一段时光，一起收藏。") }}</h1>
-        <p>{{ t("给这批回忆起个名字，选好照片与视频，就可以开始。") }}</p>
       </div>
       <RouterLink to="/" class="button"
         ><ArrowRight :size="16" /> {{ t("返回时间线") }}
@@ -564,8 +563,8 @@ onBeforeUnmount(() => {
               :disabled="busy || !!targetFolder"
             /><small>{{
               archiveDate
-                ? t("本批文件将追加到这一天，原始拍摄时间单独保留。")
-                : t("留空时，每份文件按自己的拍摄日期归档。")
+                ? t("统一归档，保留原始拍摄时间")
+                : t("留空按拍摄日期归档")
             }}</small></label
           >
         </div>
@@ -585,11 +584,7 @@ onBeforeUnmount(() => {
               }
             "
           />
-          <small class="muted">{{
-            kids.length
-              ? t("已自动应用到所选待上传文件")
-              : t("未关联人物与宠物：仅出现在全部人物与宠物中")
-          }}</small>
+          <small v-if="!kids.length" class="muted">{{ t("未关联人物与宠物") }}</small>
         </div>
       </section>
       <div
@@ -663,13 +658,12 @@ onBeforeUnmount(() => {
           <ElProgress v-if="!parsing || readingTotal" :percentage="hashProgress" :show-text="false" />
         </div>
       </div>
-      <p class="notice">{{ t("实况照片需同时导入照片和配套 MOV 才能播放；相册选择或粘贴可能只提供静态照片。") }}</p>
-      <section class="live-import-guide">
-        <h2><Film :size="18" />{{ t("导入实况照片") }}</h2>
+      <p class="notice">{{ t("实况照片需同时导入照片和配套 MOV。") }}</p>
+      <details class="live-import-guide">
+        <summary><Film :size="18" />{{ t("导入实况照片") }}</summary>
         <p>{{ t("Mac：在“照片”App 选中照片 → 文件 → 导出 → 导出未修改的原片，再把导出的照片和 MOV 一起拖入这里。") }}</p>
-        <p>{{ t("直接从 Mac“照片”拖到网页通常只有静态副本，不包含动态视频。照片 App 里的 LIVE 标记不代表网页收到了动态原件。") }}</p>
         <small>{{ t("配对成功后，上传列表会显示 LIVE；没有显示时，请先检查是否同时选中了 MOV。") }}</small>
-      </section>
+      </details>
       <section class="paste-import">
         <h2><ClipboardPaste :size="18" />{{ t("相册卡住？直接粘贴照片") }}</h2>
         <p id="paste-instructions">{{
@@ -689,7 +683,7 @@ onBeforeUnmount(() => {
           @drop.prevent
         ></div>
         <small id="paste-limitations">{{
-          t("粘贴得到的是系统提供的副本，可能缺少拍摄日期或 Live Photo 动态部分；缺少拍摄日期时标为未知。需要相机原件时，请从文件导入。")
+          t("粘贴可能丢失拍摄日期和实况动态；需要原件请从文件导入。")
         }}</small>
       </section>
       <div v-if="duplicateNames.length" class="duplicate-notice notice" role="alert">
@@ -1126,11 +1120,14 @@ onBeforeUnmount(() => {
   background: var(--surface);
   border-radius: 8px;
 }
-.live-import-guide h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.live-import-guide summary {
+  cursor: pointer;
+  display: list-item;
   font-size: 15px;
+}
+.live-import-guide summary svg {
+  vertical-align: middle;
+  margin-right: 6px;
 }
 .live-import-guide p,
 .live-import-guide small {

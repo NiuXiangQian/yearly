@@ -48,9 +48,7 @@ struct NativeTimelineFilters: View {
                         Button("重新读取上传人") { Task { await store.loadUploaders(refresh: true) } }
                             .buttonStyle(NativeActionStyle())
                     }
-                } header: { Text("谁上传的") } footer: {
-                    if store.uploaders.count == 1 { Text("目前的影像由同一位成员上传。") }
-                }
+                } header: { Text("谁上传的") }
                 }.scrollContentBackground(.hidden)),
                 AnyView(Form {
                 if !store.profiles.isEmpty {

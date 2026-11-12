@@ -27,12 +27,15 @@
 		<key>NSExtensionAttributes</key>
 		<dict>
 			<key>NSExtensionActivationRule</key>
-			<dict>
-				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
-				<integer>20</integer>
-				<key>NSExtensionActivationSupportsMovieWithMaxCount</key>
-				<integer>20</integer>
-			</dict>
+			<string>extensionItems.@count &gt; 0 AND SUBQUERY(
+    extensionItems, $item,
+    $item.attachments.@count &gt; 0 AND $item.attachments.@count &lt;= 20 AND
+    SUBQUERY($item.attachments, $attachment,
+        ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" OR
+        ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.movie" OR
+        ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.live-photo"
+    ).@count == $item.attachments.@count
+).@count == extensionItems.@count</string>
 		</dict>
 	</dict>
 	<key>CFBundleIcons</key>

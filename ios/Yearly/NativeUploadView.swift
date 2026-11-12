@@ -120,7 +120,7 @@ struct NativeUploadView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Label("准备完成 · \(readyCount) 项原件", systemImage: "checkmark.circle.fill")
                     .font(.headline).foregroundStyle(NativeTheme.accent)
-                Text("共 \(bytesLabel(readyBytes))，尚未上传。确认关联人物后即可立即上传。")
+                Text("共 \(bytesLabel(readyBytes))，待上传")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Button("立即上传所选 \(ready.count) 项") {
                     requestUpload()
@@ -226,11 +226,7 @@ struct NativeUploadView: View {
                         Image(systemName: "photo.stack.fill").font(.system(size: 28))
                             .foregroundStyle(NativeTheme.accent).frame(width: 60, height: 60)
                             .background(NativeTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 18))
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("导入照片与视频").font(.title2.bold())
-                            Text("保留原片与完整实况照片，按拍摄日期整理。")
-                                .font(.subheadline).foregroundStyle(.secondary)
-                        }
+                        Text("导入照片与视频").font(.title2.bold())
                         Button { Task { await choosePhotos() } } label: {
                             Label("选择照片与视频", systemImage: "plus").frame(maxWidth: .infinity)
                         }.buttonStyle(NativeActionStyle(kind: .primary))
@@ -247,8 +243,6 @@ struct NativeUploadView: View {
                             Label("全部重试（\(failedCount) 项失败）", systemImage: "arrow.clockwise")
                         }.disabled(account == nil)
                     }
-                    Text("在相册中横向滑过照片可连续多选；Live Photo 自动包含图片与 MOV。仅访问你选择并授权的项目。")
-                        .font(.caption).foregroundStyle(.secondary)
                     if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited {
                         Text("当前为有限访问。若某项无法读取，请在系统照片权限中将它加入允许列表后重试。")
                             .font(.caption).foregroundStyle(.orange)
@@ -265,14 +259,11 @@ struct NativeUploadView: View {
                     }
                     Toggle("设置本批归档日期", isOn: $useArchiveDate)
                     if useArchiveDate { DatePicker("归档日期", selection: $archiveDate, displayedComponents: .date) }
-                    Text("优先按原件拍摄日期归档，读不到时用 iPhone 相册日期。可为本批指定其他归档日期。未选择人物时保留为家庭时光。")
-                        .font(.caption).foregroundStyle(.secondary)
                     Button { showingPeople = true } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 5) {
                                 Label("关联人物与宠物", systemImage: "person.2")
                                 Text(chosenNames).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                                Text("自动记住选择，下次上传无需重选").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
@@ -282,7 +273,7 @@ struct NativeUploadView: View {
                 } header: { Text("本批整理") }
                 if items.isEmpty {
                     Section("上传任务") {
-                        Text("还没有任务。选择照片或视频后，会在这里显示处理进度。")
+                        Text("暂无上传任务")
                             .foregroundStyle(.secondary)
                     }
                 } else {
@@ -301,7 +292,7 @@ struct NativeUploadView: View {
                             Button(showAllPending ? "收起任务列表" : "展开全部 \(pending.count) 项任务") { showAllPending.toggle() }
                         }
                         if !finished.isEmpty { Toggle("显示已结束记录（\(finished.count) 项）", isOn: $showFinished) }
-                        Text("原件先提取到本机，显示准确大小后再确认上传。缓存上限 8 GiB，预留 512 MiB；达到上限时先上传已准备的项目，再重试其余项目。进入后台会暂停，回到前台续传；强制退出后请点继续。")
+                        Text("进入后台会暂停上传，返回后继续；强制退出后请点“继续”。")
                             .font(.caption).foregroundStyle(.secondary)
                     } header: { Text("上传任务") }
                 }

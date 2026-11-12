@@ -59,13 +59,7 @@ fun UploadScreen(model: AppModel, showRecent: () -> Unit, showUploaded: (Int) ->
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                Text("让每一份原片，都有归处", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "选择后先准备原始资源，检查人物、批次和日期，再确认上传。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("导入照片与视频", style = MaterialTheme.typography.titleLarge)
             }
             if (account?.canWrite == true) {
                 item {
@@ -266,7 +260,7 @@ fun UploadScreen(model: AppModel, showRecent: () -> Unit, showUploaded: (Int) ->
                 Field("批次名称", batch) { batch = it }
                 DateField("本批归档日期（可留空）", archive) { archive = it }
                 Text(
-                    "留空时优先使用原件拍摄／创建日期，其次使用相册或源文件日期；填写后统一按指定日期归档。",
+                    "留空按原文件日期归档。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

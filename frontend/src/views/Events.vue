@@ -42,7 +42,6 @@ onMounted(() => load());
     <div>
       <span class="eyebrow">THE STORIES BEHIND THE PICTURES</span>
       <h1>{{ t("有些成长，值得多写几句。") }}</h1>
-      <p>{{ t("把散落的瞬间串成故事，把一起长大的日子记下来。") }}</p>
     </div>
     <button
       v-if="yearly.canEdit"

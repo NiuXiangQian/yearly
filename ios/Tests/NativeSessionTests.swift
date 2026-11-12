@@ -523,6 +523,19 @@ private final class SessionHTTP: URLProtocol {
         precondition(aiRequest.httpMethod == "POST" && aiRequest.timeoutInterval == 150)
         precondition(aiRequest.value(forHTTPHeaderField: "X-CSRF-Token") == "test-csrf")
         precondition(aiRequest.value(forHTTPHeaderField: "Origin") == "https://native.invalid")
+        let searchTimeline = NativeTimelineStore(session: session)
+        searchTimeline.showRecentUploads()
+        searchTimeline.search = "旧关键词"
+        searchTimeline.selected = [7]
+        searchTimeline.uploaderID = 2
+        searchTimeline.mediaType = "video"
+        searchTimeline.useDateRange = true
+        searchTimeline.locate(aiResult.items[0])
+        await searchTimeline.loadIfNeeded()
+        let searchLocation = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        precondition(searchLocation.contains(URLQueryItem(name: "anchor_media_id", value: "42")))
+        precondition(!searchLocation.contains { ["q", "child_id", "owner_id", "media_type", "start", "end", "date_basis"].contains($0.name) },
+                     "a read-only search result can open its archive without stale timeline filters hiding it")
         let count = SessionHTTP.requests.count
         do { try await session.write("/media/42", json: [:]); fatalError("viewer cannot write") }
         catch { precondition(SessionHTTP.requests.count == count) }

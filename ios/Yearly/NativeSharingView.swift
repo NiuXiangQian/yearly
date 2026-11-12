@@ -125,7 +125,7 @@ struct NativeSharingView: View {
                     }
                     Text(selectionMode ? "链接仅包含下方确认的影像，选定人物时进一步按此人物筛选。Live Photo 作为一项完整分享。" : profileID != nil ? "链接包含所选日期内关联此人物且允许分享的回忆。普通成员仅能分享自己添加的内容。" : store.session.isAdmin ? "链接包含所选日期内允许分享的全部家庭回忆，不受上传人、搜索和类型筛选影响。" : "链接仅包含所选日期内自己添加且允许分享的回忆，该日期内以后新增的本人内容也会出现。")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("收到链接的人无需登录，只能查看预览。原件下载和编辑不开放，实况图沿用现有完整播放方式。")
+                    Text("链接无需登录，仅可查看预览，不能下载原件或编辑。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Button { confirming = true } label: {
                         Label("创建限时分享链接", systemImage: "link")

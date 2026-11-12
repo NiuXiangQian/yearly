@@ -72,7 +72,6 @@ onMounted(load);
     <div>
       <span class="eyebrow">ACCOUNTS & ACCESS</span>
       <h1>{{ t("账户管理") }}</h1>
-      <p>{{ t("管理家庭账户、角色与登录权限。") }}</p>
     </div>
     <button class="button primary" @click="edit()">
       <UserPlus :size="18" />{{ t("创建账户") }}
@@ -85,7 +84,7 @@ onMounted(load);
       <p class="muted">
         {{
           t(
-            "普通账户可浏览家庭内容，只能上传和编辑自己添加的文件、文件夹、档案与日记。管理员拥有所有功能的操作权限。",
+            "普通账户仅编辑自己的内容；管理员可管理全部内容与账户。",
           )
         }}
       </p>

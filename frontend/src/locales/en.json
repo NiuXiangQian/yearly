@@ -1,4 +1,5 @@
 {
+  "在时间线查看": "View in timeline",
   "我们的家庭时光": "Our family memories",
   "分享人物": "Share a person",
   "全部家庭成员": "All family members",
@@ -907,5 +908,12 @@
   "正在核对画面并筛选结果…": "Checking scenes and filtering matches…",
   "正在整理结果…": "Preparing results…",
   "已等待": "Elapsed",
-  "秒": "seconds"
+  "秒": "seconds",
+  "留空按拍摄日期归档": "Leave blank to use each file’s capture date.",
+  "统一归档，保留原始拍摄时间": "Use this date for all files; keep original capture times.",
+  "未关联人物与宠物": "No people or pets linked",
+  "实况照片需同时导入照片和配套 MOV。": "For Live Photos, import both the photo and its matching MOV.",
+  "粘贴可能丢失拍摄日期和实况动态；需要原件请从文件导入。": "Pasting may omit capture dates and Live Photo motion. Import from Files for originals.",
+  "普通账户仅编辑自己的内容；管理员可管理全部内容与账户。": "Members edit their own content. Administrators manage all content and accounts.",
+  "关闭后仍可关联和筛选影像。": "You can still link and filter media when turned off."
 }

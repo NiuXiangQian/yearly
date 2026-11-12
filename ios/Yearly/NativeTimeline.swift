@@ -765,7 +765,14 @@ struct NativeTimelineView: View {
                 NativeSharingView(session: store.session, day: request.day, selectedItems: request.items)
             }
             .nativeSheet(isPresented: $showingFilter) { NativeTimelineFilters(store: store) }
-            .nativeSheet(isPresented: $showingAISearch) { NativeAISearch(store: store) }
+            .nativeSheet(isPresented: $showingAISearch) {
+                NativeAISearch(store: store) { item in
+                    showingAISearch = false
+                    collapsedMonths[String(item.day.prefix(7))] = false
+                    expandedDays[item.day] = true
+                    store.locate(item)
+                }
+            }
             .nativeSheet(isPresented: $showingTrash) { NativeMediaTrash(store: store) }
             .nativeSheet(item: $editingItem) { item in
                 if item.kind == "event" {
@@ -1280,6 +1287,7 @@ struct NativeMediaDetail: View {
 
 private struct NativeAISearch: View {
     @ObservedObject var store: NativeTimelineStore
+    let onLocate: (NativeTimelineItem) -> Void
     @NativeDismiss private var dismiss
     @FocusState private var queryFocused: Bool
     @State private var query = ""
@@ -1338,15 +1346,21 @@ private struct NativeAISearch: View {
                         if items.isEmpty { Text("没有找到相关影像，试试描述场景、物体或动作，或放宽时间线筛选。").foregroundStyle(.secondary) }
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                             ForEach(items) { item in
-                                Button { selected = item } label: {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        if let file = item.primary {
-                                            NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
-                                                .frame(height: 150).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Button { selected = item } label: {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            if let file = item.primary {
+                                                NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
+                                                    .frame(height: 150).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+                                            }
+                                            Text(item.day + (item.media_type == "video" ? " · 视频" : "")).font(.caption)
                                         }
-                                        Text(item.day + (item.media_type == "video" ? " · 视频" : "")).font(.caption)
-                                    }
-                                }.buttonStyle(.plain).accessibilityLabel("查看 " + item.label)
+                                    }.buttonStyle(.plain).accessibilityLabel("查看 " + item.label)
+                                    Button { onLocate(item) } label: {
+                                        Label("在时间线查看", systemImage: "scope")
+                                            .font(.caption).frame(minHeight: 44)
+                                    }.buttonStyle(.plain)
+                                }
                             }
                         }
                     } else if !busy {
@@ -1364,7 +1378,8 @@ private struct NativeAISearch: View {
             .fullScreenCover(item: $selected) { item in
                 NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
                                   pagePosition: nil, previous: nil, next: nil, onSaved: { performSearch() },
-                                  onDeleted: { items.removeAll { $0.id == item.id } }, onLocate: nil)
+                                  onDeleted: { items.removeAll { $0.id == item.id } },
+                                  onLocate: { current in selected = nil; onLocate(current) })
             }
         }
     }

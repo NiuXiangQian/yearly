@@ -20,7 +20,6 @@ const yearly = useYearly();
     <div>
       <span class="eyebrow">MEMORIES THAT BELONG TO YOU</span>
       <h1>{{ t("让回忆，走得更远。") }}</h1>
-      <p>{{ t("用独立格式带走你的家庭档案，给珍贵的时光多一份保障。") }}</p>
     </div>
   </div>
   <div v-if="!yearly.isAdmin" class="notice">

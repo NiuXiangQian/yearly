@@ -9,10 +9,10 @@ vi.mock("../../components/MediaDetail.vue", () => ({default: {props:["id"],templ
 vi.mock("../../components/MediaCard.vue", () => ({default: {props:["media"],emits:["open"],template:'<button class="test-media" @click="$emit(\'open\')">{{media.title}}</button>'}}));
 let app: ReturnType<typeof createApp>;
 afterEach(() => { app?.unmount(); document.body.innerHTML = ""; vi.resetAllMocks(); });
-async function mount(enabled=true, indexed=3) {
+async function mount(enabled=true, indexed=3, onLocate = vi.fn()) {
   vi.mocked(api).mockResolvedValue({enabled,indexed,total:5,failed:0});
   const host=document.createElement("div"); document.body.append(host);
-  app=createApp(AISearch,{filters:{child_ids:[7],media_type:"video"}}); app.mount(host);
+  app=createApp(AISearch,{filters:{child_ids:[7],media_type:"video"},onLocate}); app.mount(host);
   await vi.waitFor(()=>expect(host.textContent).toContain(`${indexed} / 5`));
   const input=host.querySelector("input")!;
   input.value="小狗跑步";input.dispatchEvent(new Event("input",{bubbles:true}));await nextTick();
@@ -31,6 +31,17 @@ it("submits explicit scope only once, honors IME composition, and opens a matchi
   (host.querySelector('.test-media') as HTMLButtonElement).click();await nextTick();
   expect(host.querySelector('[data-detail="42"]')).not.toBeNull();
   expect(host.textContent).toContain("2025-06-01");
+});
+it("locates the selected result without replacing its preview action",async()=>{
+  const onLocate=vi.fn();
+  const {host,form}=await mount(true,3,onLocate);
+  const item={id:42,title:"草地上的小狗",timeline_day:"2024-03-31",folder_id:90};
+  vi.mocked(post).mockResolvedValue({items:[item]});
+  form.dispatchEvent(new Event("submit",{cancelable:true}));
+  await vi.waitFor(()=>expect(host.querySelector('.ai-search-locate')).not.toBeNull());
+  (host.querySelector('.ai-search-locate') as HTMLButtonElement).click();
+  expect(onLocate).toHaveBeenCalledWith(item);
+  expect(host.querySelector('[data-detail="42"]')).toBeNull();
 });
 it("retains input and shows a recoverable failure instead of stale results",async()=>{
   const {host,input,form}=await mount();

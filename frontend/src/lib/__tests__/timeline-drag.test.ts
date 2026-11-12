@@ -39,7 +39,10 @@ vi.mock("../../components/ChildPicker.vue", () => ({
   default: { template: "<div />" },
 }));
 vi.mock("../../components/FolderPanel.vue", () => ({
-  default: { template: "<div />" },
+  default: { props: ["id"], template: '<div :data-open-folder="id" />' },
+}));
+vi.mock("../../components/AISearch.vue", () => ({
+  default: { emits: ["locate"], template: `<button class="test-locate" @click="$emit('locate', {id:12, timeline_day:'2024-03-31', folder_id:90})">在时间线查看</button>` },
 }));
 vi.mock("../../components/FolderMoveDialog.vue", () => ({
   default: { template: "<div />" },
@@ -115,6 +118,29 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+it("opens a search result's archive day, loads its later page and opens its folder", async () => {
+  await mount();
+  const scroll = vi.fn();
+  vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(scroll);
+  button("全部收起").click();
+  button("智能找回忆").click();
+  await nextTick();
+  const requests: URLSearchParams[] = [];
+  vi.mocked(api).mockImplementation(async (url) => {
+    const params = new URLSearchParams(String(url).split('?')[1]);
+    requests.push(params);
+    return params.has("cursor")
+      ? {items:[{id:90,kind:"folder",name:"同日文件夹",timeline_day:"2024-03-31",previews:[]}],total:9,next_cursor:null}
+      : {items:Array.from({length:8},(_,id)=>({id,kind:"media",timeline_day:"2024-03-31",files:[]})),total:9,next_cursor:"second"};
+  });
+  (host.querySelector('.test-locate') as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(host.querySelector('[data-open-folder="90"]')).not.toBeNull());
+  expect(requests).toHaveLength(2);
+  expect(requests[0].get("start")).toBe("2024-03-31T00:00:00");
+  expect(requests[0].get("q")).toBe("");
+  expect(host.querySelector('[aria-label="打开文件夹 同日文件夹"]')).not.toBeNull();
+  expect(scroll).toHaveBeenCalled();
 });
 it("drags a selected same-day batch into a highlighted folder without entering sort mode", async () => {
   await mount();

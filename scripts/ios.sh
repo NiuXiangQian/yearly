@@ -56,6 +56,8 @@ verify() {
     "$IOS_ROOT/Yearly/OriginalMetadata.swift" "$IOS_ROOT/Yearly/PhotoOriginals.swift" "$IOS_ROOT/Yearly/SharedPhotoImport.swift" \
     "$IOS_ROOT/Tests/SharedMediaFixtures.swift" "$IOS_ROOT/Tests/SharedPhotoImportTests.swift" -o "$BUILD_ROOT/shared-photo-tests"
   "$BUILD_ROOT/shared-photo-tests"
+  swiftc -parse-as-library "$IOS_ROOT/Tests/ShareActivationTests.swift" -o "$BUILD_ROOT/share-activation-tests"
+  "$BUILD_ROOT/share-activation-tests" "$IOS_ROOT/YearlyShare/Info.plist" "$IOS_ROOT/YearlyAction/Info.plist"
 }
 
 require_xcode() {

@@ -46,7 +46,6 @@ async function changePassword() {
     <div>
       <span class="eyebrow">A SAFE PLACE FOR OUR FAMILY</span>
       <h1>{{ t("照顾好这个小小的家。") }}</h1>
-      <p>{{ t("一起记录，也一起守护每一份回忆。") }}</p>
     </div>
   </div>
   <div class="settings-layout">
@@ -79,13 +78,6 @@ async function changePassword() {
         <span> {{ t("原文件存储") }} </span
         ><b>{{ bytes(yearly.stats.bytes) }}</b>
       </div>
-      <p class="muted">
-        {{
-          t(
-            "普通账户可浏览家庭内容，只能编辑自己添加的内容。管理员负责账户管理，并拥有所有文件和功能的操作权限。",
-          )
-        }}
-      </p>
       <RouterLink v-if="yearly.isAdmin" to="/accounts" class="setting-link"
         ><Users :size="17" />{{ t("账户管理")
         }}<ArrowUpRight :size="16" /></RouterLink

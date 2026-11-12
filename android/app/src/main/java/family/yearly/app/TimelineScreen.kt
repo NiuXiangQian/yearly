@@ -196,7 +196,13 @@ fun TimelineScreen(model: AppModel, navigate: (Destination) -> Unit, listState: 
         if (model.filter.anchor != railDay) railDay = null
     }
     if (aiSearching) {
-        AISearchSheet(model, { aiSearching = false }) { memory ->
+        AISearchSheet(model, { aiSearching = false }, locate = { memory ->
+            aiSearching = false
+            collapsedMonths = collapsedMonths - memory.day.take(7)
+            expandedDays = expandedDays + (memory.day to true)
+            railDay = memory.day
+            model.applyFilter(model.filter.copy(search = "", byUpload = false, start = memory.day, end = memory.day, anchor = ""))
+        }) { memory ->
             aiSearching = false
             navigate(Destination("media", memory))
         }
@@ -904,7 +910,7 @@ fun EmptyState(title: String, detail: String = "") {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AISearchSheet(model: AppModel, close: () -> Unit, open: (Memory) -> Unit) {
+private fun AISearchSheet(model: AppModel, close: () -> Unit, locate: (Memory) -> Unit, open: (Memory) -> Unit) {
     var stage by remember { mutableStateOf("waiting") }
     var elapsed by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
@@ -1000,6 +1006,7 @@ private fun AISearchSheet(model: AppModel, close: () -> Unit, open: (Memory) -> 
                     Card(onClick = { open(memory) }) {
                         PreviewImage(model.api, memory, Modifier.fillMaxWidth().height(200.dp))
                         Text(memory.day + if (memory.type == "video") " · 视频" else "", Modifier.padding(12.dp))
+                        TextButton({ locate(memory) }) { Text("在时间线查看") }
                     }
                 }
             } else if (!busy) item {

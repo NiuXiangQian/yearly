@@ -255,8 +255,8 @@ private struct NativeFamilyEditor: View {
                     Toggle("显示成长时间线", isOn: $growth)
                 } header: { Text("出生与成长") } footer: {
                     Text(growth
-                         ? "填写出生日期后可按年龄浏览，修改日期会重新计算历史影像的年龄。"
-                         : "关闭成长时间线后，仍然可以关联和筛选这个档案的影像。")
+                         ? "修改生日会重新计算影像年龄。"
+                         : "关闭后仍可关联和筛选影像。")
                 }
                 Section(pet ? "关于宠物" : "关于家人") {
                     TextField("性格、爱好，或你想记下的话…", text: $notes, axis: .vertical).lineLimit(4...10)
@@ -275,7 +275,7 @@ private struct NativeFamilyEditor: View {
                         Text("已归档").tag("archived")
                     }
                 } header: { Text("显示与管理") } footer: {
-                    Text("顺序数字越小越靠前。归档会保留原有资料和影像关联，可随时恢复启用。")
+                    Text("归档保留资料和影像关联，可恢复启用。")
                 }
                 if let validation { Text(validation).font(.footnote).foregroundStyle(.red) }
             }
@@ -346,9 +346,7 @@ private struct NativeFamilyEditor: View {
             }
             if preparingAvatar { ProgressView("正在准备头像…") }
             if let progress = avatarProgress { ProgressView("正在上传头像…", value: progress) }
-        } header: { Text("档案头像") } footer: {
-            Text("可拖动和缩放头像，保存专用副本；手机相册或时间线中的来源照片保持原样。")
-        }
+        } header: { Text("档案头像") }
     }
 
     private func choices(_ title: String, options: [String], value: Binding<String>) -> some View {

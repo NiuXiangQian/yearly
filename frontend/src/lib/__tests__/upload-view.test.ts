@@ -137,7 +137,7 @@ it("honors an explicit family-only choice instead of silently associating a chil
   app.mount(host);
   await nextTick();
   expect(host.querySelector(".batch-children .child-pill.selected")).toBeNull();
-  expect(host.textContent).toContain("仅出现在全部人物与宠物中");
+  expect(host.textContent).toContain("未关联人物与宠物");
 });
 
 it("keeps details collapsed and uploads only selected files in the chosen order with the batch name and date", async () => {

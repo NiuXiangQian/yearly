@@ -7,7 +7,7 @@ import MotionDialog from "./MotionDialog.vue";
 import MediaCard from "./MediaCard.vue";
 import MediaDetail from "./MediaDetail.vue";
 const props = defineProps<{ filters: Record<string, unknown> }>();
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "locate"]);
 const query = ref("");
 const busy = ref(false), composing = ref(false), searched = ref(false);
 const error = ref("");
@@ -80,6 +80,7 @@ onMounted(loadStatus);
         <div v-for="item in items" :key="item.id" class="ai-search-result">
           <MediaCard :media="item" thumbnail @open="detail = item.id" />
           <button class="text-button ai-search-open" @click="detail = item.id">{{ item.title || localDate(item.timeline_day) }} · {{ t("查看") }}</button>
+          <button class="text-button ai-search-locate" @click="emit('locate', item)">{{ t("在时间线查看") }}</button>
           <p>{{ item.search_description }}</p>
         </div>
       </div>
@@ -109,6 +110,7 @@ onMounted(loadStatus);
 .ai-search-result .media-card { width: 100%; }
 .ai-search-result p { font-size: 13px; color: var(--muted); margin: 4px 0; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .ai-search-open { min-height: 40px; text-align: left; overflow-wrap: anywhere; }
+.ai-search-locate { display: block; min-height: 44px; }
 .ai-search-examples { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 24px 0; }
 .ai-search-examples .chip { min-height: 40px; white-space: normal; text-align: left; }
 .ai-search-empty { padding: 32px 0; line-height: 1.8; color: var(--muted); }

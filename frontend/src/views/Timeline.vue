@@ -52,6 +52,8 @@ const yearly = useYearly(),
   router = useRouter();
 const shareOpen = ref(false);
 const aiSearchOpen = ref(false);
+const locatingSearchResult = ref(false);
+const timelineMonths = ref<{ reveal(date: string): void }>();
 const timelineOrder = ref(
   localStorage.getItem("yearly-timeline-order") === "asc" ? "asc" : "desc",
 );
@@ -304,7 +306,7 @@ function range() {
   }
   return {};
 }
-async function load(reset = true, preserveLoaded = false) {
+async function load(reset = true, preserveLoaded = false, locate?: { id: number; folder_id?: number }) {
   const ticket = ++generation;
   const targetCount =
     reset && preserveLoaded ? Math.max(items.value.length, 40) : 40;
@@ -337,7 +339,9 @@ async function load(reset = true, preserveLoaded = false) {
       Object.assign(daySharing.value, result.day_sharing || {});
       loaded.push(...result.items);
       cursor = result.next_cursor;
-    } while (cursor && loaded.length < targetCount);
+    } while (cursor && (locate
+      ? !loaded.some((item) => item.kind === "media" && item.id === locate.id || item.kind === "folder" && item.id === locate.folder_id)
+      : loaded.length < targetCount));
     items.value = reset ? loaded : [...items.value, ...loaded];
     total.value = result.total;
     nextCursor.value = cursor;
@@ -369,6 +373,7 @@ watch(
     () => route.path,
   ],
   () => {
+    if (locatingSearchResult.value) return;
     selected.value = [];
     sortDate.value = "";
     load();
@@ -378,8 +383,31 @@ watch(
 );
 watch(q, () => {
   clearTimeout(searchTimer);
+  if (locatingSearchResult.value) return;
   searchTimer = setTimeout(() => load(), 350);
 });
+async function locateSearchResult(item: { id: number; timeline_day: string; folder_id?: number }) {
+  aiSearchOpen.value = false;
+  locatingSearchResult.value = true;
+  q.value = "";
+  clearTimeout(searchTimer);
+  selection.value = false;
+  selected.value = [];
+  sortDate.value = "";
+  dateMode.value = "date";
+  day.value = item.timeline_day;
+  year.value = "";
+  month.value = "";
+  view.value = "calendar";
+  expandedDays.value[item.timeline_day] = true;
+  timelineMonths.value?.reveal(item.timeline_day);
+  await nextTick();
+  locatingSearchResult.value = false;
+  await load(true, false, item);
+  await nextTick();
+  document.getElementById(`timeline-day-${item.timeline_day}`)?.scrollIntoView({ block: "start" });
+  if (item.folder_id && items.value.some((row) => row.kind === "folder" && row.id === item.folder_id)) folderId.value = item.folder_id;
+}
 async function loadMarkers() {
   if (growthChild.value?.birthday) {
     try {
@@ -1107,6 +1135,7 @@ function saveStages() {
       @pointermove="moveDrag"
     >
       <TimelineMonths
+        ref="timelineMonths"
         :days="groups"
         :disabled="
           selection || !!sortDate || !!draggedIds.length || !!folderDrag
@@ -1451,7 +1480,7 @@ function saveStages() {
         height: rect.height + 'px',
       }"
     ></div>
-    <AISearch v-if="aiSearchOpen" :filters="{ child_ids: yearly.selected, match, owner_id: uploader ? Number(uploader) : null, media_type: type || null, ...range() }" @close="aiSearchOpen = false" />
+    <AISearch v-if="aiSearchOpen" :filters="{ child_ids: yearly.selected, match, owner_id: uploader ? Number(uploader) : null, media_type: type || null, ...range() }" @close="aiSearchOpen = false" @locate="locateSearchResult" />
     <ShareDialog
       :open="shareOpen"
       :initial-date="day"
