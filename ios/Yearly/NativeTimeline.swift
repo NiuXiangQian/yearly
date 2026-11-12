@@ -1280,7 +1280,7 @@ struct NativeMediaDetail: View {
 
 private struct NativeAISearch: View {
     @ObservedObject var store: NativeTimelineStore
-    @Environment(\.dismiss) private var dismiss
+    @NativeDismiss private var dismiss
     @State private var query = ""
     @State private var status: NativeSearchStatus?
     @State private var items: [NativeTimelineItem] = []
