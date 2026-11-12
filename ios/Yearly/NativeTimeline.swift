@@ -1281,6 +1281,7 @@ struct NativeMediaDetail: View {
 private struct NativeAISearch: View {
     @ObservedObject var store: NativeTimelineStore
     @NativeDismiss private var dismiss
+    @FocusState private var queryFocused: Bool
     @State private var query = ""
     @State private var status: NativeSearchStatus?
     @State private var items: [NativeTimelineItem] = []
@@ -1309,6 +1310,7 @@ private struct NativeAISearch: View {
                     if !scope.isEmpty { Text("沿用当前筛选：" + scope).font(.caption).foregroundStyle(.secondary) }
                     TextField("例如：去年夏天在海边玩沙子", text: $query, axis: .vertical)
                         .textFieldStyle(.roundedBorder).lineLimit(2...4).disabled(busy)
+                        .focused($queryFocused)
                         .onChange(of: query) { value in if value.count > 200 { query = String(value.prefix(200)) } }
                     Button { performSearch() } label: {
                         HStack { if busy { ProgressView() }; Text(busy ? "正在寻找…" : "查找回忆") }.frame(maxWidth: .infinity)
@@ -1373,6 +1375,7 @@ private struct NativeAISearch: View {
     }
     private func performSearch() {
         guard !busy else { return }
+        queryFocused = false
         busy = true; searched = false; message = ""; items = []
         var body: [String: Any] = ["query": query.trimmingCharacters(in: .whitespacesAndNewlines), "child_ids": Array(store.selected)]
         if let id = store.uploaderID { body["owner_id"] = id }
