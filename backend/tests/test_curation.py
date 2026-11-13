@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime, timedelta
 from types import SimpleNamespace as NS
 
@@ -96,11 +97,12 @@ def test_quality_validates_provider_frames_and_caches_success(context, monkeypat
     assert len(calls)==2
 
 
-def test_video_sampling_uses_preview_duration_and_does_not_create_face_records(context, tmp_path):
+@pytest.mark.parametrize("rate", [25, 1])
+def test_video_sampling_uses_preview_duration_and_does_not_create_face_records(context, tmp_path, rate):
     import shutil,subprocess,imageio_ffmpeg
     from app.models import VideoPreview,MediaFace
     mid=upload(context)['media_id'];video=tmp_path/'sample.mp4'
-    subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=blue:s=160x120:d=2',str(video)],check=True,capture_output=True)
+    subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-loglevel','error','-f','lavfi','-i',f'color=c=blue:s=160x120:r={rate}:d=2',str(video)],check=True,capture_output=True)
     with context.db() as db:
         media=db.get(Media,mid);media.media_type='video';media.duration_ms=999999
         file=db.scalar(select(MediaFile).where(MediaFile.media_id==mid))
@@ -109,7 +111,8 @@ def test_video_sampling_uses_preview_duration_and_does_not_create_face_records(c
             def get_object_to_file(self,key,target): shutil.copyfile(video,target)
         samples=curation.sampled_images(db,NS(bucket=Bucket()),media,file)
         assert len(samples)==5 and all(raw for _,raw in samples)
-        assert 1.8 <= samples[-1][0] <= 2.0
+        if rate == 25: assert 1.8 <= samples[-1][0] <= 2.0
+        else: assert 0 <= samples[-1][0] <= 1.0
         assert list(db.scalars(select(MediaFace).where(MediaFace.media_id==mid)))==[]
 
 

@@ -180,10 +180,22 @@ def sampled_images(db, storage, media, file):
         for i in range(5):
             seconds = round(max(0, duration - .1) * i / 4, 3)
             output = Path(directory) / f"{i}.jpg"
-            subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-threads", "1", "-ss", str(seconds),
-                "-i", str(source), "-frames:v", "1", "-vf", "scale=768:768:force_original_aspect_ratio=decrease", "-filter_threads", "1", str(output)],
-                check=True, capture_output=True, timeout=30)
-            result.append((seconds, output.read_bytes()))
+            # Sparse/VFR video or an audio tail can leave no frame at duration-.1.
+            # Try earlier positions and retain the actual seek used in the result.
+            positions = dict.fromkeys([seconds, max(0, seconds - .5), round(seconds * .75, 3), round(seconds * .5, 3), 0.0])
+            for position in positions:
+                output.unlink(missing_ok=True)
+                try:
+                    subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-threads", "1", "-ss", str(position),
+                        "-i", str(source), "-frames:v", "1", "-vf", "scale=768:768:force_original_aspect_ratio=decrease", "-filter_threads", "1", str(output)],
+                        check=True, capture_output=True, timeout=30)
+                except subprocess.CalledProcessError:
+                    continue
+                if output.is_file() and output.stat().st_size:
+                    result.append((position, output.read_bytes()))
+                    break
+            else:
+                raise HTTPException(422, "视频未能提取有效画面，请重新生成压缩预览后重试")
         return result
 
 
