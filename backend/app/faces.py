@@ -56,8 +56,17 @@ def active_media(db, mid, user):
     return media
 
 
-def face_items(db, rows, matching=True, review_automatic=False, round_scores=True):
+def face_items(db, rows, matching=True, review_automatic=False, round_scores=True, find_bound_matches=False):
+    rows = list(rows)
     excluded = set(preferences(db)["face_excluded_child_ids"])
+    bindings = {}
+    if rows and matching:
+        query = select(MediaChild.media_id, MediaChild.child_id).where(
+            MediaChild.media_id.in_({row.media_id for row in rows}))
+        if find_bound_matches:
+            query = query.with_for_update()
+        for mid, cid in db.execute(query):
+            bindings.setdefault(mid, set()).add(cid)
     references = db.execute(select(MediaFace, Child).join(Child, Child.id == MediaFace.child_id)
         .join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
@@ -80,10 +89,12 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
                     similarity=similarity,
                     reference_media_id=sample.media_id, reference_face_id=sample.id,
                     reference_thumbnail="data:image/jpeg;base64," + sample.thumbnail)
-        # Suppress excluded identities without falling back to a weaker, wrong person.
-        excluded_score = max((candidate["similarity"] for cid, candidate in best.items() if cid in excluded), default=-1)
+        bound = bindings.get(face.media_id, set()) if face.child_id is None else set()
+        suppressed = excluded | bound
+        # Do not fall back to a weaker identity when the best match is already bound.
+        excluded_score = max((candidate["similarity"] for cid, candidate in best.items() if cid in suppressed), default=-1)
         candidates = sorted((candidate for cid, candidate in best.items()
-                             if cid not in excluded and candidate["similarity"] > excluded_score),
+                             if cid not in suppressed and candidate["similarity"] > excluded_score),
                             key=lambda item: item["similarity"], reverse=True)[:3]
         if round_scores:
             candidates = [dict(candidate, similarity=round(candidate["similarity"], 4)) for candidate in candidates]
@@ -91,6 +102,11 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
             thumbnail="data:image/jpeg;base64," + face.thumbnail, child_id=face.child_id, ignored=face.ignored,
             auto_assigned=face.auto_match_score is not None, auto_match_score=face.auto_match_score,
             candidates=candidates))
+        if find_bound_matches and best:
+            top_score = max(candidate["similarity"] for candidate in best.values())
+            top = [candidate for candidate in best.values() if candidate["similarity"] == top_score]
+            if all(candidate["child_id"] in bound for candidate in top):
+                items[-1]["_already_bound_match"] = top
     return items, [(sample, person) for sample, person in references if person.id not in excluded]
 
 
@@ -134,10 +150,39 @@ def review_queue(scope: Literal["pending", "all"] = "pending", before: int | Non
         pending_memories=db.scalar(select(func.count()).select_from(todo.subquery())))
 
 
+def ignore_already_bound_faces(db, user):
+    rows = list(db.scalars(select(MediaFace).join(Media, Media.id == MediaFace.media_id)
+        .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
+        .where(Media.status == "active", Media.purpose == "memory", MediaFaceIndex.model == MODEL_VERSION,
+               MediaFace.child_id.is_(None), MediaFace.confirmed_by.is_(None),
+               MediaFace.ignored.is_(False), MediaFace.auto_link_blocked.is_(False))
+        .with_for_update().execution_options(populate_existing=True)))
+    items, _ = face_items(db, rows, round_scores=False, find_bound_matches=True)
+    changed = {}
+    for face, item in zip(rows, items, strict=True):
+        matches = item.get("_already_bound_match")
+        if not matches:
+            continue
+        face.ignored = True
+        face.auto_match_score = face.auto_reference_face_id = None
+        record_identity(db, face.media_id, "face", str(face.id),
+            dict(child_id=None, ignored=False), dict(child_id=None, ignored=True), automatic=True,
+            evidence=dict(reason="影像已关联该人物，自动忽略重复识别", already_bound_child_ids=[c["child_id"] for c in matches],
+                          similarity=matches[0]["similarity"], reference_face_ids=[c["reference_face_id"] for c in matches],
+                          model=MODEL_VERSION))
+        changed.setdefault(face.media_id, []).append(face.id)
+    for mid, ids in changed.items():
+        record_change(db, db.get(Media, mid), {"faces": {
+            "before": [dict(face_id=fid, child_id=None, ignored=False) for fid in ids],
+            "after": [dict(face_id=fid, child_id=None, ignored=True) for fid in ids]}})
+    return sum(len(ids) for ids in changed.values())
+
+
 def auto_link(db, user):
     options = preferences(db)
     if not settings().face_auto_link_enabled or not options["people_enabled"]:
         return dict(linked_faces=0, reset_faces=0, media_count=0)
+    ignore_already_bound_faces(db, user)
     rows = list(db.scalars(select(MediaFace).join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
         .where(Media.status == "active", Media.purpose == "memory", MediaFaceIndex.model == MODEL_VERSION,
@@ -301,8 +346,9 @@ def apply_assignments(db, media, data, user):
         face.confirmed_by = user.id if face.child_id is not None or face.ignored else None
         face.auto_match_score = face.auto_reference_face_id = None
         # Released clients submit unchanged, unassigned faces alongside an edited one.
-        # Only withdrawing an existing identity blocks later automatic matching.
-        face.auto_link_blocked = (face.auto_link_blocked or before["child_id"] is not None) if face.child_id is None else False
+        # Explicit withdrawal or reopening an ignored face must survive the auto pass.
+        reopened = before["ignored"] and not face.ignored
+        face.auto_link_blocked = (face.auto_link_blocked or before["child_id"] is not None or reopened) if face.child_id is None else False
         after = dict(child_id=face.child_id, ignored=face.ignored)
         record_identity(db, mid, "face", str(face.id), {k: v for k, v in before.items() if k != "automatic"}, after,
             automatic=False, evidence=dict(reason="管理员确认", frame_seconds=float(face.frame_seconds) if face.frame_seconds is not None else None))

@@ -27,7 +27,7 @@ def indexed(context, mid, vector, person=None, frame_seconds=None):
         return row.id
 
 
-def test_each_confirmation_links_other_photos_and_video_frames_with_legacy_bulk_payload(context, monkeypatch):
+def test_confirmation_ignores_bound_video_frames_and_links_unbound_photos_with_legacy_payload(context, monkeypatch):
     monkeypatch.setattr(settings(), "face_auto_link_enabled", True)
     person = child(context, "家人")
     video = image_media(context)
@@ -45,13 +45,14 @@ def test_each_confirmation_links_other_photos_and_video_frames_with_legacy_bulk_
         *[dict(face_id=fid, child_id=None, ignored=False) for fid in [related, same_frame, unrelated]],
     ]})
     assert response.status_code == 200
-    assert response.json()["auto_linked"] == 2
+    assert response.json()["auto_linked"] == 1
     assert response.json()["auto_reset"] == 0
     with context.db() as db:
-        for fid in [related, other_face]:
-            row = db.get(MediaFace, fid)
-            assert row.child_id == person["id"] and row.confirmed_by is None
-            assert row.auto_reference_face_id == seed and not row.auto_link_blocked
+        row = db.get(MediaFace, other_face)
+        assert row.child_id == person["id"] and row.confirmed_by is None
+        assert row.auto_reference_face_id == seed and not row.auto_link_blocked
+        duplicate = db.get(MediaFace, related)
+        assert duplicate.ignored and duplicate.child_id is None and duplicate.confirmed_by is None
         for fid in [same_frame, unrelated]:
             row = db.get(MediaFace, fid)
             assert row.child_id is None and not row.auto_link_blocked
@@ -214,7 +215,7 @@ def test_excluded_person_is_not_matched_and_existing_face_and_media_links_surviv
     monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
     excluded, other = child(context, '默认绑定人物'), child(context, '其他家人')
     seed = image_media(context); indexed(context, seed, [1, 0], excluded['id'])
-    previous = image_media(context, [excluded['id']]); old_face = indexed(context, previous, [1, 0])
+    previous = image_media(context); old_face = indexed(context, previous, [1, 0])
     assert context.client.post('/api/faces/auto-link').json()['linked_faces'] == 1
     indexed(context, image_media(context), [.9, math.sqrt(.19)], other['id'])
     target = image_media(context, [excluded['id']]); new_face = indexed(context, target, [.8, .6])
@@ -235,3 +236,73 @@ def test_excluded_person_is_not_matched_and_existing_face_and_media_links_surviv
         assert db.get(MediaFace, excluded_face).child_id is None
     assert context.client.get(f'/api/media/{previous}').json()['child_ids'] == [excluded['id']]
     assert set(context.client.get(f'/api/media/{target}').json()['child_ids']) == {excluded['id'], other['id']}
+
+
+@pytest.mark.parametrize('score', [.55, .95])
+def test_already_bound_suggestions_are_ignored_without_training_or_changing_bindings(context, monkeypatch, score):
+    monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
+    person = child(context)
+    indexed(context, image_media(context), [1, 0], person['id'])
+    target = image_media(context, [person['id']])
+    fid = indexed(context, target, [score, math.sqrt(1-score**2)])
+    before = context.client.get(f'/api/media/{target}').json()['child_ids']
+    assert context.client.get(f'/api/faces/media/{target}').json()['faces'][0]['candidates'] == []
+    assert context.client.post('/api/faces/auto-link').json()['linked_faces'] == 0
+    with context.db() as db:
+        row = db.get(MediaFace, fid)
+        assert row.ignored and row.child_id is None and row.confirmed_by is None
+        assert row.auto_match_score is None
+    assert context.client.get(f'/api/media/{target}').json()['child_ids'] == before
+    assert context.client.get('/api/faces/review').json()['pending_faces'] == 0
+    assert context.client.get('/api/organization/reviews?kind=face').json()['pending'] == 0
+    record = context.client.get('/api/organization/reviews?kind=face&scope=all').json()['items'][0]
+    assert record['status'] == 'automatic' and record['current']['ignored'] is True
+    assert record['evidence']['already_bound_child_ids'] == [person['id']]
+    assert context.client.post('/api/faces/auto-link').json()['linked_faces'] == 0
+
+
+@pytest.mark.parametrize('both_bound', [False, True])
+def test_tied_suggestions_are_only_ignored_when_all_top_candidates_are_bound(context, monkeypatch, both_bound):
+    monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
+    a, b = child(context, '甲'), child(context, '乙')
+    for person in [a, b]:indexed(context, image_media(context), [1, 0], person['id'])
+    target = image_media(context, [a['id'], b['id']] if both_bound else [a['id']])
+    fid = indexed(context, target, [1, 0])
+    context.client.post('/api/faces/auto-link')
+    with context.db() as db:
+        row = db.get(MediaFace, fid)
+        assert row.ignored is both_bound and row.child_id is None
+
+
+def test_reopening_an_automatically_ignored_face_keeps_the_manual_choice(context, monkeypatch):
+    monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
+    person = child(context)
+    indexed(context, image_media(context), [1, 0], person['id'])
+    target = image_media(context, [person['id']]); fid = indexed(context, target, [1, 0])
+    context.client.post('/api/faces/auto-link')
+    assert confirm(context, target, fid).status_code == 200
+    context.client.post('/api/faces/auto-link')
+    with context.db() as db:
+        row = db.get(MediaFace, fid)
+        assert not row.ignored and row.child_id is None and row.auto_link_blocked
+
+
+def test_a_default_binding_without_face_references_does_not_ignore_unknown_faces(context, monkeypatch):
+    monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
+    person = child(context)
+    target = image_media(context, [person['id']]); fid = indexed(context, target, [1, 0])
+    context.client.post('/api/faces/auto-link')
+    with context.db() as db:assert not db.get(MediaFace, fid).ignored
+
+
+def test_a_stronger_unbound_person_is_still_matched(context, monkeypatch):
+    monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
+    a, b = child(context, '已绑定'), child(context, '尚未绑定')
+    indexed(context, image_media(context), [.8, .6], a['id'])
+    indexed(context, image_media(context), [1, 0], b['id'])
+    target = image_media(context, [a['id']]); fid = indexed(context, target, [1, 0])
+    assert context.client.post('/api/faces/auto-link').json()['linked_faces'] == 1
+    with context.db() as db:
+        row = db.get(MediaFace, fid)
+        assert row.child_id == b['id'] and not row.ignored
+    assert set(context.client.get(f'/api/media/{target}').json()['child_ids']) == {a['id'], b['id']}

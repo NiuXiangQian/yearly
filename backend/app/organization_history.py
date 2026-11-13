@@ -26,7 +26,9 @@ def record_identity(db, media_id, kind, target_id, before, after, *, automatic, 
         return
     mode = preferences(db)["person_rules"].get(str(after.get("child_id")), "default")
     status = "automatic" if automatic and mode == "automatic" else "pending" if automatic else "approved"
-    if after.get("child_id") is None and automatic:
+    if automatic and after.get("ignored"):
+        status = "automatic"
+    elif after.get("child_id") is None and automatic:
         status = "superseded"
     db.add(OrganizationReview(media_id=media_id, kind=kind, target_id=target_id, automatic=automatic,
         status=status, before_value=before, proposed_value=after, current_value=after, evidence=evidence,
