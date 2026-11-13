@@ -221,6 +221,7 @@ def test_excluded_person_is_not_matched_and_existing_face_and_media_links_surviv
     excluded_target = image_media(context, [excluded['id']]); excluded_face = indexed(context, excluded_target, [1, 0])
     options = context.client.get('/api/organization/settings').json()
     options['face_excluded_child_ids'] = [excluded['id']]
+    options['person_rules'][str(excluded['id'])] = 'automatic'
     assert context.client.put('/api/organization/settings', json=options).status_code == 200
     candidates = context.client.get(f'/api/faces/media/{target}').json()['faces'][0]['candidates']
     assert [c['child_id'] for c in candidates] == [other['id']]

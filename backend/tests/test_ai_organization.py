@@ -21,6 +21,7 @@ def test_face_exclusion_survives_old_settings_payload_and_validates_profiles(con
     pet = context.client.post('/api/children', json=dict(name='示例宠物', profile_type='pet', species='狗')).json()
     value = context.client.get('/api/organization/settings').json()
     value['face_excluded_child_ids'] = [person['id'], person['id']]
+    value['person_rules'][str(person['id'])] = 'automatic'
     saved = context.client.put('/api/organization/settings', json=value)
     assert saved.status_code == 200 and saved.json()['face_excluded_child_ids'] == [person['id']]
     legacy = saved.json(); legacy.pop('face_excluded_child_ids'); legacy['tags_enabled'] = True
