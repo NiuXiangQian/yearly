@@ -34,6 +34,14 @@ class SettingsIn(BaseModel):
     people_enabled: bool
     tag_rules: dict[str, TagRule] = Field(default_factory=dict, max_length=500)
     person_rules: dict[str, Literal["automatic", "manual"]] = Field(default_factory=dict, max_length=100)
+    face_excluded_child_ids: list[int] = Field(default_factory=list, max_length=100)
+
+    @field_validator("face_excluded_child_ids")
+    @classmethod
+    def valid_face_exclusions(cls, value):
+        if any(cid < 1 for cid in value):
+            raise ValueError("请选择有效的人物档案")
+        return sorted(set(value))
 
     @field_validator("tag_rules")
     @classmethod
@@ -83,7 +91,14 @@ def put_settings(data: SettingsIn, db=Depends(get_db), user=Depends(admin)):
     valid = {str(i) for i in db.scalars(select(Child.id).where(Child.status != "deleted", or_(Child.profile_type != "pet", Child.species == "狗")))}
     if set(data.person_rules) - valid:
         raise HTTPException(422, "人物规则包含不存在的人物")
-    save_preferences(db, user, data.model_dump())
+    options = data.model_dump()
+    # Installed clients omit the new optional setting when saving their habits.
+    if "face_excluded_child_ids" not in data.model_fields_set:
+        options["face_excluded_child_ids"] = preferences(db)["face_excluded_child_ids"]
+    people = set(db.scalars(select(Child.id).where(Child.status != "deleted", Child.profile_type != "pet")))
+    if set(options["face_excluded_child_ids"]) - people:
+        raise HTTPException(422, "人脸排除设置包含不存在的人物")
+    save_preferences(db, user, options)
     db.commit()
     return preferences(db)
 

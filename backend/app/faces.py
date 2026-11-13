@@ -57,6 +57,7 @@ def active_media(db, mid, user):
 
 
 def face_items(db, rows, matching=True, review_automatic=False, round_scores=True):
+    excluded = set(preferences(db)["face_excluded_child_ids"])
     references = db.execute(select(MediaFace, Child).join(Child, Child.id == MediaFace.child_id)
         .join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
@@ -76,14 +77,21 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
                 if similarity < settings().face_match_threshold or similarity <= best.get(person.id, {}).get("similarity", -1):
                     continue
                 best[person.id] = dict(child_id=person.id, name=person.name,
-                    similarity=round(similarity, 4) if round_scores else similarity,
+                    similarity=similarity,
                     reference_media_id=sample.media_id, reference_face_id=sample.id,
                     reference_thumbnail="data:image/jpeg;base64," + sample.thumbnail)
+        # Suppress excluded identities without falling back to a weaker, wrong person.
+        excluded_score = max((candidate["similarity"] for cid, candidate in best.items() if cid in excluded), default=-1)
+        candidates = sorted((candidate for cid, candidate in best.items()
+                             if cid not in excluded and candidate["similarity"] > excluded_score),
+                            key=lambda item: item["similarity"], reverse=True)[:3]
+        if round_scores:
+            candidates = [dict(candidate, similarity=round(candidate["similarity"], 4)) for candidate in candidates]
         items.append(dict(id=face.id, box=face.box, frame_seconds=face.frame_seconds,
             thumbnail="data:image/jpeg;base64," + face.thumbnail, child_id=face.child_id, ignored=face.ignored,
             auto_assigned=face.auto_match_score is not None, auto_match_score=face.auto_match_score,
-            candidates=sorted(best.values(), key=lambda item: item["similarity"], reverse=True)[:3]))
-    return items, references
+            candidates=candidates))
+    return items, [(sample, person) for sample, person in references if person.id not in excluded]
 
 
 def result(db, media):
@@ -127,15 +135,17 @@ def review_queue(scope: Literal["pending", "all"] = "pending", before: int | Non
 
 
 def auto_link(db, user):
-    if not settings().face_auto_link_enabled or not preferences(db)["people_enabled"]:
+    options = preferences(db)
+    if not settings().face_auto_link_enabled or not options["people_enabled"]:
         return dict(linked_faces=0, reset_faces=0, media_count=0)
     rows = list(db.scalars(select(MediaFace).join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
         .where(Media.status == "active", Media.purpose == "memory", MediaFaceIndex.model == MODEL_VERSION,
                or_(MediaFace.child_id.is_(None), MediaFace.auto_match_score.is_not(None)),
+               or_(MediaFace.child_id.is_(None), MediaFace.child_id.not_in(options["face_excluded_child_ids"])),
                MediaFace.ignored.is_(False), MediaFace.auto_link_blocked.is_(False))))
     items, _ = face_items(db, rows, review_automatic=True, round_scores=False)
-    rules = preferences(db)["person_rules"]
+    rules = options["person_rules"]
     changes = {}
     for face, item in zip(rows, items, strict=True):
         candidates = item["candidates"]

@@ -208,3 +208,29 @@ def test_exactly_tied_people_require_manual_review(context, monkeypatch):
     assert context.client.post('/api/faces/auto-link').json()['linked_faces'] == 0
     with context.db() as db:
         assert db.get(MediaFace, fid).child_id is None
+
+
+def test_excluded_person_is_not_matched_and_existing_face_and_media_links_survive(context, monkeypatch):
+    monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
+    excluded, other = child(context, '默认绑定人物'), child(context, '其他家人')
+    seed = image_media(context); indexed(context, seed, [1, 0], excluded['id'])
+    previous = image_media(context, [excluded['id']]); old_face = indexed(context, previous, [1, 0])
+    assert context.client.post('/api/faces/auto-link').json()['linked_faces'] == 1
+    indexed(context, image_media(context), [.9, math.sqrt(.19)], other['id'])
+    target = image_media(context, [excluded['id']]); new_face = indexed(context, target, [.8, .6])
+    excluded_target = image_media(context, [excluded['id']]); excluded_face = indexed(context, excluded_target, [1, 0])
+    options = context.client.get('/api/organization/settings').json()
+    options['face_excluded_child_ids'] = [excluded['id']]
+    assert context.client.put('/api/organization/settings', json=options).status_code == 200
+    candidates = context.client.get(f'/api/faces/media/{target}').json()['faces'][0]['candidates']
+    assert [c['child_id'] for c in candidates] == [other['id']]
+    assert context.client.get(f'/api/faces/media/{excluded_target}').json()['faces'][0]['candidates'] == []
+    summary = context.client.post('/api/faces/auto-link').json()
+    assert summary['linked_faces'] == 1 and summary['reset_faces'] == 0
+    with context.db() as db:
+        assert db.get(MediaFace, old_face).child_id == excluded['id']
+        assert db.get(MediaFace, old_face).auto_match_score is not None
+        assert db.get(MediaFace, new_face).child_id == other['id']
+        assert db.get(MediaFace, excluded_face).child_id is None
+    assert context.client.get(f'/api/media/{previous}').json()['child_ids'] == [excluded['id']]
+    assert set(context.client.get(f'/api/media/{target}').json()['child_ids']) == {excluded['id'], other['id']}

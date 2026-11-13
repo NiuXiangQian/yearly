@@ -16,6 +16,24 @@ def enable(context, **options):
     assert response.status_code == 200, response.text
 
 
+def test_face_exclusion_survives_old_settings_payload_and_validates_profiles(context):
+    person = child(context)
+    pet = context.client.post('/api/children', json=dict(name='示例宠物', profile_type='pet', species='狗')).json()
+    value = context.client.get('/api/organization/settings').json()
+    value['face_excluded_child_ids'] = [person['id'], person['id']]
+    saved = context.client.put('/api/organization/settings', json=value)
+    assert saved.status_code == 200 and saved.json()['face_excluded_child_ids'] == [person['id']]
+    legacy = saved.json(); legacy.pop('face_excluded_child_ids'); legacy['tags_enabled'] = True
+    updated = context.client.put('/api/organization/settings', json=legacy)
+    assert updated.status_code == 200 and updated.json()['face_excluded_child_ids'] == [person['id']]
+    assert updated.json()['tags_enabled'] is True
+    for invalid in [[-1], [999999], [pet['id']]]:
+        assert context.client.put('/api/organization/settings', json=dict(legacy, face_excluded_child_ids=invalid)).status_code == 422
+    assert context.client.get('/api/organization/settings').json()['face_excluded_child_ids'] == [person['id']]
+    cleared = context.client.put('/api/organization/settings', json=dict(legacy, face_excluded_child_ids=[]))
+    assert cleared.status_code == 200 and cleared.json()['face_excluded_child_ids'] == []
+
+
 def generate(context, mid):
     with context.db() as db:
         user = db.get(User, 1)

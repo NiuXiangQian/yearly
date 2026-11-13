@@ -7,7 +7,7 @@ from .models import OrganizationSettings, OrganizationReview
 def preferences(db):
     if "organization_preferences" not in db.info:
         row = db.get(OrganizationSettings, 1)
-        db.info["organization_preferences"] = dict(tags_enabled=False, people_enabled=True, tag_rules={}, person_rules={}) | (row.options if row else {})
+        db.info["organization_preferences"] = dict(tags_enabled=False, people_enabled=True, tag_rules={}, person_rules={}, face_excluded_child_ids=[]) | (row.options if row else {})
     return db.info["organization_preferences"]
 
 
