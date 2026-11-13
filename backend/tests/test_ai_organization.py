@@ -158,7 +158,7 @@ def test_reviewing_a_face_also_returns_additional_automatic_match_counts(context
     person=child(context,'参考人物')
     seed_media=image_media(context); indexed(context,seed_media,[1,0],person['id'])
     target=image_media(context); fid=indexed(context,target,[.9,math.sqrt(.19)])
-    chained=image_media(context); chained_id=indexed(context,chained,[.8,.6])
+    chained=image_media(context); chained_id=indexed(context,chained,[.6,.8])
     assert context.client.post('/api/faces/auto-link').json()['linked_faces']==1
     row=context.client.get('/api/organization/reviews?kind=face').json()['items'][0]
     result=context.client.put(f"/api/organization/reviews/{row['id']}",json=dict(action='approve'))

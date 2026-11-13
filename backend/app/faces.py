@@ -1,11 +1,8 @@
 """Administrator-reviewed local face matching. Guesses never become training samples."""
-import math
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Literal
 
-import imageio_ffmpeg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import delete, select, func, or_
@@ -14,6 +11,7 @@ from .organization_history import preferences, record_identity, clear_identity_r
 from .accounts import record_change
 from .db import get_db
 from .face_engine import FaceEngine, MODEL_VERSION, availability
+from .video_faces import detect_video_faces, similarity, VIDEO_FACE_SIMILARITY
 from .config import settings
 from .models import Child, DisplayPreview, Media, MediaChild, MediaFace, MediaFaceIndex, MediaFile, VideoPreview, MediaInterview
 from .security import admin
@@ -22,6 +20,7 @@ from .storage import get_storage
 from .visibility import visible_row
 
 router = APIRouter(prefix="/api/faces", tags=["人脸匹配"])
+AUTO_LINK_MINIMUM_SIMILARITY = 0.7
 
 
 class FaceAssignment(BaseModel):
@@ -46,6 +45,10 @@ class ConfirmFaces(BaseModel):
         return self
 
 
+class AnalyzeFaces(BaseModel):
+    refresh: bool = False
+
+
 def active_media(db, mid, user):
     media = visible_row(db, Media, mid, user)
     if media.status != "active" or media.purpose != "memory":
@@ -53,7 +56,7 @@ def active_media(db, mid, user):
     return media
 
 
-def face_items(db, rows, matching=True, review_automatic=False):
+def face_items(db, rows, matching=True, review_automatic=False, round_scores=True):
     references = db.execute(select(MediaFace, Child).join(Child, Child.id == MediaFace.child_id)
         .join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
@@ -73,7 +76,8 @@ def face_items(db, rows, matching=True, review_automatic=False):
                 if similarity < settings().face_match_threshold or similarity <= best.get(person.id, {}).get("similarity", -1):
                     continue
                 best[person.id] = dict(child_id=person.id, name=person.name,
-                    similarity=round(similarity, 4), reference_media_id=sample.media_id, reference_face_id=sample.id,
+                    similarity=round(similarity, 4) if round_scores else similarity,
+                    reference_media_id=sample.media_id, reference_face_id=sample.id,
                     reference_thumbnail="data:image/jpeg;base64," + sample.thumbnail)
         items.append(dict(id=face.id, box=face.box, frame_seconds=face.frame_seconds,
             thumbnail="data:image/jpeg;base64," + face.thumbnail, child_id=face.child_id, ignored=face.ignored,
@@ -86,7 +90,7 @@ def result(db, media):
     index = db.get(MediaFaceIndex, media.id)
     rows = db.scalars(select(MediaFace).where(MediaFace.media_id == media.id).order_by(MediaFace.id)).all()
     items, references = face_items(db, rows, index is not None and index.model == MODEL_VERSION)
-    return dict(**availability(), analyzed=index is not None, faces=items,
+    return dict(**availability(), analyzed=index is not None, faces=items, refresh_supported=True,
                 reference_people=len({person.id for sample, person in references if sample.media_id != media.id}),
                 child_ids=list(db.scalars(select(MediaChild.child_id).where(MediaChild.media_id == media.id))))
 
@@ -130,13 +134,13 @@ def auto_link(db, user):
         .where(Media.status == "active", Media.purpose == "memory", MediaFaceIndex.model == MODEL_VERSION,
                or_(MediaFace.child_id.is_(None), MediaFace.auto_match_score.is_not(None)),
                MediaFace.ignored.is_(False), MediaFace.auto_link_blocked.is_(False))))
-    items, _ = face_items(db, rows, review_automatic=True)
+    items, _ = face_items(db, rows, review_automatic=True, round_scores=False)
     rules = preferences(db)["person_rules"]
     changes = {}
     for face, item in zip(rows, items, strict=True):
         candidates = item["candidates"]
-        best = candidates[0] if candidates and candidates[0]["similarity"] >= 0.85 else None
-        if best and len(candidates) > 1 and best["similarity"] - candidates[1]["similarity"] < 0.12:
+        best = candidates[0] if candidates and candidates[0]["similarity"] > AUTO_LINK_MINIMUM_SIMILARITY else None
+        if best and len(candidates) > 1 and best["similarity"] == candidates[1]["similarity"]:
             best = None
         if best and rules.get(str(best["child_id"])) == "manual":
             continue
@@ -170,7 +174,9 @@ def auto_link(db, user):
 def auto_link_faces(db=Depends(get_db), user=Depends(admin)):
     summary = auto_link(db, user)
     db.commit()
-    return dict(**summary, enabled=settings().face_auto_link_enabled, minimum_similarity=0.85, minimum_margin=0.12)
+    return dict(**summary, enabled=settings().face_auto_link_enabled,
+                minimum_similarity=AUTO_LINK_MINIMUM_SIMILARITY, minimum_similarity_exclusive=True,
+                minimum_margin=0.0, ties_require_review=True)
 
 
 @router.post("/analyze-next")
@@ -193,15 +199,16 @@ def analyze_next(limit: int = Query(default=5, ge=1, le=5), db=Depends(get_db), 
         remaining=db.scalar(select(func.count()).select_from(unanalysed_photos().subquery())))
 
 
-def analyze(db, storage, media):
+def analyze(db, storage, media, refresh=False):
     file = db.scalar(select(MediaFile).where(MediaFile.media_id == media.id, MediaFile.file_role == "original", MediaFile.upload_status == "complete"))
     if file is None:
         raise HTTPException(409, "请等待影像上传完成")
     index = db.get(MediaFaceIndex, media.id)
     if index is not None:
-        if index.source_sha256 == file.sha256 and index.model == MODEL_VERSION:
+        if index.source_sha256 != file.sha256 or index.model != MODEL_VERSION:
+            raise HTTPException(409, "影像或模型已变化，请先清除旧人脸样本后重新分析")
+        if not refresh:
             return  # Persisted detections, including zero faces, are the analysis cache.
-        raise HTTPException(409, "影像或模型已变化，请先清除旧人脸样本后重新分析")
     preview = db.get(VideoPreview if media.media_type == "video" else DisplayPreview, file.sha256)
     if preview is None or preview.status != "ready":
         raise HTTPException(409, "请等待压缩预览生成完成后重试")
@@ -211,19 +218,29 @@ def analyze(db, storage, media):
         with tempfile.TemporaryDirectory(prefix="yearly-faces-") as directory:
             video = Path(directory) / "preview.mp4"
             storage.bucket.get_object_to_file(preview.object_key, str(video))
-            duration = (media.duration_ms or 60000) / 1000
-            count = min(12, max(1, math.ceil(duration / 10)))
-            interval = max(0.2, duration / count)
-            subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-threads", "1",
-                "-filter_threads", "1", "-i", str(video), "-vf", f"fps=1/{interval}:start_time=0,scale=1280:-2",
-                "-frames:v", str(count), str(Path(directory) / "frame-%02d.jpg")], check=True, capture_output=True, timeout=120)
-            for number, frame in enumerate(sorted(Path(directory).glob("frame-*.jpg"))):
-                found.extend(detector.detect(frame.read_bytes(), round(number * interval, 3)))
+            found = detect_video_faces(video, directory, detector, media.duration_ms)
     else:
         found = detector.detect(storage.bucket.get_object(preview.image_key).read())
-    db.add(MediaFaceIndex(media_id=media.id, model=MODEL_VERSION, source_sha256=file.sha256))
-    db.flush()
-    db.add_all(MediaFace(media_id=media.id, **face) for face in found)
+    for face in found:
+        face.pop("_quality", None)
+    if index is None:
+        db.add(MediaFaceIndex(media_id=media.id, model=MODEL_VERSION, source_sha256=file.sha256))
+        db.flush()
+    # Refresh is additive: keep row IDs, human choices and automatic-match evidence valid.
+    available = list(db.scalars(select(MediaFace).where(MediaFace.media_id == media.id).order_by(MediaFace.id)
+        .with_for_update().execution_options(populate_existing=True))) if index else []
+    for face in found:
+        matches = sorted(((similarity(face["embedding"], row.embedding), row) for row in available), key=lambda item: item[0], reverse=True)
+        # A new crop never inherits or overwrites a human-confirmed identity.
+        if matches and matches[0][0] >= VIDEO_FACE_SIMILARITY:
+            row = matches[0][1]
+            available.remove(row)
+            if (row.confirmed_by is None and row.child_id is None and not row.ignored and not row.auto_link_blocked
+                    and row.auto_match_score is None and row.auto_reference_face_id is None):
+                for key, value in face.items():
+                    setattr(row, key, value)
+        else:
+            db.add(MediaFace(media_id=media.id, **face))
     db.commit()
 
 
@@ -233,12 +250,12 @@ def get_faces(mid: int, db=Depends(get_db), user=Depends(admin)):
 
 
 @router.post("/media/{mid}/analyze")
-def analyze_faces(mid: int, db=Depends(get_db), user=Depends(admin), storage=Depends(get_storage)):
+def analyze_faces(mid: int, data: AnalyzeFaces | None = None, db=Depends(get_db), user=Depends(admin), storage=Depends(get_storage)):
     media = active_media(db, mid, user)
     state = availability()
     if not state["enabled"] or not state["ready"]:
         raise HTTPException(503, state["message"])
-    analyze(db, storage, media)
+    analyze(db, storage, media, refresh=data.refresh if data else False)
     auto_link(db, user)
     db.commit()
     return result(db, media)

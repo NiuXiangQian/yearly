@@ -127,6 +127,7 @@ private fun FaceReview(model: AppModel, mediaID: Int, linkedIDs: Set<Int>, onLin
                 val path = "/faces/media/$mediaID"
                 val value = when (action) {
                     "analyze" -> model.api.write("$path/analyze", "POST")
+                    "refresh" -> model.api.write("$path/analyze", "POST", json("refresh" to true))
                     "confirm" -> model.api.write("$path/confirm", "PUT", json("assignments" to faces.map { face ->
                         val choice = choices[face.getInt("id")] ?: 0
                         json("face_id" to face.getInt("id"), "child_id" to choice.takeIf { it > 0 }, "ignored" to (choice == -1))
@@ -134,7 +135,7 @@ private fun FaceReview(model: AppModel, mediaID: Int, linkedIDs: Set<Int>, onLin
                     "clear" -> model.api.write(path, "DELETE")
                     else -> model.api.getObject(path, true)
                 }
-                if (action == "confirm" || action == "clear") {
+                if (action == "confirm" || action == "clear" || action == "analyze" || action == "refresh") {
                     val old = state?.ids("child_ids").orEmpty()
                     val next = value.ids("child_ids")
                     onLinked((linkedIDs - (old - next)) + (next - old))
@@ -167,6 +168,11 @@ private fun FaceReview(model: AppModel, mediaID: Int, linkedIDs: Set<Int>, onLin
         return
     }
     if (faces.isEmpty()) Text("未检测到清晰人脸，可继续手动关联人物。")
+    val changed = faces.any { choices[it.getInt("id")] != storedChoice(it) }
+    if (value.optBoolean("refresh_supported")) {
+        OutlinedButton({ perform("refresh") }, enabled = !busy && !changed && value.optBoolean("enabled") && value.optBoolean("ready")) { Text("重新查找人脸") }
+        Text("保留已确认和忽略的记录，补查遗漏的人脸。请先保存当前选择。", style = MaterialTheme.typography.bodySmall)
+    }
     faces.forEachIndexed { number, face ->
         val id = face.getInt("id")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

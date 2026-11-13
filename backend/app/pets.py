@@ -124,6 +124,11 @@ def items(db, rows):
         for d in r.detections
         if d["child_id"] in profiles and d["confirmed_by"] and not d["ignored"]
     ]
+    preferred = {p.id for _, d, p in references if d.get("reference_preferred")}
+    references = [
+        (mid, d, p) for mid, d, p in references
+        if p.id not in preferred or d.get("reference_preferred")
+    ]
     groups = []
     for row in rows:
         dogs = []
@@ -354,6 +359,42 @@ def confirm(mid: int, data: PetAssignment, db=Depends(get_db), user=Depends(admi
     return items(db, [db.get(MediaPetIndex, mid)])[0]
 
 
+@router.put("/media/{mid}/reference")
+def select_reference(mid: int, data: PetAssignment, db=Depends(get_db), user=Depends(admin)):
+    active_media(db, mid, user)
+    profile = db.scalar(select(Child).where(Child.id == data.child_id).with_for_update())
+    if not profile or profile.status == "deleted" or profile.profile_type != "pet" or profile.species != "狗" or data.ignored:
+        raise HTTPException(422, "请选择有效的狗狗档案")
+    rows = pet_rows(db)
+    selected = next((r for r in rows if r.media_id == mid), None)
+    if selected is None or data.index >= len(selected.detections):
+        raise HTTPException(404, "宠物分析记录不存在")
+    dog = selected.detections[data.index]
+    if dog["child_id"] != profile.id or not dog["confirmed_by"] or dog["ignored"]:
+        raise HTTPException(409, "请先人工确认这张照片中的宠物")
+    before = []
+    for row in rows:
+        dogs = [dict(d) for d in row.detections]
+        changed = False
+        for index, sample in enumerate(dogs):
+            if sample["child_id"] != profile.id:
+                continue
+            was_preferred = bool(sample.get("reference_preferred"))
+            preferred = row.media_id == mid and index == data.index
+            if was_preferred:
+                before.append(dict(media_id=row.media_id, index=index))
+            if preferred != was_preferred:
+                sample["reference_preferred"] = preferred
+                changed = True
+        if changed:
+            row.detections = dogs
+    after = dict(media_id=mid, index=data.index)
+    if before != [after]:
+        record_change(db, profile, {"pet_reference": {"before": before, "after": after}})
+    db.commit()
+    return dict(child_id=profile.id, **after)
+
+
 def apply_pet_assignment(db, media, data, user, automatic=False, match=None):
     mid = media.id
     row = db.get(MediaPetIndex, mid)
@@ -371,6 +412,8 @@ def apply_pet_assignment(db, media, data, user, automatic=False, match=None):
     dogs = [dict(d) for d in row.detections]
     dog = dogs[data.index]
     before = dict(index=data.index, child_id=dog["child_id"], ignored=dog["ignored"])
+    if data.child_id != dog["child_id"] or data.ignored:
+        dog.pop("reference_preferred", None)
     dog.update(
         child_id=data.child_id,
         ignored=data.ignored,

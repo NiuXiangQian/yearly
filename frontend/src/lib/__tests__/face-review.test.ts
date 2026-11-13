@@ -86,3 +86,38 @@ it("explains disabled setup and translates the review controls", async () => {
   expect(host.textContent).toContain("Face matching");
   expect(host.textContent).toContain("Face matching is not enabled");
 });
+
+it("refreshes cached faces without clearing reviewed identities, and protects unsaved choices", async () => {
+  const { host, updated } = await mount(state({ refresh_supported: true }));
+  const refresh = button(host, "重新查找人脸");
+  expect(refresh.disabled).toBe(false);
+  button(host, "选择").click(); await nextTick();
+  expect(refresh.disabled).toBe(true);
+  const select = host.querySelector("select")!;
+  select.value = ""; select.dispatchEvent(new Event("change")); await nextTick();
+  vi.mocked(post).mockResolvedValue(state({ refresh_supported: true, child_ids: [7, 2], faces: [
+    state().faces[0], { ...state().faces[0], id: 22, child_id: 2 },
+  ] }));
+  refresh.click();
+  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/faces/media/42/analyze", { refresh: true }));
+  await vi.waitFor(() => expect(host.querySelectorAll("select")).toHaveLength(2));
+  expect(del).not.toHaveBeenCalled();
+  expect(updated).toHaveBeenCalledWith([7, 9, 12, 2]);
+  locale.value = "en"; await nextTick();
+  expect(host.textContent).toContain("Find faces again");
+});
+
+it("hides refresh for older servers", async () => {
+  const { host } = await mount();
+  expect(button(host, "重新查找人脸")).toBeUndefined();
+});
+
+it("retains cached faces when refreshing fails", async () => {
+  const { host } = await mount(state({ refresh_supported: true }));
+  vi.mocked(post).mockRejectedValueOnce(new Error("重新查找失败"));
+  button(host, "重新查找人脸").click();
+  await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain("重新查找失败"));
+  expect(host.querySelectorAll("select")).toHaveLength(1);
+  expect(del).not.toHaveBeenCalled();
+  expect(button(host, "重新查找人脸").disabled).toBe(false);
+});

@@ -60,6 +60,21 @@ class FaceEngine:
         self.detector = cv2.FaceDetectorYN.create(str(model_directory() / MODELS["face_detection_yunet"][0]), "", (320, 320), 0.85, 0.3, 5000)
         self.recognizer = cv2.FaceRecognizerSF.create(str(model_directory() / MODELS["face_recognition_sface"][0]), "")
 
+    def quality(self, face, pixels):
+        """Rank video crops using pose, detail and source resolution, without learning identity."""
+        landmarks = self.np.asarray(face[4:14], dtype=float).reshape(5, 2)
+        eye_axis = landmarks[1] - landmarks[0]
+        eye_distance = float(self.np.linalg.norm(eye_axis))
+        if eye_distance < 1:
+            return 0.0
+        # Project on the eye axis so a tilted, frontal face is not treated as a profile.
+        offset = abs(float(self.np.dot(landmarks[2] - landmarks[:2].mean(axis=0), eye_axis))) / eye_distance**2
+        frontal = max(0.0, 1 - 2 * offset) * min(1.0, eye_distance / max(1.0, float(face[2]) * 0.42))
+        gray = self.cv.cvtColor(self.cv.resize(pixels, (112, 112)), self.cv.COLOR_BGR2GRAY)
+        detail = min(1.0, float(self.np.log1p(self.cv.Laplacian(gray, self.cv.CV_64F).var()) / self.np.log1p(500)))
+        resolution = min(1.0, min(pixels.shape[:2]) / 160)
+        return (0.55 * frontal + 0.25 * detail + 0.15 * resolution + 0.05 * float(face[-1])) * (0.4 + 0.6 * detail)
+
     def detect(self, raw, frame_seconds=None):
         with Image.open(io.BytesIO(raw)) as source:
             image = ImageOps.exif_transpose(source).convert("RGB")
@@ -77,12 +92,18 @@ class FaceEngine:
                 continue
             aligned = self.recognizer.alignCrop(pixels, face)
             vector = self.recognizer.feature(aligned).flatten()
-            vector = vector / self.np.linalg.norm(vector)
+            norm = self.np.linalg.norm(vector)
+            if not self.np.isfinite(norm) or norm <= 0:
+                continue
+            vector = vector / norm
             crop = image.crop((left, top, right, bottom))
             crop.thumbnail((112, 112))
             output = io.BytesIO()
             crop.save(output, "JPEG", quality=80)
-            results.append(dict(box=[left / width, top / height, (right-left) / width, (bottom-top) / height],
+            item = dict(box=[left / width, top / height, (right-left) / width, (bottom-top) / height],
                                 embedding=vector.tolist(), thumbnail=base64.b64encode(output.getvalue()).decode(),
-                                frame_seconds=frame_seconds))
+                                frame_seconds=frame_seconds)
+            if frame_seconds is not None:
+                item["_quality"] = self.quality(face, pixels[top:bottom, left:right])
+            results.append(item)
         return results

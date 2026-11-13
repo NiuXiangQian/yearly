@@ -7,7 +7,7 @@ import { useYearly } from "../stores/yearly";
 
 type Candidate = { child_id: number; name: string; similarity: number; reference_thumbnail: string };
 type Face = { id: number; thumbnail: string; child_id: number | null; ignored: boolean; frame_seconds: number | null; candidates: Candidate[] };
-type FaceState = { enabled: boolean; ready: boolean; message: string; analyzed: boolean; reference_people: number; faces: Face[]; child_ids: number[]; auto_linked?: number; auto_reset?: number };
+type FaceState = { enabled: boolean; ready: boolean; message: string; analyzed: boolean; refresh_supported?: boolean; reference_people: number; faces: Face[]; child_ids: number[]; auto_linked?: number; auto_reset?: number };
 const props = defineProps<{ mediaId: number; linkedIds: number[] }>();
 const emit = defineEmits<{ updated: [ids: number[]]; processing: [value: boolean] }>();
 const yearly = useYearly();
@@ -40,9 +40,9 @@ async function toggle() {
   open.value = !open.value;
   if (open.value && !state.value) await load();
 }
-async function analyze() {
+async function analyze(refresh = false) {
   busy.value = true; error.value = ""; notice.value = "";
-  try { apply(await post<FaceState>(`/faces/media/${props.mediaId}/analyze`)); }
+  try { apply(await post<FaceState>(`/faces/media/${props.mediaId}/analyze`, { refresh }), true); }
   catch (e) { error.value = (e as Error).message; }
   finally { busy.value = false; }
 }
@@ -77,8 +77,12 @@ async function clear() {
       <p v-if="error" class="notice" role="alert">{{ error }} <button v-if="!state" type="button" class="button small" :disabled="busy" @click="load">{{ t("重新加载") }}</button></p>
       <template v-if="state">
         <p v-if="!state.enabled || !state.ready" class="muted">{{ t(state.message) }}</p>
-        <button v-if="!state.analyzed" type="button" class="button" :disabled="busy || !state.enabled || !state.ready" @click="analyze">{{ t("查找这份影像中的人脸") }}</button>
+        <button v-if="!state.analyzed" type="button" class="button" :disabled="busy || !state.enabled || !state.ready" @click="analyze()">{{ t("查找这份影像中的人脸") }}</button>
         <template v-else>
+          <template v-if="state.refresh_supported">
+            <button type="button" class="button" :disabled="busy || changed || !state.enabled || !state.ready" @click="analyze(true)">{{ t("重新查找人脸") }}</button>
+            <p class="muted">{{ t("保留已确认和忽略的记录，补查遗漏的人脸。请先保存当前选择。") }}</p>
+          </template>
           <p v-if="!state.faces.length" class="muted">{{ t("未检测到清晰人脸，可继续手动关联人物。") }}</p>
           <p v-else-if="!state.reference_people" class="muted">{{ t("还没有其他影像的已确认样本，请先为人脸选择人物。") }}</p>
           <div v-for="(face, i) in state.faces" :key="face.id" class="face-row">

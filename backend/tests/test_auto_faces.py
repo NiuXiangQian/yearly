@@ -1,4 +1,5 @@
 import math
+import pytest
 from sqlalchemy import select
 from app.config import settings
 from app.face_engine import MODEL_VERSION
@@ -82,7 +83,7 @@ def test_high_match_links_preserve_manual_people_do_not_self_seed_and_can_be_und
     target = image_media(context, [other["id"]])
     fid = indexed(context, target, [0.9, math.sqrt(0.19)])
     chained = image_media(context)
-    indexed(context, chained, [0.8, 0.6])
+    indexed(context, chained, [0.6, 0.8])
     response = context.client.post("/api/faces/auto-link")
     assert response.status_code == 200
     assert response.json()["linked_faces"] == 1
@@ -111,7 +112,7 @@ def test_high_match_links_preserve_manual_people_do_not_self_seed_and_can_be_und
         assert db.get(MediaFace, fid).auto_link_blocked
 
 
-def test_close_competitors_low_matches_ignored_and_same_photo_remain_pending(
+def test_highest_candidate_wins_even_without_old_margin_and_low_matches_stay_pending(
     context, monkeypatch
 ):
     monkeypatch.setattr(settings(), "face_auto_link_enabled", True)
@@ -123,8 +124,11 @@ def test_close_competitors_low_matches_ignored_and_same_photo_remain_pending(
     target = image_media(context)
     fid = indexed(context, target, [1, 0])
     low = image_media(context)
-    indexed(context, low, [0, 1])
-    assert context.client.post("/api/faces/auto-link").json()["linked_faces"] == 0
+    low_face = indexed(context, low, [0, 1])
+    assert context.client.post("/api/faces/auto-link").json()["linked_faces"] == 1
+    with context.db() as db:
+        assert db.get(MediaFace, fid).child_id == a["id"]
+        assert db.get(MediaFace, low_face).child_id is None
     act(context, "member")
     assert context.client.post("/api/faces/auto-link").status_code == 403
 
@@ -138,7 +142,7 @@ def test_disabled_is_noop_and_manual_review_promotes_automatic_face_to_reference
     target = image_media(context)
     fid = indexed(context, target, [0.9, math.sqrt(0.19)])
     chained = image_media(context)
-    indexed(context, chained, [0.8, 0.6])
+    indexed(context, chained, [0.6, 0.8])
     assert context.client.post("/api/faces/auto-link").json()["linked_faces"] == 0
     monkeypatch.setattr(settings(), "face_auto_link_enabled", True)
     assert context.client.post("/api/faces/auto-link").json()["linked_faces"] == 1
@@ -168,13 +172,39 @@ def test_correcting_or_clearing_a_reference_reconciles_automatic_links(context, 
         assert row.child_id is None and row.auto_match_score is None and not row.auto_link_blocked
 
 
-def test_new_competing_reference_reverts_existing_ambiguous_automatic_link(context, monkeypatch):
+def test_stronger_new_reference_reassigns_existing_automatic_link(context, monkeypatch):
     monkeypatch.setattr(settings(), "face_auto_link_enabled", True)
     a, b = child(context, "甲"), child(context, "乙")
-    seed = image_media(context); indexed(context, seed, [1, 0], a["id"])
+    seed = image_media(context); indexed(context, seed, [.9, math.sqrt(.19)], a["id"])
     target = image_media(context); indexed(context, target, [1, 0])
     assert context.client.post("/api/faces/auto-link").json()["linked_faces"] == 1
-    second = image_media(context); indexed(context, second, [.99, math.sqrt(1-.99**2)], b["id"])
+    second = image_media(context); indexed(context, second, [1, 0], b["id"])
     summary = context.client.post("/api/faces/auto-link").json()
-    assert summary["reset_faces"] == 1
-    assert context.client.get(f"/api/media/{target}").json()["child_ids"] == []
+    assert summary["linked_faces"] == 1 and summary["reset_faces"] == 0
+    assert context.client.get(f"/api/media/{target}").json()["child_ids"] == [b["id"]]
+
+
+@pytest.mark.parametrize('score,expected', [(.69999, False), (.7, False), (.700001, True), (.71, True)])
+def test_auto_confirmation_threshold_is_strict_and_uses_unrounded_similarity(context, monkeypatch, score, expected):
+    monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
+    person = child(context)
+    seed = image_media(context); indexed(context, seed, [1, 0], person['id'])
+    target = image_media(context); fid = indexed(context, target, [score, math.sqrt(1-score**2)])
+    result = context.client.post('/api/faces/auto-link').json()
+    assert result['minimum_similarity'] == .7 and result['minimum_similarity_exclusive'] is True
+    assert result['minimum_margin'] == 0 and result['linked_faces'] == int(expected)
+    with context.db() as db:
+        row = db.get(MediaFace, fid)
+        assert row.child_id == (person['id'] if expected else None)
+        assert row.confirmed_by is None
+
+
+def test_exactly_tied_people_require_manual_review(context, monkeypatch):
+    monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
+    for name in ['甲', '乙']:
+        person = child(context, name)
+        indexed(context, image_media(context), [1, 0], person['id'])
+    target = image_media(context); fid = indexed(context, target, [1, 0])
+    assert context.client.post('/api/faces/auto-link').json()['linked_faces'] == 0
+    with context.db() as db:
+        assert db.get(MediaFace, fid).child_id is None

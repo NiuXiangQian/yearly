@@ -21,6 +21,7 @@ private struct NativeFaceState: Decodable {
     let ready: Bool
     let message: String
     let analyzed: Bool
+    let refresh_supported: Bool?
     let faces: [NativeDetectedFace]
     let child_ids: [Int]
     let auto_linked: Int?
@@ -61,6 +62,12 @@ private struct NativeFaceReview: View {
                     if !state.analyzed {
                         Button("查找这份影像中的人脸") { Task { await perform("analyze") } }.disabled(busy || !state.enabled || !state.ready)
                     } else {
+                        if state.refresh_supported == true {
+                            Button("重新查找人脸") { Task { await perform("refresh") } }
+                                .disabled(busy || changed || !state.enabled || !state.ready)
+                            Text("保留已确认和忽略的记录，补查遗漏的人脸。请先保存当前选择。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         if state.faces.isEmpty { Text("未检测到清晰人脸，可继续手动关联人物。").font(.caption) }
                         ForEach(Array(state.faces.enumerated()), id: \.element.id) { number, face in
                             VStack(alignment: .leading, spacing: 10) {
@@ -120,8 +127,8 @@ private struct NativeFaceReview: View {
         do {
             let path = "/faces/media/\(mediaID)"
             let value: NativeFaceState
-            if action == "analyze" {
-                value = try await session.post(path + "/analyze", json: [:])
+            if action == "analyze" || action == "refresh" {
+                value = try await session.post(path + "/analyze", json: ["refresh": action == "refresh"])
             } else if action == "confirm" {
                 let assignments: [[String: Any]] = (state?.faces ?? []).filter { choices[$0.id] != $0.choice }.map { face in
                     let choice = choices[face.id] ?? 0
@@ -137,7 +144,7 @@ private struct NativeFaceReview: View {
             } else {
                 value = try await session.get(path, refresh: true)
             }
-            if action == "confirm" || action == "clear" {
+            if action == "confirm" || action == "clear" || action == "analyze" || action == "refresh" {
                 let old = Set(state?.child_ids ?? []), next = Set(value.child_ids)
                 linkedIDs = Array(Set(linkedIDs).subtracting(old.subtracting(next)).union(next.subtracting(old))).sorted()
                 onSaved()

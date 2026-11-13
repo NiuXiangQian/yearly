@@ -197,7 +197,8 @@ def test_disabled_missing_preview_and_old_search_still_work(context, detector, m
     assert context.client.get(f"/api/media/{mid}").status_code == 200
 
 
-def test_video_samples_compressed_preview_with_timestamps(context, detector, monkeypatch):
+@pytest.mark.parametrize("multiple", [False, True])
+def test_video_samples_compressed_preview_with_timestamps(context, detector, monkeypatch, multiple):
     import subprocess
     import imageio_ffmpeg
     from pathlib import Path
@@ -220,7 +221,71 @@ def test_video_samples_compressed_preview_with_timestamps(context, detector, mon
         def detect(self, raw, frame_seconds=None):
             assert Image.open(io.BytesIO(raw)).size == (1280, 960)
             timestamps.append(frame_seconds)
-            return [dict(face(), frame_seconds=frame_seconds)]
+            detected = [dict(face(), frame_seconds=frame_seconds, _quality=frame_seconds + 0.1)]
+            if multiple and frame_seconds == 0.5:
+                detected.append(dict(face([0.0, 1.0] + [0.0]*126), frame_seconds=frame_seconds, _quality=0.5))
+            return detected
     monkeypatch.setattr(faces, "FaceEngine", Detector)
     state = analyze(context, mid)
-    assert state["faces"][0]["frame_seconds"] == 0 and timestamps == [0]
+    assert state["faces"][0]["frame_seconds"] == 0.5 and timestamps == [0, 0.5]
+    assert len(state["faces"]) == (2 if multiple else 1)
+    assert "_quality" not in str(state)
+
+
+def test_refresh_preserves_reviewed_faces_and_ids_and_adds_missed_people(context, detector, monkeypatch):
+    person = child(context)
+    mid = image_media(context)
+    original = analyze(context, mid)["faces"][0]
+    confirm(context, mid, original["id"], person["id"])
+    legacy = context.client.get(f"/api/media/{mid}").json()
+    missed = face([0.0, 1.0] + [0.0]*126)
+    monkeypatch.setattr(faces, "FaceEngine", lambda: type("Group", (), {"detect": lambda self, raw: [face(), missed]})())
+    refreshed = context.client.post(f"/api/faces/media/{mid}/analyze", json={"refresh": True})
+    assert refreshed.status_code == 200, refreshed.text
+    items = refreshed.json()["faces"]
+    assert len(items) == 2 and items[0]["id"] == original["id"]
+    assert items[0]["child_id"] == person["id"] and items[0]["thumbnail"] == original["thumbnail"]
+    assert items[1]["child_id"] is None
+    assert refreshed.json()["refresh_supported"] is True
+    assert context.client.get(f"/api/media/{mid}").json() == legacy
+    # Repeated refreshes do not multiply results or invalidate an old client's face ID.
+    assert len(context.client.post(f"/api/faces/media/{mid}/analyze", json={"refresh": True}).json()["faces"]) == 2
+    assert confirm(context, mid, original["id"], person["id"]).status_code == 200
+
+
+def test_refresh_updates_unreviewed_crop_but_keeps_ignored_and_withdrawn_choices(context, detector, monkeypatch):
+    mid = image_media(context)
+    original = analyze(context, mid)["faces"][0]
+    better = dict(face(), thumbnail=base64.b64encode(b"better-crop").decode())
+    monkeypatch.setattr(faces, "FaceEngine", lambda: type("Better", (), {"detect": lambda self, raw: [better]})())
+    updated = context.client.post(f"/api/faces/media/{mid}/analyze", json={"refresh": True}).json()["faces"]
+    assert len(updated) == 1 and updated[0]["id"] == original["id"]
+    assert updated[0]["thumbnail"].endswith(better["thumbnail"])
+    confirm(context, mid, original["id"], ignored=True)
+    monkeypatch.setattr(faces, "FaceEngine", lambda: type("Older", (), {"detect": lambda self, raw: [face()]})())
+    kept = context.client.post(f"/api/faces/media/{mid}/analyze", json={"refresh": True}).json()["faces"]
+    assert kept == [dict(updated[0], ignored=True)]
+    person = child(context)
+    confirm(context, mid, original["id"], person["id"])
+    confirm(context, mid, original["id"])
+    context.client.post(f"/api/faces/media/{mid}/analyze", json={"refresh": True})
+    with context.db() as db:
+        row = db.get(MediaFace, original["id"])
+        assert row.child_id is None and row.auto_link_blocked
+        assert row.thumbnail == better["thumbnail"]
+
+
+def test_refresh_empty_or_failed_detection_does_not_erase_existing_faces(context, detector, monkeypatch):
+    from fastapi import HTTPException
+    mid = image_media(context)
+    original = analyze(context, mid)
+    monkeypatch.setattr(faces, "FaceEngine", lambda: type("Empty", (), {"detect": lambda self, raw: []})())
+    empty = context.client.post(f"/api/faces/media/{mid}/analyze", json={"refresh": True})
+    assert empty.status_code == 200 and empty.json() == original
+    class Unavailable:
+        def detect(self, raw):
+            raise HTTPException(503, "人脸模型暂不可用")
+    monkeypatch.setattr(faces, "FaceEngine", Unavailable)
+    failed = context.client.post(f"/api/faces/media/{mid}/analyze", json={"refresh": True})
+    assert failed.status_code == 503
+    assert context.client.get(f"/api/faces/media/{mid}").json() == original

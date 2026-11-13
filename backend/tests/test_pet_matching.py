@@ -127,6 +127,35 @@ def test_dogs_need_explicit_reference_pet_confirmation_links_and_preserves_legac
         assert list(db.scalars(select(MediaFace))) == []
 
 
+def test_preferred_reference_keeps_confirmations_and_legacy_requests(context, dog_detector):
+    photo, _ = dog_detector
+    pet = profile(context)
+    old, front, target = [photo() for _ in range(3)]
+    for mid in [old, front, target]:
+        assert context.client.post(f"/api/pets/media/{mid}/analyze").status_code == 200
+    body = dict(index=0, child_id=pet["id"])
+    path = f"/api/pets/media/{front}/reference"
+    assert context.client.put(path, json=body).status_code == 409
+    for mid in [old, front]:
+        assert context.client.put(f"/api/pets/media/{mid}/confirm", json=body).status_code == 200
+    assert context.client.put(path, json=body).json() == dict(media_id=front, **body)
+    assert context.client.put(path, json=body).status_code == 200
+    candidate = context.client.get("/api/pets/review", params={"media_id": target}).json()["items"][0]["dogs"][0]["candidates"][0]
+    assert candidate["reference_media_id"] == front
+    # An installed client resubmitting the old confirmation body retains the preference.
+    assert context.client.put(f"/api/pets/media/{front}/confirm", json=body).status_code == 200
+    with context.db() as db:
+        for mid in [old, front]:
+            dog = db.get(MediaPetIndex, mid).detections[0]
+            assert dog["child_id"] == pet["id"] and dog["confirmed_by"]
+        assert db.get(MediaPetIndex, front).detections[0]["reference_preferred"]
+    assert context.client.put(f"/api/pets/media/{front}/confirm", json=dict(index=0)).status_code == 200
+    candidate = context.client.get("/api/pets/review", params={"media_id": target}).json()["items"][0]["dogs"][0]["candidates"][0]
+    assert candidate["reference_media_id"] == old
+    with context.db() as db:
+        assert not db.get(MediaPetIndex, front).detections[0].get("reference_preferred")
+
+
 def test_empty_detection_is_cached_and_failed_analysis_is_not_persisted(
     context, dog_detector, monkeypatch
 ):
@@ -163,6 +192,7 @@ def test_pet_endpoints_are_admin_only(context, dog_detector, role):
         ("POST", "/analyze-next", {}),
         ("POST", f"/media/{mid}/analyze", {}),
         ("PUT", f"/media/{mid}/confirm", dict(index=0)),
+        ("PUT", f"/media/{mid}/reference", dict(index=0)),
         ("DELETE", f"/media/{mid}", None),
     ]:
         assert (
