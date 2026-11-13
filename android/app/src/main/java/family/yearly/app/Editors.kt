@@ -3,6 +3,7 @@ package family.yearly.app
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.os.Build
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -21,6 +22,8 @@ import java.io.ByteArrayOutputStream
 import java.time.LocalDateTime
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -52,10 +55,11 @@ fun MediaEditor(model: AppModel, memory: Memory, close: () -> Unit) {
     var longitude by remember { mutableStateOf(row.text("longitude")) }
     var share by remember { mutableStateOf(row.optBoolean("share_allowed", true)) }
     var children by remember { mutableStateOf(row.ids("child_ids")) }
+    var faceBusy by remember { mutableStateOf(false) }
     FormPage(
         "编辑影像",
         close,
-        enabled = account?.canEdit(row) == true,
+        enabled = account?.canEdit(row) == true && !faceBusy,
         onSave = {
             if (corrected.isNotBlank()) LocalDateTime.parse(corrected)
             val body =
@@ -98,7 +102,98 @@ fun MediaEditor(model: AppModel, memory: Memory, close: () -> Unit) {
         ToggleRow("允许分享", share) { share = it }
         SectionTitle("关联人物与宠物")
         PeoplePicker(model.profiles, children) { children = it }
+        if (account?.admin == true) {
+            FaceReview(model, memory.id, children, { children = it }, { faceBusy = it })
+        }
     }
+}
+
+@Composable
+private fun FaceReview(model: AppModel, mediaID: Int, linkedIDs: Set<Int>, onLinked: (Set<Int>) -> Unit, onBusy: (Boolean) -> Unit) {
+    var expanded by remember(mediaID) { mutableStateOf(false) }
+    var state by remember(mediaID) { mutableStateOf<JSONObject?>(null) }
+    var choices by remember(mediaID) { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    var clearing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val faces = state?.objects("faces").orEmpty()
+    fun storedChoice(face: JSONObject) = if (face.optBoolean("ignored")) -1 else face.optionalInt("child_id") ?: 0
+    fun perform(action: String) {
+        if (busy) return
+        busy = true; onBusy(true); error = ""
+        scope.launch {
+            try {
+                val path = "/faces/media/$mediaID"
+                val value = when (action) {
+                    "analyze" -> model.api.write("$path/analyze", "POST")
+                    "confirm" -> model.api.write("$path/confirm", "PUT", json("assignments" to faces.map { face ->
+                        val choice = choices[face.getInt("id")] ?: 0
+                        json("face_id" to face.getInt("id"), "child_id" to choice.takeIf { it > 0 }, "ignored" to (choice == -1))
+                    }))
+                    "clear" -> model.api.write(path, "DELETE")
+                    else -> model.api.getObject(path, true)
+                }
+                if (action == "confirm" || action == "clear") {
+                    val old = state?.ids("child_ids").orEmpty()
+                    val next = value.ids("child_ids")
+                    onLinked((linkedIDs - (old - next)) + (next - old))
+                    model.load()
+                }
+                state = value
+                choices = value.objects("faces").associate { it.getInt("id") to storedChoice(it) }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                error = failure.message ?: "人脸处理失败，请重试。"
+            } finally { busy = false; onBusy(false) }
+        }
+    }
+    OutlinedButton({ expanded = !expanded; if (expanded && state == null) perform("load") }, Modifier.fillMaxWidth(), enabled = !busy) {
+        Text(if (expanded) "收起人脸匹配" else "人脸匹配 · 确认这里面有谁")
+    }
+    if (!expanded) return
+    Text("选择每张脸对应的人物。确认后会关联档案，并作为后续匹配的参考；候选不会自动保存。", style = MaterialTheme.typography.bodySmall)
+    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+    if (error.isNotBlank()) ErrorBanner(error)
+    val value = state
+    if (value == null) {
+        if (!busy) TextButton({ perform("load") }) { Text("重新加载") }
+        return
+    }
+    if (!value.optBoolean("enabled") || !value.optBoolean("ready")) Text(value.text("message"))
+    if (!value.optBoolean("analyzed")) {
+        Button({ perform("analyze") }, enabled = !busy && value.optBoolean("enabled") && value.optBoolean("ready")) { Text("查找这份影像中的人脸") }
+        return
+    }
+    if (faces.isEmpty()) Text("未检测到清晰人脸，可继续手动关联人物。")
+    faces.forEachIndexed { number, face ->
+        val id = face.getInt("id")
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            coil.compose.AsyncImage(Base64.decode(face.text("thumbnail").substringAfter(','), Base64.DEFAULT), "待确认人脸 ${number + 1}", Modifier.size(60.dp))
+            Column(Modifier.weight(1f)) {
+                Text("人脸 ${number + 1}")
+                if (!face.isNull("frame_seconds")) Text("视频 ${face.optDouble("frame_seconds")} 秒", style = MaterialTheme.typography.bodySmall)
+                Choice("人物", (choices[id] ?: 0).toString(), listOf("0" to "待确认") + model.profiles.filter { it.type != "pet" }.map { it.id.toString() to it.name } + listOf("-1" to "忽略这张脸"), enabled = !busy) {
+                    choices = choices + (id to it.toInt())
+                }
+            }
+        }
+        if (face.isNull("child_id") && !face.optBoolean("ignored") && face.objects("candidates").isEmpty()) Text("没有足够相似的已确认样本，请手动选择。", style = MaterialTheme.typography.bodySmall)
+        face.objects("candidates").forEach { candidate ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                coil.compose.AsyncImage(Base64.decode(candidate.text("reference_thumbnail").substringAfter(','), Base64.DEFAULT), "${candidate.text("name")} 的参考样本", Modifier.size(44.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("可能是 ${candidate.text("name")}")
+                    Text("相似度 ${"%.2f".format(candidate.optDouble("similarity"))}，供人工判断", style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton({ choices = choices + (id to candidate.getInt("child_id")) }, enabled = !busy) { Text("选择") }
+            }
+        }
+    }
+    if (faces.isNotEmpty()) Button({ perform("confirm") }, enabled = !busy && faces.any { choices[it.getInt("id")] != storedChoice(it) }) { Text("确认人物") }
+    TextButton({ clearing = true }, enabled = !busy) { Text("清除本影像的人脸样本") }
+    if (clearing) ConfirmDialog("清除人脸样本", "清除后将移除这些匹配样本及其新增的人物关联，手动关联保留。", "清除样本", { clearing = false }) { clearing = false; perform("clear") }
 }
 
 @Composable

@@ -39,7 +39,7 @@ struct NativeFamilyView: View {
                 if store.profilesLoading && store.profiles.isEmpty { ProgressView("正在读取家人资料…") }
                 if !store.profilesError.isEmpty {
                     Text(store.profilesError).foregroundStyle(.red)
-                    Button("重新加载") { Task { await store.loadProfiles() } }
+                    Button("重新加载") { Task { await store.loadProfiles(refresh: true) } }
                 }
                 if store.profiles.isEmpty && !store.profilesLoading && store.profilesError.isEmpty {
                     Text("还没有家人或宠物资料。").foregroundStyle(.secondary)
@@ -86,8 +86,8 @@ struct NativeFamilyView: View {
             }
             .scrollContentBackground(.hidden).background(NativeTheme.background)
             .navigationTitle("家人与宠物")
-            .refreshable { await store.loadProfiles() }
-            .task { await store.loadProfiles() }
+            .refreshable { await store.loadProfiles(refresh: true) }
+            .task { await store.loadProfiles(refresh: true) }
             .nativeSheet(item: $auditing) { profile in
                 NavigationStack {
                     NativeAuditView(session: store.session, resourceType: "child", resourceID: String(profile.id))

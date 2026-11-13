@@ -1,5 +1,7 @@
 """Opt-in search over visual descriptions, using existing preview objects only."""
 import base64
+import hashlib
+from collections import Counter
 from functools import lru_cache
 import io
 import json
@@ -172,6 +174,26 @@ def indexed_query(user):
     return visible_query(select(Media).where(Media.status == "active", Media.purpose == "memory"), Media, user)
 
 
+def search_context(media, index):
+    profiles = [dict(id=p.id, name=p.name, nickname=p.nickname, relationship=p.relationship,
+                     species=p.species) for p in sorted(media.children, key=lambda p: p.id) if p.status != "deleted"]
+    metadata = dict(tags=sorted(media.tags), title=media.title, batch=media.batch_name,
+                    remark=media.remark, location=media.location_name, profiles=profiles)
+    fingerprint = hashlib.sha256(json.dumps(dict(model=EMBED_MODEL, dimensions=DIMENSIONS,
+        description=index.description, **metadata), ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    parts = []
+    if profiles:
+        parts.append("人物与宠物：" + "；".join("、".join(dict.fromkeys(
+            p[key] for key in ["name", "nickname", "relationship", "species"] if p[key])) for p in profiles))
+    for label, value in [("标签", "、".join(metadata["tags"])), ("标题", media.title),
+                         ("批次", media.batch_name), ("地点", media.location_name), ("小记", media.remark)]:
+        if value:
+            parts.append(label + "：" + value)
+    # Put curated metadata first so long visual descriptions cannot truncate tags or people.
+    content = "\n".join([*parts, "画面：" + index.description]) if parts else index.description
+    return content, fingerprint
+
+
 @router.get("/status")
 def search_status(db=Depends(get_db), user=Depends(current_user)):
     visible = indexed_query(user).with_only_columns(Media.id).subquery()
@@ -205,6 +227,7 @@ def search(data: SearchIn, db=Depends(get_db), user=Depends(current_user)):
     scoped_ids = query.with_only_columns(Media.id)
     profiles = db.scalars(select(Child).where(Child.status != "deleted", Child.id.in_(
         select(MediaChild.child_id).where(MediaChild.media_id.in_(scoped_ids))))).all()
+    tag_library = Counter(tag for tags in db.scalars(query.with_only_columns(Media.tags)) for tag in tags)
     indexed = query.join(MediaSearchIndex).where(MediaSearchIndex.status == "ready")
     count = db.scalar(select(func.count()).select_from(indexed.subquery()))
     if not count:
@@ -214,6 +237,7 @@ def search(data: SearchIn, db=Depends(get_db), user=Depends(current_user)):
         "scene 只保留画面内容、物体、动作，移除人物姓名、日期和媒体类型；没有场景则为空。"
         "具体物体查询保留该物体；抽象活动补充典型可见线索用于向量检索，例如过生日用生日庆祝、生日蛋糕、蜡烛。"
         "这些场景词只用于相似度排序，不能扩展成额外的人物、日期或媒体类型条件。"
+        "tag_library是当前范围已保存的标签，可帮助理解场景和同义词，但不能据此添加用户没有提到的硬筛选条件。"
         "只在明确提及时填写日期、人物和类型，否则为 null 或空数组。日期为包含起止日，"
         "相对时间按给定今天解释，夏天指6至8月。profile_ids只可选提供的档案ID，人物并列表示同时出现。"
         "profile_mentions与profile_ids一一对应，必须逐字引用用户搜索原文中明确提到的姓名、昵称或人物称呼。"
@@ -221,7 +245,8 @@ def search(data: SearchIn, db=Depends(get_db), user=Depends(current_user)):
         "不能根据可用档案猜测家庭成员。仅引用搜索原文，不引用候选描述中的人物。"
         "不要猜测陌生人的身份或年龄。",
         json.dumps(dict(query=data.query, today=datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat(),
-                        profiles=[dict(id=p.id, name=p.name, nickname=p.nickname, relationship=p.relationship) for p in profiles]), ensure_ascii=False),
+                        profiles=[dict(id=p.id, name=p.name, nickname=p.nickname, relationship=p.relationship) for p in profiles],
+                        tag_library=[tag for tag, _ in tag_library.most_common(80)]), ensure_ascii=False),
         QueryPlan)
     allowed = {p.id for p in profiles}
     if (any(pid not in allowed for pid in plan.profile_ids)
@@ -242,19 +267,32 @@ def search(data: SearchIn, db=Depends(get_db), user=Depends(current_user)):
         indexed = indexed.where(Media.media_type == plan.media_type)
     filters = plan.model_dump(mode="json", exclude={"profile_mentions"})
     advance("matching")
-    # Family-sized index stays in MySQL; only vectors are scanned, not original media.
-    vectors = db.execute(indexed.with_only_columns(Media.id, MediaSearchIndex.embedding)
-                         .order_by(timeline_time().desc(), Media.id.desc())).all()
-    if not vectors:
+    if not db.scalar(select(func.count()).select_from(indexed.subquery())):
         return dict(items=[], indexed=count, limit=40, filters=filters)
+    vector = embed(db, plan.scene) if plan.scene.strip() else None
+    db.expire_all()
+    # Read current tags and associations after provider calls; never read original media.
+    rows = db.execute(indexed.with_only_columns(Media, MediaSearchIndex)
+                      .order_by(timeline_time().desc(), Media.id.desc())).unique().all()
+    ranked = []
+    for media, index in rows:
+        context, fingerprint = search_context(media, index)
+        score = sum(a*b for a, b in zip(vector, index.embedding, strict=True)) if vector else 0
+        if vector and index.context_fingerprint == fingerprint and index.context_embedding is not None:
+            score = max(score, sum(a*b for a, b in zip(vector, index.context_embedding, strict=True)))
+        # Saved labels are explicit evidence; exact scene-label matches outrank weak visual matches.
+        # People are already intersected through the current MediaChild relations above.
+        tag_match = bool(plan.scene.strip()) and any(tag.casefold() in plan.scene.casefold() or
+            tag.casefold() in data.query.casefold() for tag in media.tags)
+        ranked.append((media.id, tag_match, score))
     if plan.scene.strip():
-        vector = embed(db, plan.scene)
-        vectors.sort(key=lambda row: sum(a*b for a, b in zip(vector, row.embedding, strict=True)), reverse=True)
-    ids = [row.id for row in vectors[:40]]
+        ranked.sort(key=lambda row: (row[1], row[2]), reverse=True)
+    ids = [row[0] for row in ranked[:40]]
     captions = {r.media_id: r for r in db.scalars(select(MediaSearchIndex).where(MediaSearchIndex.media_id.in_(ids)))}
     # Recheck visibility after provider calls (a member can lose access while a request is running).
     db.expire_all()
-    visible_rows = {m.id: m for m in db.scalars(indexed_query(user).where(Media.id.in_(ids))).unique()}
+    visible_rows = {m.id: m for m in db.scalars(indexed_query(user).where(Media.id.in_(ids),
+        Media.id.in_(indexed.with_only_columns(Media.id)))).unique()}
     advance("complete")
     return dict(items=[dict(**media_data(visible_rows[mid]), search_description=captions[mid].description,
                             search_frame_seconds=captions[mid].frame_seconds) for mid in ids if mid in visible_rows],
@@ -310,7 +348,7 @@ def index_one(db, storage):
                ((Media.media_type != "video") & (DisplayPreview.status == "ready")))
         .order_by(Media.id.desc()).limit(1))
     if not file:
-        return False
+        return index_context_one(db)
     row = MediaSearchIndex(media_id=file.media_id, status="pending")
     db.add(row)
     db.commit()
@@ -319,6 +357,9 @@ def index_one(db, storage):
         row.description, row.embedding, row.frame_seconds = description, vector, seconds
         row.analysis_model = settings().ai_analysis_model
         row.status, row.error = "ready", ""
+        content, fingerprint = search_context(db.get(Media, file.media_id), row)
+        if content == description:
+            row.context_fingerprint, row.context_embedding = fingerprint, vector
     except HTTPException as exc:
         if exc.status_code in (429, 503):
             db.delete(row)
@@ -331,6 +372,34 @@ def index_one(db, storage):
     return True
 
 
+def index_context_one(db):
+    db.expire_all()
+    rows = db.execute(select(Media, MediaSearchIndex).join(MediaSearchIndex).where(
+        Media.status == "active", Media.purpose == "memory", MediaSearchIndex.status == "ready")
+        .order_by(Media.id.desc())).unique().all()
+    for media, row in rows:
+        content, fingerprint = search_context(media, row)
+        if row.context_fingerprint == fingerprint:
+            continue
+        source_updated_at = row.updated_at
+        try:
+            vector = row.embedding if content == row.description else embed(db, content)
+        except HTTPException as exc:
+            if exc.status_code in (429, 503):
+                raise
+            # A failed refresh is retained for explicit retry; the visual index remains searchable.
+            vector = None
+            error = "标签与人物搜索索引更新失败，可重试；画面搜索仍可用"
+        else:
+            error = ""
+        # This cache refresh is not a new visual analysis; do not trigger the tag worker again.
+        db.execute(update(MediaSearchIndex).where(MediaSearchIndex.media_id == row.media_id).values(
+            context_fingerprint=fingerprint, context_embedding=vector, error=error, updated_at=source_updated_at))
+        db.commit()
+        return True
+    return False
+
+
 def build_index(storage, limit=100, watch=False, retry_failed=False):
     require_enabled()
     with engine.connect() as lock:
@@ -340,9 +409,13 @@ def build_index(storage, limit=100, watch=False, retry_failed=False):
             with SessionLocal() as db:
                 # A killed worker can leave pending rows; this lock proves no worker still owns them.
                 db.query(MediaSearchIndex).filter(MediaSearchIndex.status.in_(["pending", "failed"] if retry_failed else ["pending"])).delete(synchronize_session=False)
+                if retry_failed:
+                    db.query(MediaSearchIndex).filter(MediaSearchIndex.context_fingerprint.is_not(None),
+                        MediaSearchIndex.context_embedding.is_(None)).update({MediaSearchIndex.context_fingerprint: None,
+                            MediaSearchIndex.updated_at: MediaSearchIndex.updated_at})
                 db.commit()
                 completed = 0
-                while completed < limit:
+                while watch or completed < limit:
                     lock.execute(text("SELECT 1"))
                     if index_one(db, storage):
                         completed += 1

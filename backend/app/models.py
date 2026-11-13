@@ -205,6 +205,8 @@ class MediaSearchIndex(Base, Timestamp):
     description: Mapped[str] = mapped_column(Text, default="")
     analysis_model: Mapped[str] = mapped_column(String(64), default="gpt-4.1-mini", server_default="gpt-4.1-mini")
     embedding: Mapped[list] = mapped_column(JSON, default=list)
+    context_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    context_embedding: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
     frame_seconds: Mapped[list] = mapped_column(JSON, default=list)
     error: Mapped[str] = mapped_column(String(255), default="")
 
@@ -213,6 +215,79 @@ class AISpend(Base):
     __tablename__ = "ai_spend"
     month: Mapped[str] = mapped_column(String(7), primary_key=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0)
+
+
+class MediaFaceIndex(Base, Timestamp):
+    __tablename__ = "media_face_index"
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), primary_key=True)
+    model: Mapped[str] = mapped_column(String(64))
+    source_sha256: Mapped[str] = mapped_column(String(64))
+    managed_child_ids: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class MediaFace(Base, Timestamp):
+    __tablename__ = "media_face"
+    id: Mapped[int] = mapped_column(ID, primary_key=True)
+    media_id: Mapped[int] = mapped_column(ForeignKey("media_face_index.media_id", ondelete="CASCADE"), index=True)
+    box: Mapped[list] = mapped_column(JSON)
+    frame_seconds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
+    embedding: Mapped[list] = mapped_column(JSON)
+    thumbnail: Mapped[str] = mapped_column(Text)
+    child_id: Mapped[int | None] = mapped_column(ForeignKey("child.id"), index=True)
+    ignored: Mapped[bool] = mapped_column(Boolean, default=False)
+    confirmed_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+    auto_match_score: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
+    auto_reference_face_id: Mapped[int | None] = mapped_column(ID)
+    auto_link_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
+
+class MediaPetIndex(Base, Timestamp):
+    __tablename__ = "media_pet_index"
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), primary_key=True)
+    source_sha256: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(64))
+    detections: Mapped[list] = mapped_column(JSON, default=list)
+    managed_child_ids: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class MediaInterview(Base, Timestamp):
+    __tablename__ = "media_interview"
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), primary_key=True)
+    messages: Mapped[list] = mapped_column(JSON, default=list)
+    suggestions: Mapped[dict] = mapped_column(JSON, default=dict)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    applied_message_count: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="draft", index=True)
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
+
+
+class OrganizationSettings(Base, Timestamp, ModifiedBy):
+    __tablename__ = "ai_organization_settings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    options: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class MediaOrganization(Base, Timestamp):
+    __tablename__ = "media_organization"
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), primary_key=True)
+    source_updated_at: Mapped[datetime] = mapped_column(DT)
+    status: Mapped[str] = mapped_column(String(16), default="ready")
+    error: Mapped[str] = mapped_column(String(255), default="")
+
+
+class OrganizationReview(Base, Timestamp):
+    __tablename__ = "ai_organization_review"
+    id: Mapped[int] = mapped_column(ID, primary_key=True)
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    target_id: Mapped[str] = mapped_column(String(80), index=True)
+    automatic: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    before_value: Mapped[dict] = mapped_column(JSON)
+    proposed_value: Mapped[dict] = mapped_column(JSON)
+    current_value: Mapped[dict] = mapped_column(JSON)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    events: Mapped[list] = mapped_column(JSON, default=list)
 
 
 class MediaMetadata(Base):

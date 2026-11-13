@@ -46,9 +46,14 @@ verify() {
     "$IOS_ROOT/Yearly/UploadAPI.swift" "$IOS_ROOT/Tests/UploadAPITests.swift" -o "$BUILD_ROOT/upload-api-tests"
   "$BUILD_ROOT/upload-api-tests"
   swiftc "$IOS_ROOT/Yearly/UploadCore.swift" "$IOS_ROOT/Yearly/SiteOrigin.swift" \
-    "$IOS_ROOT/Yearly/UploadAPI.swift" "$IOS_ROOT/Yearly/NativeSession.swift" "$IOS_ROOT/Yearly/NativeTimelineStore.swift" "$IOS_ROOT/Yearly/NativeSharingStore.swift" "$IOS_ROOT/Yearly/NativeAccountsStore.swift" \
+    "$IOS_ROOT/Yearly/UploadAPI.swift" "$IOS_ROOT/Yearly/NativeSession.swift" "$IOS_ROOT/Yearly/NativeTimelineStore.swift" "$IOS_ROOT/Yearly/NativeSharingStore.swift" "$IOS_ROOT/Yearly/NativeAccountsStore.swift" "$IOS_ROOT/Yearly/NativeMemoryReviewStore.swift" \
     "$IOS_ROOT/Tests/NativeSessionTests.swift" -o "$BUILD_ROOT/native-session-tests"
   "$BUILD_ROOT/native-session-tests"
+  swiftc "$IOS_ROOT/Yearly/UploadCore.swift" "$IOS_ROOT/Yearly/SiteOrigin.swift" \
+    "$IOS_ROOT/Yearly/UploadAPI.swift" "$IOS_ROOT/Yearly/NativeSession.swift" "$IOS_ROOT/Yearly/NativeTimelineStore.swift" "$IOS_ROOT/Yearly/NativeSharingStore.swift" \
+    "$IOS_ROOT/Yearly/NativeMemoryReviewStore.swift" "$IOS_ROOT/Tests/MemoryReviewFixtures.swift" \
+    "$IOS_ROOT/Tests/MemoryReviewTests.swift" -o "$BUILD_ROOT/memory-review-tests"
+  "$BUILD_ROOT/memory-review-tests"
   swiftc "$IOS_ROOT/Yearly/SiteOrigin.swift" "$IOS_ROOT/Yearly/UploadPreferences.swift" \
     "$IOS_ROOT/Tests/UploadPreferencesTests.swift" -o "$BUILD_ROOT/upload-preferences-tests"
   "$BUILD_ROOT/upload-preferences-tests"

@@ -296,7 +296,11 @@ class YearlyApi(private val context: Context, transport: OkHttpClient? = null) {
                 if (authenticated) account.value?.let { request.header("X-CSRF-Token", it.csrf) }
             }
             key?.let { request.header("Idempotency-Key", it) }
-            val transport = if (path == "/ai-search") client.newBuilder().readTimeout(150, TimeUnit.SECONDS).build() else client
+            val transport = when {
+                path == "/ai-search" -> client.newBuilder().readTimeout(150, TimeUnit.SECONDS).build()
+                path.startsWith("/faces/media/") && path.endsWith("/analyze") -> client.newBuilder().readTimeout(180, TimeUnit.SECONDS).build()
+                else -> client
+            }
             transport.newCall(request.build()).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {

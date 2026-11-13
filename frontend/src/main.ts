@@ -21,6 +21,7 @@ const router = createRouter({
     { path: "/upload", component: () => import("./views/Upload.vue") },
     { path: "/events", component: () => import("./views/Events.vue") },
     { path: "/accounts", component: () => import("./views/Accounts.vue"), meta: { admin: true } },
+    { path: "/face-review", component: () => import("./views/FaceConsole.vue"), meta: { admin: true } },
     { path: "/activity", component: () => import("./views/Activity.vue") },
     { path: "/settings", component: () => import("./views/Settings.vue") },
     { path: "/backup", component: () => import("./views/Backup.vue") },

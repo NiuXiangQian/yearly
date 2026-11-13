@@ -1,0 +1,3 @@
+-r requirements.txt
+# Optional, CPU-only local face matching. Models are installed separately.
+opencv-python-headless==4.12.0.88

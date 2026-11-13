@@ -454,6 +454,7 @@ val fieldLabels =
         "status" to "状态",
         "share_allowed" to "允许分享",
         "child_ids" to "人物与宠物",
+        "faces" to "人脸确认",
         "media_ids" to "关联影像",
         "folder_id" to "文件夹",
         "timeline_date" to "归档日期",

@@ -110,7 +110,12 @@ struct LoginCaptcha: Decodable {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if path.hasPrefix("/organization/run") { request.timeoutInterval = 300 }
         if path == "/ai-search" { request.timeoutInterval = 150 }
+        if path.hasPrefix("/faces/media/") && path.hasSuffix("/analyze") { request.timeoutInterval = 180 }
+        if path.hasPrefix("/faces/analyze-next") || path.hasPrefix("/pets/") && path.contains("analyze") || path.hasPrefix("/memory-interviews/") && (path.hasSuffix("/prepare") || path.hasSuffix("/reply")) {
+            request.timeoutInterval = 180
+        }
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let usedCredential { request.setValue("yearly_session=\(usedCredential.value)", forHTTPHeaderField: "Cookie") }
@@ -220,6 +225,12 @@ struct LoginCaptcha: Decodable {
     func post<T: Decodable>(_ path: String, json: [String: Any]) async throws -> T {
         guard canEdit else { throw NativeAPIError(status: 403, message: "此账号为只读账号。") }
         let (data, _) = try await send(path, method: "POST", body: JSONSerialization.data(withJSONObject: json))
+        invalidateCachedLists()
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+    func put<T: Decodable>(_ path: String, json: [String: Any]) async throws -> T {
+        guard canEdit else { throw NativeAPIError(status: 403, message: "此账号为只读账号。") }
+        let (data, _) = try await send(path, method: "PUT", body: JSONSerialization.data(withJSONObject: json))
         invalidateCachedLists()
         return try JSONDecoder().decode(T.self, from: data)
     }

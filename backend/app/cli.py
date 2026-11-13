@@ -26,6 +26,10 @@ def main():
     search.add_argument("--watch", action="store_true")
     search.add_argument("--retry-failed", action="store_true")
     search.add_argument("--limit", type=int, default=100)
+    organization = sub.add_parser("organize-memories")
+    organization.add_argument("--watch", action="store_true")
+    organization.add_argument("--limit", type=int, default=10000)
+    sub.add_parser("setup-face-models")
     backup = sub.add_parser("backup")
     backup.add_argument("directory")
     restore = sub.add_parser("restore")
@@ -33,7 +37,16 @@ def main():
     restore.add_argument("--owner-id", required=True, type=int)
     restore.add_argument("--objects")
     args = parser.parse_args()
-    if args.command == "build-search-index":
+    if args.command == "organize-memories":
+        from .organization import organize_background
+        logging = __import__("logging")
+        logging.basicConfig(level=logging.INFO)
+        print("已自动整理:", organize_background(args.watch, args.limit))
+    elif args.command == "setup-face-models":
+        from .face_engine import setup_models
+        setup_models()
+        print("YuNet / SFace 人脸模型已安装并通过 SHA-256 校验")
+    elif args.command == "build-search-index":
         import logging
         from .ai_search import build_index
         if args.limit < 1:

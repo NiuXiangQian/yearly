@@ -12,6 +12,7 @@ const rows = ref<any[]>([]),
   loading = ref(false),
   error = ref("");
 const resources: Record<string, string> = {
+  ai_organization_settings: "整理习惯",
   media: "文件",
   timeline_folder: "文件夹",
   child: "档案",
@@ -21,6 +22,7 @@ const resources: Record<string, string> = {
   sys_user: "账户",
 };
 const fields: Record<string, string> = {
+  ai_tags: "自动标签", options: "整理习惯",
   title: "标题",
   name: "名称",
   username: "用户名",
@@ -31,6 +33,7 @@ const fields: Record<string, string> = {
   status: "状态",
   share_allowed: "允许分享",
   child_ids: "人物与宠物",
+  faces: "人脸确认",
   media_ids: "关联影像",
   folder_id: "文件夹",
   timeline_date: "归档日期",

@@ -512,7 +512,7 @@ struct NativeTimelineView: View {
         pendingRailDay = nil
         positionBeforePrepend = nil
         returningToStart = false
-        async let profiles: Void = store.loadProfiles()
+        async let profiles: Void = store.loadProfiles(refresh: true)
         async let uploaders: Void = store.loadUploaders(refresh: true)
         await store.load(refresh: true)
         _ = await (profiles, uploaders)
@@ -702,6 +702,13 @@ struct NativeTimelineView: View {
                 positionBeforePrepend = nil
             }
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if store.session.isAdmin {
+                        NavigationLink { NativeMemoryReviewView(session: store.session, onUpdated: { Task { await store.load(refresh: true) } }) } label: {
+                            Label("AI 整理", systemImage: "sparkles").font(.subheadline.weight(.semibold))
+                        }
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if store.session.canEdit {
                         Button(selecting ? "取消" : "选择") { selecting.toggle(); chosen = [] }
@@ -992,6 +999,7 @@ struct NativeMediaDetail: View {
     let onSaved: () -> Void
     let onDeleted: () -> Void
     let onLocate: ((NativeTimelineItem) -> Void)?
+    var initialPlaybackSeconds: Double? = nil
     @NativeDismiss private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var detail: NativeTimelineItem?
@@ -1267,6 +1275,10 @@ struct NativeMediaDetail: View {
                 // AVPlayer receives only the backend's signed media URL, never login headers.
                 let value = AVPlayer(url: url)
                 value.isMuted = false; value.volume = 1
+                if let seconds = initialPlaybackSeconds {
+                    await value.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                    try Task.checkCancellation()
+                }
                 player = value
                 observation = value.currentItem?.observe(\.status, options: [.new]) { playbackItem, _ in
                     if playbackItem.status == .failed {

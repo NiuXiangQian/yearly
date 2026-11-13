@@ -74,6 +74,7 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var files: [NativeMediaFile]?
     var children: [UploadProfile]?
     var child_ids: [Int]?
+    var interview_status: String?
     var media_position: NativeMediaPosition?
     var stableID: String { "\(kind ?? "media")-\(id)" }
     var label: String { [title, batch_name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "珍藏的瞬间" }
@@ -431,13 +432,13 @@ struct NativeTimelineScale {
         try await session.write("/timeline/days/\(day)/sharing", json: ["share_allowed": allowed])
         daySharing[day] = allowed
     }
-    func loadProfiles() async {
+    func loadProfiles(refresh: Bool = false) async {
         guard !profilesLoading, let owner = session.account?.id else { return }
         profilesLoading = true
         profilesError = ""
         defer { profilesLoading = false }
         do {
-            let current: [UploadProfile] = try await session.get("/children")
+            let current: [UploadProfile] = try await session.get("/children", refresh: refresh)
             guard !Task.isCancelled, session.account?.id == owner else { return }
             profiles = current
         } catch {

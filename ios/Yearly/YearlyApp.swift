@@ -128,6 +128,9 @@ struct NativeAppShell: View {
                             }
                             Section("管理与记录") {
                                 if session.isAdmin {
+                                    NavigationLink { NativeMemoryReviewView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } }) } label: {
+                                        NativeSettingsLabel(title: "AI 整理", symbol: "sparkles", detail: "人物与宠物确认 · 智能打标签")
+                                    }
                                     NavigationLink { NativeAccountsView(session: session) } label: {
                                         NativeSettingsLabel(title: "账号管理", symbol: "person.2.badge.gearshape")
                                     }
@@ -171,9 +174,15 @@ struct NativeAppShell: View {
                             }
                     }.tabItem { Label("账号", systemImage: "person.crop.circle") }.tag(3)
                         .toolbar(.hidden, for: .tabBar)
+                    if session.isAdmin {
+                        NavigationStack {
+                            NativeMemoryReviewView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } })
+                        }.tabItem { Label("AI 整理", systemImage: "sparkles") }.tag(4)
+                            .toolbar(.hidden, for: .tabBar)
+                    }
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    NativeLiquidNavigation(selection: $tab) { timelineTopRequest += 1 }
+                    NativeLiquidNavigation(selection: $tab, showsMemoryReview: session.isAdmin) { timelineTopRequest += 1 }
                 }
             }
         }

@@ -7,7 +7,7 @@ import { mediaResource, releaseMediaResource, type MediaResource } from "../lib/
 import LivePhotoViewer from "./LivePhotoViewer.vue";
 import ImageViewer from "./ImageViewer.vue";
 import VideoPlayer from "./VideoPlayer.vue";
-const props = defineProps<{ media: any }>();
+const props = defineProps<{ media: any; initialSeconds?: number }>();
 const original = ref(false),
   live = ref(false),
   failed = ref(false),
@@ -185,6 +185,7 @@ function motionSource(refresh = false) {
         :key="`${file.id}-${original}`"
         :poster="poster"
         :autoplay="live"
+        :initial-seconds="initialSeconds"
         :load-source="playbackSource"
       />
       <ImageViewer

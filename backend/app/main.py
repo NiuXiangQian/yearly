@@ -10,7 +10,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Response, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, delete, func, and_, or_, case, literal_column, cast, String
+from sqlalchemy import select, delete, update, func, and_, or_, case, literal_column, cast, String
 from sqlalchemy.exc import IntegrityError
 from argon2.exceptions import VerificationError
 from .config import settings
@@ -29,6 +29,7 @@ from .models import (
     TimelineShare,
     VideoPreview,
     MediaChild,
+    MediaFace,
     Event,
     EventChild,
     EventMedia,
@@ -74,6 +75,9 @@ from .storage import get_storage, preview_resource
 from .shares import router as share_router
 from .uploads import router as upload_router
 from .ai_search import router as ai_search_router
+from .faces import router as face_router
+from .memory_interviews import router as interview_router
+from .pets import router as pet_router, detach_profile as detach_pet_profile
 from .folders import (
     router as folder_router,
     folder_data,
@@ -107,10 +111,15 @@ app = FastAPI(
     docs_url="/api/docs" if settings().app_env == "test" else None,
     openapi_url="/api/openapi.json" if settings().app_env == "test" else None,
 )
+from .organization import router as organization_router
+app.include_router(organization_router)
 app.include_router(upload_router)
 app.include_router(folder_router)
 app.include_router(share_router)
 app.include_router(ai_search_router)
+app.include_router(face_router)
+app.include_router(interview_router)
+app.include_router(pet_router)
 
 
 @app.middleware("http")
@@ -362,6 +371,7 @@ def audit_logs(
         "timeline_day",
         "timeline_share",
         "sys_user",
+        "ai_organization_settings",
     ]
     | None = None,
     resource_id: str | None = Query(default=None, max_length=80),
@@ -475,6 +485,10 @@ def update_child(cid: int, data: ChildIn, db=Depends(get_db), user=Depends(edito
         raise HTTPException(404, "档案已删除")
     if data.avatar_media_id and data.avatar_media_id != child.avatar_media_id:
         require_avatar_image(db, data.avatar_media_id, user)
+    if data.profile_type == "pet" and "profile_type" in data.model_fields_set:
+        db.execute(update(MediaFace).where(MediaFace.child_id == cid).values(child_id=None, confirmed_by=None, auto_match_score=None, auto_reference_face_id=None))
+    if "profile_type" in data.model_fields_set and data.profile_type != "pet" and child.profile_type == "pet":
+        detach_pet_profile(db, cid)
     for key, value in data.model_dump().items():
         # Older clients omit these fields; preserve the existing profile type and details.
         if (
@@ -494,6 +508,8 @@ def delete_child(cid: int, confirm_name: str, db=Depends(get_db), user=Depends(a
     if confirm_name != child.name:
         raise HTTPException(422, "请输入名字确认删除")
     child.status = "deleted"
+    db.execute(update(MediaFace).where(MediaFace.child_id == cid).values(child_id=None, confirmed_by=None, auto_match_score=None, auto_reference_face_id=None))
+    detach_pet_profile(db, cid)
     for media in db.scalars(select(Media).join(MediaChild).where(MediaChild.child_id == cid)):
         set_children(db, media.id, [c.id for c in media.children if c.id != cid and c.status != "deleted"], MediaChild)
     for event in db.scalars(select(Event).join(EventChild).where(EventChild.child_id == cid)):

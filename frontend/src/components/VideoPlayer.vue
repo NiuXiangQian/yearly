@@ -13,6 +13,7 @@ const props = defineProps<{
   loadSource: () => Promise<string>;
   poster?: string;
   autoplay?: boolean;
+  initialSeconds?: number;
 }>();
 const root = ref<HTMLElement>(),
   video = ref<HTMLVideoElement>();
@@ -121,7 +122,8 @@ function keydown(e: KeyboardEvent) {
       @ended="playing = false"
       @timeupdate="current = video?.currentTime || 0"
       @loadedmetadata="
-        duration = Number.isFinite(video?.duration) ? video!.duration : 0
+        duration = Number.isFinite(video?.duration) ? video!.duration : 0;
+        if (initialSeconds != null) seek(initialSeconds)
       "
       @volumechange="muted = !!video?.muted || video?.volume === 0"
       @waiting="loading = true"

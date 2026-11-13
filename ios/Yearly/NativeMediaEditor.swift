@@ -1,5 +1,153 @@
 import SwiftUI
 
+private struct NativeFaceCandidate: Decodable, Identifiable {
+    let child_id: Int
+    let name: String
+    let similarity: Double
+    let reference_thumbnail: String
+    var id: Int { child_id }
+}
+private struct NativeDetectedFace: Decodable, Identifiable {
+    let id: Int
+    let thumbnail: String
+    let frame_seconds: Double?
+    let child_id: Int?
+    let ignored: Bool
+    let candidates: [NativeFaceCandidate]
+    var choice: Int { ignored ? -1 : child_id ?? 0 }
+}
+private struct NativeFaceState: Decodable {
+    let enabled: Bool
+    let ready: Bool
+    let message: String
+    let analyzed: Bool
+    let faces: [NativeDetectedFace]
+    let child_ids: [Int]
+    let auto_linked: Int?
+    let auto_reset: Int?
+}
+private struct NativeFaceThumbnail: View {
+    let source: String
+    var body: some View {
+        if let raw = source.split(separator: ",").last, let data = Data(base64Encoded: String(raw)), let image = UIImage(data: data) {
+            Image(uiImage: image).resizable().scaledToFill().frame(width: 52, height: 60).clipped().clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+private struct NativeFaceReview: View {
+    @ObservedObject var session: NativeSession
+    let mediaID: Int
+    let profiles: [UploadProfile]
+    @Binding var linkedIDs: [Int]
+    @Binding var busy: Bool
+    let onSaved: () -> Void
+    @State private var expanded = false
+    @State private var state: NativeFaceState?
+    @State private var choices: [Int: Int] = [:]
+    @State private var message = ""
+    @State private var notice = ""
+    @State private var autoLinkedCount = 0
+    @State private var clearing = false
+    private var changed: Bool { state?.faces.contains { choices[$0.id] != $0.choice } ?? false }
+
+    var body: some View {
+        Section("人脸匹配") {
+            DisclosureGroup("确认这里面有谁", isExpanded: $expanded) {
+                Text("选择每张脸对应的人物。人工确认后会关联档案并建立参考样本，服务端可据此自动关联其他明确匹配的人脸。")
+                    .font(.caption).foregroundStyle(.secondary)
+                if busy { ProgressView("正在处理人脸，请稍候…") }
+                if let state {
+                    if !state.enabled || !state.ready { Text(state.message).font(.caption) }
+                    if !state.analyzed {
+                        Button("查找这份影像中的人脸") { Task { await perform("analyze") } }.disabled(busy || !state.enabled || !state.ready)
+                    } else {
+                        if state.faces.isEmpty { Text("未检测到清晰人脸，可继续手动关联人物。").font(.caption) }
+                        ForEach(Array(state.faces.enumerated()), id: \.element.id) { number, face in
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    NativeFaceThumbnail(source: face.thumbnail).accessibilityLabel("待确认人脸 \(number + 1)")
+                                    VStack(alignment: .leading) {
+                                        Text("人脸 \(number + 1)")
+                                        if let seconds = face.frame_seconds { Text("视频 \(seconds, specifier: "%.1f") 秒").font(.caption) }
+                                        Picker("人物", selection: Binding(get: { choices[face.id] ?? 0 }, set: { choices[face.id] = $0 })) {
+                                            Text("待确认").tag(0)
+                                            ForEach(profiles.filter { $0.profile_type != "pet" }) { person in Text(person.name).tag(person.id) }
+                                            Text("忽略这张脸").tag(-1)
+                                        }
+                                    }
+                                }
+                                if face.child_id == nil && !face.ignored && face.candidates.isEmpty {
+                                    Text("没有足够相似的已确认样本，请手动选择。").font(.caption).foregroundStyle(.secondary)
+                                }
+                                ForEach(face.candidates) { candidate in
+                                    HStack {
+                                        NativeFaceThumbnail(source: candidate.reference_thumbnail).accessibilityLabel("\(candidate.name) 的参考样本")
+                                        VStack(alignment: .leading) {
+                                            Text("可能是 \(candidate.name)")
+                                            Text("相似度 \(candidate.similarity, specifier: "%.2f")，供人工判断").font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Button("选择") { choices[face.id] = candidate.child_id }.buttonStyle(.borderless)
+                                    }
+                                }
+                            }.padding(.vertical, 6)
+                        }
+                        if !state.faces.isEmpty {
+                            Button("确认人物") { Task { await perform("confirm") } }.disabled(busy || !changed)
+                        }
+                        Button("清除本影像的人脸样本", role: .destructive) { clearing = true }
+                            .confirmationDialog("清除后将移除这些匹配样本及其新增的人物关联，手动关联保留。", isPresented: $clearing, titleVisibility: .visible) {
+                                Button("清除样本", role: .destructive) { Task { await perform("clear") } }
+                            }
+                    }
+                }
+                if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.red) }
+                if !notice.isEmpty { Text(notice).font(.caption).foregroundStyle(NativeTheme.accent) }
+                if state == nil && !busy { Button("重新加载") { Task { await perform("load") } } }
+            }
+        }.alert("已自动整理相似人脸", isPresented: Binding(get: { autoLinkedCount > 0 }, set: { if !$0 { autoLinkedCount = 0 } })) {
+            Button("知道了", role: .cancel) { autoLinkedCount = 0 }
+        } message: { Text("已将另外 \(autoLinkedCount) 张明确匹配的人脸关联到对应人物，可在已处理项中查看和修改。") }
+        .onChange(of: expanded) { value in
+            if value && state == nil { Task { await perform("load") } }
+        }
+    }
+
+    private func perform(_ action: String) async {
+        guard !busy else { return }
+        busy = true; message = ""; notice = ""
+        defer { busy = false }
+        do {
+            let path = "/faces/media/\(mediaID)"
+            let value: NativeFaceState
+            if action == "analyze" {
+                value = try await session.post(path + "/analyze", json: [:])
+            } else if action == "confirm" {
+                let assignments: [[String: Any]] = (state?.faces ?? []).filter { choices[$0.id] != $0.choice }.map { face in
+                    let choice = choices[face.id] ?? 0
+                    return ["face_id": face.id, "child_id": choice > 0 ? choice as Any : NSNull(), "ignored": choice == -1]
+                }
+                value = try await session.put(path + "/confirm", json: ["assignments": assignments])
+                autoLinkedCount = value.auto_linked ?? 0
+                notice = "人物已确认，另自动关联 \(value.auto_linked ?? 0) 张相关人脸。"
+                if let reset = value.auto_reset, reset > 0 { notice += "另撤回 \(reset) 条不再明确的自动关联。" }
+            } else if action == "clear" {
+                try await session.write(path, method: "DELETE", json: [:])
+                value = try await session.get(path, refresh: true)
+            } else {
+                value = try await session.get(path, refresh: true)
+            }
+            if action == "confirm" || action == "clear" {
+                let old = Set(state?.child_ids ?? []), next = Set(value.child_ids)
+                linkedIDs = Array(Set(linkedIDs).subtracting(old.subtracting(next)).union(next.subtracting(old))).sorted()
+                onSaved()
+            }
+            state = value
+            choices = Dictionary(uniqueKeysWithValues: value.faces.map { ($0.id, $0.choice) })
+        } catch { message = friendly(error) }
+    }
+}
+
 enum NativeLocalDateTime {
     static let zone = TimeZone(secondsFromGMT: 0)!
 
@@ -45,6 +193,7 @@ struct NativeMediaInfo: View {
     @State private var message = ""
     @State private var saving = false
     @State private var moving = false
+    @State private var faceBusy = false
     private var current: NativeTimelineItem { draft ?? item }
     private var editable: Bool { current.editable(by: session.account) }
 
@@ -118,6 +267,11 @@ struct NativeMediaInfo: View {
                                 }))
                             }
                         }
+                        if session.isAdmin {
+                            NativeFaceReview(session: session, mediaID: item.id, profiles: profiles,
+                                linkedIDs: Binding(get: { draft?.child_ids ?? [] }, set: { draft?.child_ids = $0 }),
+                                busy: $faceBusy, onSaved: onSaved)
+                        }
                         if NativeDay.date(current.day) != nil || current.folder_id != nil {
                             Section("文件夹") {
                                 Button("移动到文件夹", systemImage: "folder") { moving = true }
@@ -148,16 +302,16 @@ struct NativeMediaInfo: View {
                 }
                 if !message.isEmpty { Text(message).foregroundStyle(.red) }
             }
-            .disabled(saving)
+            .disabled(saving || faceBusy)
             .scrollDismissesKeyboard(.interactively)
             .scrollContentBackground(.hidden).background(NativeTheme.background)
             .navigationTitle(editable ? "编辑影像" : "影像信息")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(saving) }
+                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(saving || faceBusy) }
                 if draft != nil && editable {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(saving ? "保存中…" : "保存") { Task { await save() } }.buttonStyle(NativeActionStyle(kind: .primary, compact: true)).disabled(saving)
+                        Button(saving ? "保存中…" : "保存") { Task { await save() } }.buttonStyle(NativeActionStyle(kind: .primary, compact: true)).disabled(saving || faceBusy)
                     }
                 }
             }
@@ -192,7 +346,7 @@ struct NativeMediaInfo: View {
     }
 
     private func save() async {
-        guard let draft, editable, !saving else { return }
+        guard let draft, editable, !saving, !faceBusy else { return }
         saving = true
         message = ""
         defer { saving = false }

@@ -8,22 +8,23 @@ enum NativeMotion {
 
 struct NativeLiquidNavigation: View {
     @Binding var selection: Int
+    var showsMemoryReview = false
     let repeatTimeline: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var firstEdge: CGFloat = 0
     @State private var lastEdge: CGFloat = 0
     @State private var previous = 0
-    private let titles = ["时间线", "上传", "家人", "账号"]
-    private let symbols = ["photo.on.rectangle", "square.and.arrow.up", "person.2", "person.crop.circle"]
+    private var titles: [String] { ["时间线", "上传", "家人", "账号"] + (showsMemoryReview ? ["AI 整理"] : []) }
+    private var symbols: [String] { ["photo.on.rectangle", "square.and.arrow.up", "person.2", "person.crop.circle"] + (showsMemoryReview ? ["sparkles"] : []) }
     var body: some View {
         GeometryReader { geometry in
-            let width = geometry.size.width / 4
+            let width = geometry.size.width / CGFloat(titles.count)
             ZStack(alignment: .leading) {
                 NativeLiquidCapsule(first: firstEdge, last: lastEdge, cell: width)
                     .fill(NativeTheme.accent.opacity(0.12))
                     .allowsHitTesting(false)
                 HStack(spacing: 0) {
-                    ForEach(0..<4) { index in
+                    ForEach(titles.indices, id: \.self) { index in
                         Button {
                             if index == 0 && selection == 0 { repeatTimeline() }
                             selection = index

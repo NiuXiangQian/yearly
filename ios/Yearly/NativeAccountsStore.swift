@@ -107,8 +107,8 @@ struct NativeAuditLog: Decodable, Identifiable {
 }
 struct NativeAuditPage: Decodable { let items: [NativeAuditLog]; let total: Int }
 enum NativeAuditLabels {
-    static let resources = ["media": "文件", "timeline_folder": "文件夹", "child": "档案", "timeline_event": "日记", "timeline_day": "日期设置", "timeline_share": "分享", "sys_user": "账户"]
-    static let fields = ["title": "标题", "name": "名称", "username": "用户名", "nickname": "昵称", "role": "账户角色", "active": "启用账户", "password": "密码", "status": "状态", "share_allowed": "允许分享", "child_ids": "人物与宠物", "media_ids": "关联影像", "folder_id": "文件夹", "timeline_date": "归档日期", "batch_name": "批次名称", "remark": "备注", "content": "日记内容", "sort_order": "顺序", "owner_id": "创建人", "created_by": "创建人", "location_name": "地点", "revoked": "撤销分享", "expires_at": "有效期"]
+    static let resources = ["media": "文件", "timeline_folder": "文件夹", "child": "档案", "timeline_event": "日记", "timeline_day": "日期设置", "timeline_share": "分享", "sys_user": "账户", "ai_organization_settings": "整理习惯"]
+    static let fields = ["title": "标题", "name": "名称", "username": "用户名", "nickname": "昵称", "role": "账户角色", "active": "启用账户", "password": "密码", "status": "状态", "share_allowed": "允许分享", "child_ids": "人物与宠物", "faces": "人脸确认", "ai_tags": "自动标签", "options": "整理习惯", "media_ids": "关联影像", "folder_id": "文件夹", "timeline_date": "归档日期", "batch_name": "批次名称", "remark": "备注", "content": "日记内容", "sort_order": "顺序", "owner_id": "创建人", "created_by": "创建人", "location_name": "地点", "revoked": "撤销分享", "expires_at": "有效期"]
     static func time(_ value: String) -> String {
         let date = (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(value + "Z"))
             ?? (try? Date.ISO8601FormatStyle().parse(value + "Z"))

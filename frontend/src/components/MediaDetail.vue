@@ -15,6 +15,7 @@ import { api, post, put, del, notify, bytes, localDate } from "../lib/api";
 import type { MediaResource } from "../lib/media-resource";
 import { useYearly } from "../stores/yearly";
 import ChildPicker from "./ChildPicker.vue";
+import FaceReview from "./FaceReview.vue";
 import MediaViewer from "./MediaViewer.vue";
 const historyOpen = ref(false);
 const props = defineProps<{ id: number | null }>(),
@@ -26,6 +27,7 @@ const yearly = useYearly(),
 const editable = computed(() => yearly.canEdit && media.value?.can_edit !== false);
 const downloadStates = ref<Record<number, MediaResource>>({});
 const restoringFile = ref<number | null>(null);
+const faceBusy = ref(false);
 watch(
   () => props.id,
   async (id, _, onCleanup) => {
@@ -34,6 +36,7 @@ watch(
       active = false;
     });
     media.value = null;
+    faceBusy.value = false;
     downloadStates.value = {};
     if (!id) return;
     try {
@@ -52,6 +55,7 @@ watch(
   { immediate: true },
 );
 async function save() {
+  if (busy.value || faceBusy.value) return;
   busy.value = true;
   try {
     await put(`/media/${props.id}`, {
@@ -199,6 +203,7 @@ async function trash() {
               :disabled="!editable"
             />
           </div>
+          <FaceReview v-if="yearly.isAdmin" :key="media.id" :media-id="media.id" :linked-ids="form.child_ids || []" @processing="faceBusy = $event" @updated="form.child_ids = $event; emit('saved')" />
           <div class="form-row">
             <label>
               {{ t("修正拍摄当地时间") }}
@@ -264,7 +269,7 @@ async function trash() {
           ><button
             v-if="editable"
             class="button primary"
-            :disabled="busy"
+            :disabled="busy || faceBusy"
           >
             {{ t("保存这份回忆") }}
           </button>

@@ -500,7 +500,7 @@ struct NativeUploadView: View {
         defer { loadingAccount = false }
         do {
             async let currentRequest: UploadAccount = session.get("/auth/me")
-            async let profilesRequest: [UploadProfile] = session.get("/children")
+            async let profilesRequest: [UploadProfile] = session.get("/children", refresh: true)
             let (current, loaded) = try await (currentRequest, profilesRequest)
             try Task.checkCancellation()
             guard current.id == expectedOwner, session.account?.id == expectedOwner,

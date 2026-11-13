@@ -19,6 +19,8 @@ private final class SessionHTTP: URLProtocol {
     static var uploadersEmpty = false
     static var writeFailure: String?
     static var nickname = ""
+    static var profilesJSON = "[]"
+    static var profilesFail = false
     static func bodyData(_ request: URLRequest) -> Data {
         if let body = request.httpBody { return body }
         guard let stream = request.httpBodyStream else { return Data() }
@@ -51,9 +53,11 @@ private final class SessionHTTP: URLProtocol {
             if Self.usersFail { status = 503; body = #"{"detail":"Synthetic failure"}"# }
             else { body = request.httpMethod == "POST" ? #"{"id":3}"# : #"[{"id":1,"username":"synthetic","role":"admin","active":true},{"id":2,"username":"other","role":"member","active":false}]"# }
         case "/yearly/api/users/1", "/yearly/api/users/2": body = #"{"ok":true}"#
-        case "/yearly/api/audit-logs": body = #"{"items":[{"id":1,"actor_name":"synthetic","resource_type":"media","resource_id":"42","action":"update","created_at":"2026-11-09T07:00:00.123","changes":{"title":{"before":"old","after":"new"},"password":{"changed":true},"tags":{"before":[],"after":["family"]}}}],"total":1}"#
+        case "/yearly/api/audit-logs": body = #"{"items":[{"id":1,"actor_name":"synthetic","resource_type":"media","resource_id":"42","action":"update","created_at":"2026-11-09T07:00:00.123","changes":{"title":{"before":"old","after":"new"},"password":{"changed":true},"tags":{"before":[],"after":["family"]},"faces":{"before":[],"after":[{"face_id":21,"child_id":7,"ignored":false}]}}}],"total":1}"#
         case "/yearly/api/ai-search": body = #"{"items":[{"id":42,"media_type":"photo"}],"indexed":1}"#
-        case "/yearly/api/children": body = "[]"
+        case "/yearly/api/children":
+            if Self.profilesFail { status = 503; body = #"{"detail":"Synthetic profile failure"}"# }
+            else { body = Self.profilesJSON }
         case "/yearly/api/children/1":
             body = #"{"id":1,"name":"家庭成员","nickname":"新昵称","profile_type":"person","birthday":"2020-01-03","avatar_media_id":42,"status":"archived"}"#
         case "/yearly/api/media/42": body = #"{"id":42,"media_type":"live_photo","timeline_day":"2018-01-03"}"#
@@ -200,6 +204,29 @@ private final class SessionHTTP: URLProtocol {
         precondition(NativeTimelineScale(days: []).nearest(to: 0) == nil)
         precondition(NativeTimelineScale(days: ["日期未知"]).days.isEmpty)
         let timeline = NativeTimelineStore(session: session)
+        func profileFixture(_ count: Int) -> String {
+            let rows = (1...count).map { index in
+                ["id": index, "name": "示例成员\(index)", "nickname": "", "profile_type": index == 10 ? "pet" : "person"] as [String: Any]
+            }
+            return String(data: try! JSONSerialization.data(withJSONObject: rows), encoding: .utf8)!
+        }
+        SessionHTTP.profilesJSON = profileFixture(3)
+        await timeline.loadProfiles()
+        precondition(timeline.profiles.count == 3)
+        SessionHTTP.profilesJSON = profileFixture(10)
+        await timeline.loadProfiles()
+        precondition(timeline.profiles.count == 3, "ordinary reads still reuse the profile cache")
+        await timeline.loadProfiles(refresh: true)
+        precondition(timeline.profiles.count == 10 && timeline.profiles.last?.profile_type == "pet", "explicit refresh discovers relatives and pets added by another client")
+        let refreshedProfilesCount = SessionHTTP.requests.count
+        await timeline.loadProfiles()
+        precondition(timeline.profiles.count == 10 && SessionHTTP.requests.count == refreshedProfilesCount, "refresh replaces the cached list")
+        SessionHTTP.profilesFail = true
+        await timeline.loadProfiles(refresh: true)
+        precondition(timeline.profiles.count == 10 && !timeline.profilesError.isEmpty, "failed refresh preserves the last successful profiles")
+        SessionHTTP.profilesFail = false; SessionHTTP.profilesJSON = "[]"
+        await timeline.loadProfiles(refresh: true)
+        precondition(timeline.profiles.isEmpty && timeline.profilesError.isEmpty, "successful empty lists replace old profiles")
         let beforeDeniedDay = SessionHTTP.requests.count
         do { try await timeline.setDaySharing("2026-11-08", allowed: false); fatalError("member changed global day permissions") }
         catch { precondition(SessionHTTP.requests.count == beforeDeniedDay) }
@@ -456,7 +483,10 @@ private final class SessionHTTP: URLProtocol {
         precondition(logs.items[0].changes["title"]?.before?.display == "old")
         precondition(logs.items[0].changes["password"]?.changed == true)
         precondition(logs.items[0].changes["tags"]?.after?.display == "[family]")
+        precondition(logs.items[0].changes["faces"]?.after?.display.contains("child_id = 7") == true, "face confirmations preserve the released audit change contract")
         precondition(!NativeAuditLabels.time(logs.items[0].created_at).isEmpty)
+        try await session.write("/faces/media/42/analyze", method: "POST", json: [:])
+        precondition(SessionHTTP.requests.last?.timeoutInterval == 180, "face video analysis can outlast the normal metadata timeout")
         let accounts = NativeAccountsStore(session: session)
         let beforeAccounts = SessionHTTP.requests.count
         do { try await accounts.save(existing: nil, username: "new", password: "synthetic-password", role: "admin", active: true); fatalError("member created account") }
