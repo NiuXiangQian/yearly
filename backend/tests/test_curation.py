@@ -15,7 +15,7 @@ def test_grouping_uses_complete_assets_and_bounded_capture_times():
         files = [NS(file_role="original", sha256=sha, file_size=100, upload_status="complete")]
         if live: files.append(NS(file_role="live_video", sha256=live, file_size=200, upload_status="complete"))
         return NS(id=mid, media_type=kind, files=files, taken_at_local=datetime(2026,1,1)+timedelta(seconds=seconds),
-                  created_at=datetime(2026,1,1), created_by=1, folder_id=None, device_make="test", device_model="camera")
+                  created_at=datetime(2026,1,1), owner_id=1, folder_id=None, device_make="test", device_model="camera")
     groups = curation.group_media([media(1,"a"),media(2,"a"),media(3,"b",10),media(4,"c",11),media(5,"d",13),
                                    media(6,"same",20,"live_photo","motion1"),media(7,"same",30,"live_photo","motion2")])
     assert next(g for g in groups if g["kind"]=="duplicate")["media"][0].id==2
@@ -111,3 +111,18 @@ def test_video_sampling_uses_preview_duration_and_does_not_create_face_records(c
         assert len(samples)==5 and all(raw for _,raw in samples)
         assert 1.8 <= samples[-1][0] <= 2.0
         assert list(db.scalars(select(MediaFace).where(MediaFace.media_id==mid)))==[]
+
+
+def test_all_groups_with_real_media_capture_metadata(context):
+    mids=[upload(context)['media_id'] for _ in range(3)]
+    with context.db() as db:
+        for i,mid in enumerate(mids):
+            media=db.get(Media,mid);media.device_model='synthetic-camera';media.device_make='test'
+            media.taken_at_local=datetime(2026,1,1)+timedelta(seconds=[0,1,3][i])
+            db.scalar(select(MediaFile).where(MediaFile.media_id==mid)).sha256=str(i+1)*64
+        db.commit()
+    response=context.client.get('/api/curation/groups?scope=all&limit=48')
+    assert response.status_code==200,response.text
+    data=response.json();assert data['group_count']==2
+    capture=next(g for g in data['items'] if g['kind']=='capture')
+    assert {i['media']['id'] for i in capture['items']}==set(mids[:2])

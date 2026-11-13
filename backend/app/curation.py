@@ -60,7 +60,7 @@ def group_media(rows):
         if (group["kind"] == "single" and current.media_type != "video" and current.taken_at_local
                 and current.device_model and previous and result[-1]["kind"] in {"single", "capture"}
                 and previous.media_type != "video" and previous.taken_at_local
-                and current.created_by == previous.created_by and current.folder_id == previous.folder_id
+                and current.owner_id == previous.owner_id and current.folder_id == previous.folder_id
                 and (current.device_make, current.device_model) == (previous.device_make, previous.device_model)
                 and 0 <= (current.taken_at_local - previous.taken_at_local).total_seconds() <= 2
                 and len(result[-1]["media"]) < 24):
