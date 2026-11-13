@@ -411,6 +411,23 @@ class ShareVisit(Base):
     visit_count: Mapped[int] = mapped_column(ID, default=1, server_default="1")
 
 
+class MediaCuration(Base, Timestamp):
+    __tablename__ = "media_curation"
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), primary_key=True)
+    disposition: Mapped[str] = mapped_column(String(16), default="pending")
+    fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    quality: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
+
+
+class CurationBatch(Base, Timestamp):
+    __tablename__ = "curation_batch"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id"))
+    before: Mapped[dict] = mapped_column(JSON)
+    after: Mapped[dict] = mapped_column(JSON)
+    undone: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 for table in Base.metadata.tables.values():
     table.dialect_options["mysql"]["engine"] = "InnoDB"
     table.dialect_options["mysql"]["charset"] = "utf8mb4"

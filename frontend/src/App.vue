@@ -31,7 +31,7 @@ const nav = computed(() => [
   { path: "/", label: t("成长时间线"), icon: Images },
   { path: "/events", label: t("成长日记"), icon: BookHeart },
   { path: "/children", label: t("人物与宠物"), icon: Users },
-  ...(yearly.isAdmin ? [{ path: "/face-review", label: t("人物与宠物确认"), icon: ScanFace }] : []),
+  ...(yearly.isAdmin ? [{ path: "/face-review", label: t("相册整理"), icon: ScanFace }] : []),
 ]);
 const titles = computed<Record<string, string>>(() => ({
   "/": t("成长时间线"),
@@ -43,13 +43,13 @@ const titles = computed<Record<string, string>>(() => ({
   "/activity": t("修改日志"),
   "/backup": t("备份与导出"),
   "/trash": t("回收站"),
-  "/face-review": t("人物与宠物确认及智能打标签"),
+  "/face-review": t("相册整理"),
 }));
 const mobileItems = computed(() => [
   { path: "/", label: t("时间线"), icon: Images },
   { path: "/events", label: t("日记"), icon: BookHeart },
   ...(yearly.canEdit ? [{ path: "/upload", label: t("上传"), icon: Upload }] : []),
-  ...(yearly.isAdmin ? [{ path: "/face-review", label: t("认人认宠"), icon: ScanFace }] : []),
+  ...(yearly.isAdmin ? [{ path: "/face-review", label: t("整理"), icon: ScanFace }] : []),
   { path: "/settings", label: t("我的"), icon: Settings },
 ]);
 const title = computed(() => titles.value[route.path] || "yearly");
