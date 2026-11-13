@@ -57,6 +57,10 @@ final class MemoryReviewHTTP: URLProtocol {
             switch path {
             case "/auth/me": response = ["id": 1, "username": "演示管理员", "role": Self.role, "csrf_token": "synthetic-csrf"]
             case "/children": response = [["id": 7, "name": "家人甲", "nickname": "", "profile_type": "person"], ["id": 8, "name": "多多", "nickname": "", "profile_type": "pet", "species": "狗"]]
+            case "/curation/groups": response = ["items": [["key": "42", "kind": "single", "items": [["media": Self.media, "quality": NSNull()]]]], "next_cursor": NSNull(), "group_count": 1, "unfiled_media": 1, "total_media": 1, "quality_enabled": true]
+            case "/curation/batch": response = ["count": 1, "undo_token": "synthetic-batch"]
+            case "/curation/undo/synthetic-batch": response = ["ok": true]
+            case "/curation/media/42/quality": response = ["frames": [["frame": 0, "clarity": 4, "reason": "画面清楚"]], "representative": 0, "seconds": [NSNull()], "thumbnail": ""]
             case "/faces/review": response = ["enabled": true, "ready": true, "message": "", "items": Self.empty ? [] : [Self.face], "next_cursor": Self.empty ? NSNull() : 21,
                 "pending_faces": Self.empty ? 0 : 12, "pending_memories": 8, "unanalysed_photos": 0, "auto_link_enabled": true]
             case "/pets/review": response = ["items": Self.empty ? [] : [["media": Self.media, "dogs": [Self.dog]]], "pending_pets": Self.empty ? 0 : 3, "unanalysed_media": 0, "next_cursor": NSNull()]

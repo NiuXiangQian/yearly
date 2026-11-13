@@ -87,6 +87,23 @@ import Foundation
         precondition(MemoryReviewHTTP.requests.last!.url!.query!.contains("kind=face"))
         review.tab = .memories
         MemoryReviewHTTP.empty = true; await review.load(); precondition(review.memories.isEmpty && review.error.isEmpty)
+        let curation = NativeCurationStore(session: session)
+        await curation.load()
+        precondition(curation.error.isEmpty && curation.queue?.group_count == 1)
+        precondition(MemoryReviewHTTP.requests.last!.url!.query!.contains("scope=unfiled"))
+        let curationStart = MemoryReviewHTTP.requests.count
+        curation.toggle([42]); curation.selectedProfiles = [7]
+        MemoryReviewHTTP.failWrites = true; await curation.save(action: "add")
+        precondition(!curation.error.isEmpty && curation.selected == [42], "failed curation retains selection")
+        MemoryReviewHTTP.failWrites = false; await curation.save(action: "add")
+        precondition(curation.error.isEmpty && curation.undoToken == "synthetic-batch" && curation.selected.isEmpty)
+        let batchRequest = MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/curation/batch") }!
+        precondition(MemoryReviewHTTP.body(batchRequest)["media_ids"] as? [Int] == [42])
+        await curation.undo(); precondition(curation.undoToken == nil && curation.error.isEmpty)
+        curation.toggle([42]); await curation.reviewQuality()
+        precondition(curation.queue?.items[0].items[0].quality?.frames[0].clarity == 4 && curation.selected == [42])
+        precondition(MemoryReviewHTTP.requests.last!.timeoutInterval == 180)
+        precondition(MemoryReviewHTTP.requests.dropFirst(curationStart).allSatisfy { $0.url!.path.contains("/curation/") || $0.url!.path.hasSuffix("/children") }, "manual curation never calls identity review")
         MemoryReviewHTTP.role = "member"; await session.restore()
         let count = MemoryReviewHTTP.requests.count; await review.load()
         precondition(!review.error.isEmpty && MemoryReviewHTTP.requests.count == count, "non-admin review is denied")

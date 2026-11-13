@@ -111,6 +111,7 @@ struct LoginCaptcha: Decodable {
         var request = URLRequest(url: url)
         request.httpMethod = method
         if path.hasPrefix("/organization/run") { request.timeoutInterval = 300 }
+        if path.hasPrefix("/curation/media/") && path.hasSuffix("/quality") { request.timeoutInterval = 180 }
         if path == "/ai-search" { request.timeoutInterval = 150 }
         if path.hasPrefix("/faces/media/") && path.hasSuffix("/analyze") { request.timeoutInterval = 180 }
         if path.hasPrefix("/faces/analyze-next") || path.hasPrefix("/pets/") && path.contains("analyze") || path.hasPrefix("/memory-interviews/") && (path.hasSuffix("/prepare") || path.hasSuffix("/reply")) {

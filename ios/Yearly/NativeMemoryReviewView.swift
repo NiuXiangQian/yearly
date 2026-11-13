@@ -12,6 +12,13 @@ struct NativeMemoryReviewView: View {
     }
     var body: some View {
         Group {
+            if store.mediaID == nil && store.tab == .faces {
+                NativeCurationView(session: store.session, onUpdated: onUpdated)
+            } else { legacyBody }
+        }
+    }
+    private var legacyBody: some View {
+        Group {
             if store.session.isAdmin {
                 List {
                     Section {
@@ -506,5 +513,110 @@ private struct NativeOrganizationReviewCard: View {
             .disabled(busy || (entry.kind != "tags" && person != (entry.current.child_id ?? 0)))
         Button("保存修改") { submit("correct") }.buttonStyle(NativeActionStyle()).disabled(busy)
         Button("撤回这次结果", role: .destructive) { submit("reject") }.buttonStyle(NativeActionStyle()).disabled(busy)
+    }
+}
+
+private struct NativeCurationView: View {
+    @StateObject private var store: NativeCurationStore
+    let onUpdated: () -> Void
+    @State private var previewing: NativeTimelineItem?
+    @State private var seconds: Double?
+    init(session: NativeSession, onUpdated: @escaping () -> Void) {
+        _store = StateObject(wrappedValue: NativeCurationStore(session: session)); self.onUpdated = onUpdated
+    }
+    var body: some View {
+        List {
+            Section {
+                Text("按整份影像整理，一次选择，批量归档。").font(.headline)
+                Text("已有相册关联直接沿用，未归档也不影响浏览。同组只表示内容重复或拍摄时间接近。").font(.caption).foregroundStyle(.secondary)
+                Picker("显示", selection: $store.scope) {
+                    Text("尚未归档").tag("unfiled")
+                    Text("全部影像").tag("all")
+                    Text("已处理和略过").tag("handled")
+                }.disabled(store.busy)
+                if let queue = store.queue {
+                    Text("\(queue.unfiled_media) 份未归档 · 当前共 \(queue.group_count) 组").font(.subheadline)
+                }
+            }
+            if store.busy { Section { ProgressView("正在处理…") } }
+            if !store.error.isEmpty { Section { Text(store.error).foregroundStyle(.red); Button("重新加载") { Task { await store.load() } }.disabled(store.busy) } }
+            if !store.notice.isEmpty { Section { Text(store.notice).foregroundStyle(NativeTheme.accent) } }
+            selectionSection
+            ForEach(store.queue?.items ?? []) { group in
+                NativeCurationGroupCard(group: group, store: store) { item, representative in
+                    seconds = representative ? item.quality?.representativeSeconds : nil; previewing = item.media
+                }
+            }
+            if store.queue?.items.isEmpty == true && !store.busy {
+                Section { Text("这里没有需要整理的影像，可切换全部影像或继续浏览相册。") }
+            }
+            Section {
+                HStack {
+                    Button("上一页") { Task { await store.page(next: false) } }.disabled(store.busy || store.history.isEmpty)
+                    Spacer()
+                    Button("下一页") { Task { await store.page(next: true) } }.disabled(store.busy || store.queue?.next_cursor == nil)
+                }
+                NavigationLink("智能打标签") { NativeMemoryReviewView(session: store.session, tab: .memories, onUpdated: onUpdated) }
+                NavigationLink("标签与处理记录") { NativeMemoryReviewView(session: store.session, tab: .organization, onUpdated: onUpdated) }
+            }
+        }
+        .navigationTitle("相册整理").navigationBarTitleDisplayMode(.inline)
+        .task { await store.load() }
+        .onChange(of: store.scope) { _ in Task { await store.load(reset: true) } }
+        .refreshable { if !store.busy { await store.load() } }
+        .onDisappear { store.stopRequested = true }
+        .nativeSheet(item: $previewing) { media in
+            NativeMediaDetail(session: store.session, initial: media, profiles: store.profiles, pagePosition: nil, previous: nil, next: nil,
+                onSaved: { Task { await store.load(); onUpdated() } }, onDeleted: { previewing = nil; Task { await store.load(); onUpdated() } }, onLocate: nil, initialPlaybackSeconds: seconds)
+        }
+    }
+    private var selectionSection: some View {
+        Section("已选 \(store.selected.count) 份影像") {
+            Button("选择／取消本页") { store.toggle(store.pageIDs) }.disabled(store.busy || store.pageIDs.isEmpty)
+            DisclosureGroup("添加到人物／宠物相册（已选 \(store.selectedProfiles.count) 个）") {
+                ForEach(store.profiles) { profile in
+                    Toggle(profile.name, isOn: Binding(get: { store.selectedProfiles.contains(profile.id) }, set: { value in
+                        if value { store.selectedProfiles.insert(profile.id) } else { store.selectedProfiles.remove(profile.id) }
+                    })).disabled(store.busy)
+                }
+            }
+            Button("添加关联并完成") { Task { await store.save(action: "add"); onUpdated() } }.disabled(store.busy || store.selected.isEmpty || store.selectedProfiles.isEmpty)
+            Button("标记整理完成") { Task { await store.save(action: "done"); onUpdated() } }.disabled(store.busy || store.selected.isEmpty)
+            Button("略过所选（保留原片）") { Task { await store.save(action: "ignore"); onUpdated() } }.disabled(store.busy || store.selected.isEmpty)
+            Button("大模型画质复核") { Task { await store.reviewQuality() } }.disabled(store.busy || store.selected.isEmpty || store.queue?.quality_enabled != true)
+            if store.reviewing { Button("停止后续复核") { store.stopRequested = true } }
+            if store.undoToken != nil { Button("撤销上次整理") { Task { await store.undo(); onUpdated() } }.disabled(store.busy) }
+        }
+    }
+}
+private struct NativeCurationGroupCard: View {
+    let group: NativeCurationGroup
+    @ObservedObject var store: NativeCurationStore
+    let preview: (NativeCurationItem, Bool) -> Void
+    @State private var expanded = false
+    var body: some View {
+        Section {
+            Button { store.toggle(group.items.map(\.id)) } label: {
+                Label("\(group.label) · \(group.items.count) 份", systemImage: group.items.allSatisfy { store.selected.contains($0.id) } ? "checkmark.square.fill" : "square")
+            }.disabled(store.busy)
+            if group.items.count > 1 { Button(expanded ? "收起" : "展开检查") { expanded.toggle() } }
+            ForEach(expanded ? group.items : Array(group.items.prefix(1))) { item in
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle(item.media.title?.isEmpty == false ? item.media.title! : "未命名影像", isOn: Binding(get: { store.selected.contains(item.id) }, set: { _ in store.toggle([item.id]) })).disabled(store.busy)
+                    Button { preview(item, item.quality != nil) } label: {
+                        if let quality = item.quality, let raw = quality.thumbnail.split(separator: ",").last, let data = Data(base64Encoded: String(raw)), let image = UIImage(data: data) {
+                            Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220).accessibilityLabel("代表画面")
+                        } else if let file = item.media.files?.first(where: { $0.file_role == "original" }) {
+                            NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id).frame(height: 180).clipped()
+                        }
+                    }.buttonStyle(.plain)
+                    Text("已关联：" + ((item.media.child_ids ?? []).compactMap { id in store.profiles.first { $0.id == id }?.name }.joined(separator: "、"))).font(.caption).foregroundStyle(.secondary)
+                    if let quality = item.quality {
+                        ForEach(quality.frames) { frame in Text("\(frame.clarity)/5 · \(frame.reason)").font(.caption).foregroundStyle(.secondary) }
+                        Button("查看原影像") { preview(item, false) }
+                    }
+                }.padding(.vertical, 6)
+            }
+        }
     }
 }

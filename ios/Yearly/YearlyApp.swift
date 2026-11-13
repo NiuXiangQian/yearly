@@ -129,7 +129,7 @@ struct NativeAppShell: View {
                             Section("管理与记录") {
                                 if session.isAdmin {
                                     NavigationLink { NativeMemoryReviewView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } }) } label: {
-                                        NativeSettingsLabel(title: "AI 整理", symbol: "sparkles", detail: "人物与宠物确认 · 智能打标签")
+                                        NativeSettingsLabel(title: "AI 整理", symbol: "sparkles", detail: "整份影像批量归档 · 画质复核")
                                     }
                                     NavigationLink { NativeAccountsView(session: session) } label: {
                                         NativeSettingsLabel(title: "账号管理", symbol: "person.2.badge.gearshape")

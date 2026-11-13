@@ -406,3 +406,118 @@ struct MemoryOrganizationQueue: Decodable {
     let next_cursor: Int?
     let errors: [Failure]
 }
+
+// Manual media organization is independent of face identity review.
+struct NativeCurationQuality: Decodable {
+    struct Frame: Decodable, Identifiable {
+        let frame: Int
+        let clarity: Int
+        let reason: String
+        var id: Int { frame }
+    }
+    let frames: [Frame]
+    let representative: Int
+    let seconds: [Double?]
+    let thumbnail: String
+    var representativeSeconds: Double? { seconds.indices.contains(representative) ? seconds[representative] : nil }
+}
+struct NativeCurationItem: Decodable, Identifiable {
+    let media: NativeTimelineItem
+    var quality: NativeCurationQuality?
+    var id: Int { media.id }
+}
+struct NativeCurationGroup: Decodable, Identifiable {
+    let key: String
+    let kind: String
+    var items: [NativeCurationItem]
+    var id: String { key }
+    var label: String { kind == "duplicate" ? "完全重复内容" : kind == "capture" ? "拍摄时间接近" : items.first?.media.media_type == "video" ? "一段视频" : "一份影像" }
+}
+struct NativeCurationQueue: Decodable {
+    var items: [NativeCurationGroup]
+    let next_cursor: Int?
+    let group_count: Int
+    let unfiled_media: Int
+    let total_media: Int
+    let quality_enabled: Bool
+}
+@MainActor final class NativeCurationStore: ObservableObject {
+    let session: NativeSession
+    @Published var scope = "unfiled"
+    @Published var selected: Set<Int> = []
+    @Published var selectedProfiles: Set<Int> = []
+    @Published private(set) var queue: NativeCurationQueue?
+    @Published private(set) var profiles: [UploadProfile] = []
+    @Published private(set) var busy = false
+    @Published private(set) var reviewing = false
+    @Published private(set) var error = ""
+    @Published private(set) var notice = ""
+    @Published private(set) var undoToken: String?
+    @Published private(set) var history: [Int?] = []
+    var stopRequested = false
+    private var before: Int?
+    init(session: NativeSession) { self.session = session }
+    var pageIDs: [Int] { queue?.items.flatMap { $0.items.map(\.id) } ?? [] }
+    func toggle(_ ids: [Int]) {
+        if ids.allSatisfy({ selected.contains($0) }) { selected.subtract(ids) }
+        else { selected.formUnion(ids) }
+    }
+    private func fetch() async throws {
+        guard session.isAdmin else { throw NativeAPIError(status: 403, message: "相册整理需要管理员权限。") }
+        profiles = try await session.get("/children", refresh: true)
+        let result: NativeCurationQueue = try await session.get("/curation/groups?scope=\(scope)&limit=24" + (before.map { "&before=\($0)" } ?? ""), refresh: true)
+        queue = result; selected = []
+    }
+    func load(reset: Bool = false) async {
+        if reset { before = nil; history = [] }
+        busy = true; error = ""; defer { busy = false }
+        do { try await fetch() } catch { self.error = error.localizedDescription }
+    }
+    func page(next: Bool) async {
+        let oldBefore = before, oldHistory = history
+        if next { history.append(before); before = queue?.next_cursor }
+        else { before = history.popLast() ?? nil }
+        await load()
+        if !error.isEmpty { before = oldBefore; history = oldHistory }
+    }
+    func save(action: String) async {
+        guard !selected.isEmpty, !busy else { return }
+        guard selected.count <= 300 else { error = "每次最多整理300份影像，请减少选择。"; return }
+        busy = true; error = ""; notice = ""; defer { busy = false }
+        struct Result: Decodable { let count: Int; let undo_token: String }
+        do {
+            let result: Result = try await session.post("/curation/batch", json: ["media_ids": selected.sorted(), "child_ids": selectedProfiles.sorted(), "action": action])
+            undoToken = result.undo_token; notice = "已处理 \(result.count) 份影像，可撤销。"
+            try await fetch()
+        } catch { self.error = error.localizedDescription }
+    }
+    func undo() async {
+        guard let token = undoToken, !busy else { return }
+        busy = true; error = ""; defer { busy = false }
+        do {
+            try await session.write("/curation/undo/\(token)", method: "POST", json: [:])
+            undoToken = nil; notice = "已撤销上次整理。"; try await fetch()
+        } catch { self.error = error.localizedDescription }
+    }
+    func reviewQuality() async {
+        let ids = selected.sorted()
+        guard !busy, !ids.isEmpty else { return }
+        guard ids.count <= 20 else { error = "每次最多复核20份影像，请减少选择。"; return }
+        busy = true; reviewing = true; stopRequested = false; error = ""; notice = ""
+        defer { busy = false; reviewing = false }
+        var completed = 0
+        do {
+            for id in ids {
+                if stopRequested || Task.isCancelled { break }
+                let result: NativeCurationQuality = try await session.post("/curation/media/\(id)/quality", json: [:])
+                if var data = queue {
+                    for g in data.items.indices { for i in data.items[g].items.indices where data.items[g].items[i].id == id {
+                        data.items[g].items[i].quality = result
+                    } }
+                    queue = data
+                }
+                completed += 1; notice = "已复核 \(completed)/\(ids.count) 份影像。"
+            }
+        } catch { self.error = error.localizedDescription }
+    }
+}
