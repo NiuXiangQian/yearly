@@ -66,7 +66,7 @@ def test_quality_reuses_cached_result_without_identity_or_media_mutations(contex
     with context.db() as db:
         file=db.scalar(select(MediaFile).where(MediaFile.media_id==mid))
         import hashlib,json
-        fingerprint=hashlib.sha256(json.dumps([file.sha256,db.get(Media,mid).media_type,curation.settings().ai_analysis_model,curation.QUALITY_VERSION]).encode()).hexdigest()
+        fingerprint=hashlib.sha256(json.dumps([file.sha256,db.get(Media,mid).media_type,curation.settings().ai_quality_model,curation.QUALITY_VERSION]).encode()).hexdigest()
         answer=dict(frames=[dict(frame=0,clarity=4,blurred=False,face_visibility='none',reason='合成测试')],representative=0,seconds=[None],thumbnail='data:image/jpeg;base64,test')
         db.add(MediaCuration(media_id=mid,fingerprint=fingerprint,quality=answer,disposition='ignored'));db.commit()
     monkeypatch.setattr(curation,'chat',lambda *args,**kwargs: (_ for _ in ()).throw(AssertionError('cached quality must not incur calls')))
