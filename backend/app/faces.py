@@ -11,6 +11,7 @@ from .organization_history import preferences, record_identity, clear_identity_r
 from .accounts import record_change
 from .db import get_db
 from .face_engine import FaceEngine, MODEL_VERSION, availability
+from .face_quality import assess_crop, QUALITY_VERSION
 from .video_faces import detect_video_faces, similarity, VIDEO_FACE_SIMILARITY
 from .config import settings
 from .models import Child, DisplayPreview, Media, MediaChild, MediaFace, MediaFaceIndex, MediaFile, VideoPreview, MediaInterview
@@ -73,10 +74,13 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
         .where(Media.status == "active", Media.purpose == "memory",
                MediaFaceIndex.model == MODEL_VERSION, Child.status != "deleted", Child.profile_type != "pet",
                MediaFace.ignored.is_(False), MediaFace.confirmed_by.is_not(None))).all() if rows and matching else []
+    references = [(sample, person) for sample, person in references
+                  if assess_crop(sample.thumbnail, sample.box)[0] is True]
     items = []
     for face in rows:
         best = {}
-        if not face.ignored and (face.child_id is None or (review_automatic and face.auto_match_score is not None)):
+        if (not face.ignored and assess_crop(face.thumbnail, face.box)[0] is True
+                and (face.child_id is None or (review_automatic and face.auto_match_score is not None))):
             for sample, person in references:
                 if sample.media_id == face.media_id and (
                     sample.frame_seconds is None or face.frame_seconds is None or sample.frame_seconds == face.frame_seconds
@@ -150,6 +154,31 @@ def review_queue(scope: Literal["pending", "all"] = "pending", before: int | Non
         pending_memories=db.scalar(select(func.count()).select_from(todo.subquery())))
 
 
+def ignore_low_quality_faces(db, user):
+    """Discard only untreated crops; preserve all identities and media bindings."""
+    rows = list(db.scalars(select(MediaFace).join(Media, Media.id == MediaFace.media_id)
+        .where(Media.status == "active", Media.purpose == "memory",
+               MediaFace.child_id.is_(None), MediaFace.confirmed_by.is_(None),
+               MediaFace.ignored.is_(False), MediaFace.auto_link_blocked.is_(False))
+        .with_for_update().execution_options(populate_existing=True)))
+    changed = {}
+    for face in rows:
+        eligible, reason = assess_crop(face.thumbnail, face.box)
+        if eligible is not False:
+            continue
+        face.ignored = True
+        face.auto_match_score = face.auto_reference_face_id = None
+        record_identity(db, face.media_id, "face", str(face.id),
+            dict(child_id=None, ignored=False), dict(child_id=None, ignored=True), automatic=True,
+            evidence=dict(reason="图像质量不合格，自动忽略", quality_reason=reason, quality_version=QUALITY_VERSION))
+        changed.setdefault(face.media_id, []).append(face.id)
+    for mid, ids in changed.items():
+        record_change(db, db.get(Media, mid), {"faces": {
+            "before": [dict(face_id=fid, child_id=None, ignored=False) for fid in ids],
+            "after": [dict(face_id=fid, child_id=None, ignored=True) for fid in ids]}})
+    return sum(len(ids) for ids in changed.values())
+
+
 def ignore_already_bound_faces(db, user):
     rows = list(db.scalars(select(MediaFace).join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
@@ -182,6 +211,7 @@ def auto_link(db, user):
     options = preferences(db)
     if not settings().face_auto_link_enabled or not options["people_enabled"]:
         return dict(linked_faces=0, reset_faces=0, media_count=0)
+    ignore_low_quality_faces(db, user)
     ignore_already_bound_faces(db, user)
     rows = list(db.scalars(select(MediaFace).join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
@@ -193,6 +223,12 @@ def auto_link(db, user):
     rules = options["person_rules"]
     changes = {}
     for face, item in zip(rows, items, strict=True):
+        if assess_crop(face.thumbnail, face.box)[0] is not True:
+            continue  # Keep existing assignments; unusable crops cannot drive new decisions.
+        if face.child_id is not None and face.auto_reference_face_id is not None:
+            previous_reference = db.get(MediaFace, face.auto_reference_face_id)
+            if previous_reference is not None and assess_crop(previous_reference.thumbnail, previous_reference.box)[0] is not True:
+                continue  # A quality-policy change must not silently undo historical bindings.
         candidates = item["candidates"]
         best = candidates[0] if candidates and candidates[0]["similarity"] > AUTO_LINK_MINIMUM_SIMILARITY else None
         if best and len(candidates) > 1 and best["similarity"] == candidates[1]["similarity"]:

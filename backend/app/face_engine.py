@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from PIL import Image, ImageOps
 
 from .config import settings
+from .face_quality import source_quality
 
 MODEL_VERSION = "yunet-2023mar-sface-2021dec-v1"
 MODELS = {
@@ -89,6 +90,8 @@ class FaceEngine:
             left, top = max(0, int(x)), max(0, int(y))
             right, bottom = min(width, int(x + w)), min(height, int(y + h))
             if right - left < 24 or bottom - top < 24:
+                continue
+            if source_quality(pixels[top:bottom, left:right], face, width, height):
                 continue
             aligned = self.recognizer.alignCrop(pixels, face)
             vector = self.recognizer.feature(aligned).flatten()

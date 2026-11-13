@@ -116,6 +116,9 @@ def mysql_engine():
 
 @pytest.fixture
 def context(tmp_path, monkeypatch, mysql_engine):
+    # Identity/API fixtures use synthetic solid 40px crops, not real photographs.
+    # Quality tests exercise the real image checks separately.
+    monkeypatch.setattr("app.faces.assess_crop", lambda thumbnail, box: (True, "test_fixture"))
     connection = mysql_engine.connect()
     transaction = connection.begin()
     try:
