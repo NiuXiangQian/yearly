@@ -8,7 +8,21 @@ A self-hosted, private family archive with **Web, native iOS, and native Android
 
 Native apps · Original and Live Photo uploads · Daily timeline · Expiring read-only shares · People and pet profiles · Drag-and-drop folders · Compressed previews · Original-file backups
 
-[iOS gallery](#ios-app-gallery) · [Install the app](#ios-app) · [Web screenshots](#screenshots) · [Sharing page](#share-a-read-only-timeline) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
+[AI features](#ai-features) · [iOS gallery](#ios-app-gallery) · [Install the app](#ios-app) · [Web screenshots](#screenshots) · [Sharing page](#share-a-read-only-timeline) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
+
+## AI features
+
+Describe a scene in the timeline on Web, iOS, or Android. A search for “birthday celebration” can find a photo described as “a child closes her eyes, makes a wish, and blows out the candles on a cake.” For “playing in the sand at the beach,” the AI can use details such as breaking waves and a child shoveling sand into a bucket.
+
+The AI reviews the full saved scene description for each indexed item you can access within your filters. It also considers existing tags and linked people and pets. Narrow the search by date, person, pet, uploader, or media type. There is no cap on relevant results. Each page shows up to 20 items, and turning the page reuses the same ranking without another AI call.
+
+Administrators can also use AI to organize the archive.
+
+- **Match people and dogs.** The server can match faces locally. Dog matching uses appearance and confirmed reference samples. Administrators can confirm or correct matches and enable automatic linking for high-confidence results.
+- **Tag media automatically.** When enabled, the background worker generates and saves tags from existing scene descriptions. Those tags also help with future searches.
+- **Review image quality.** The web album organizer and the iOS photo assistant can assess sharpness, obstructions, and face visibility in photos and sampled video frames. Use the review to decide which items to add to a person’s or pet’s album.
+
+Smart search is off by default. To enable it, configure an OpenAI API key and a monthly budget on the server, then start the indexing worker. Indexing sends photo previews or sampled video frames to OpenAI and uses the still image for Live Photos. Searches use the saved text descriptions. [Search setup (Chinese)](docs/ai-search.md#启用) · [Matching and album organization (Chinese)](docs/face-matching.md)
 
 ## iOS app gallery
 
@@ -18,7 +32,7 @@ These screenshots show the current native UI in an iPhone simulator with isolate
 
 ### Timeline, original uploads, and family profiles
 
-Browse by date and filter by profile, uploader, keyword, or media type. Select photos, videos, and Live Photos from the system library, preserve paired still/MOV resources, and pause, retry, or resume persisted uploads. Open memories for each person or pet.
+Browse by date and filter by profile, uploader, or media type. Select photos, videos, and Live Photos from the system library, preserve paired still/MOV resources, and pause, retry, or resume persisted uploads. Open memories for each person or pet.
 
 <p>
   <a href="docs/images/demo-ios-timeline.png"><img src="docs/images/demo-ios-timeline.png" width="250" alt="Daily timeline" /></a>
@@ -108,7 +122,7 @@ Create profiles for parents, grandparents, children, friends, and pets. Set cust
 
 | Use case | Capabilities |
 | --- | --- |
-| Smart search | [Find photos and videos with a sentence](docs/ai-search.md), optional OpenAI integration with scene and date matching |
+| Finding and organizing media | Search photos and videos by scene, match people and dogs, apply tags automatically, and review image quality. See [AI features](#ai-features). |
 | Organize memories | Daily grouping, named folders, mixed folder/media ordering, bulk selection and moves, default-order reset |
 | Record growth | People and pet profiles, individual avatars, age-based browsing, one-month / 100-day / birthday navigation, shared growth journals |
 | Upload in batches | Batch names, EXIF / QuickTime date parsing, date checks when appending, cross-batch deduplication, multipart uploads and retries |
