@@ -31,12 +31,28 @@ def provider(monkeypatch):
             return {"data": [{"embedding": vector()}]}
         schema = payload.get("response_format", {}).get("json_schema", {}).get("name")
         if schema == "QueryPlan":
-            content = json.dumps(dict(scene="海边玩沙", evidence_groups=[["海边","沙滩"]], depicted=False, start=None, end=None, profile_ids=[], profile_mentions=[], media_type=None))
+            content = json.dumps(dict(scene="海边玩沙", start=None, end=None, profile_ids=[], profile_mentions=[], media_type=None))
+        elif schema == "SceneMatches":
+            # Canned verdicts exercise the integration; real-model examples are verified separately.
+            records = json.loads(payload["messages"][1]["content"])["records"]
+            evidence = ("海边玩沙", "画面：海边", "照片海边", "生日蛋糕", "标签：生日", "卷毛犬",
+                        "标签：狗", "、狗", "小狗在花园里奔跑", "一铲铲装进小桶")
+            strong = [r["n"] for r in records if r["description"] == "海边" or any(word in r["description"] for word in evidence)]
+            content = json.dumps({"matches": [{"n": n, "relevance": "strong", "evidence": [records[n-1]["description"]]} for n in strong]})
         else:
             content = "海边玩沙的孩子，旁边有蓝色小桶。"
         return {"choices": [{"finish_reason": "stop", "message": {"content": content}}]}
     monkeypatch.setattr(ai, "openai_call", request)
     return calls
+
+
+def stub_plan(monkeypatch, planner):
+    original = ai.chat
+    def chat(db, system, content, schema=None):
+        if schema is ai.QueryPlan:
+            return planner(db, system, content, schema)
+        return original(db, system, content, schema)
+    monkeypatch.setattr(ai, "chat", chat)
 
 
 def add_index(context, mid, description="海边玩沙", embedding=None):
@@ -174,7 +190,7 @@ def test_inferred_date_person_and_type_are_intersected(context, provider, monkey
     real_chat = ai.chat
     def planned(db, system, content, schema=None):
         if schema is ai.QueryPlan:
-            return schema(scene='', evidence_groups=[], depicted=False, start='2025-06-01',end='2025-08-31',profile_ids=[person['id']],profile_mentions=['哥哥'],media_type='photo')
+            return schema(scene='', start='2025-06-01',end='2025-08-31',profile_ids=[person['id']],profile_mentions=['哥哥'],media_type='photo')
         return real_chat(db,system,content,schema)
     monkeypatch.setattr(ai,'chat',planned)
     response=context.client.post('/api/ai-search',json={'query':'去年夏天哥哥的照片'})
@@ -203,11 +219,11 @@ def test_person_filters_require_specific_mentions_in_query(context, provider, mo
 
     def planned(db, system, content, schema=None):
         if schema is ai.QueryPlan:
-            return schema(scene="过生日吃蛋糕", evidence_groups=[["生日","蛋糕"]], depicted=False, start=None, end=None,
+            return schema(scene="过生日吃蛋糕", start=None, end=None,
                           profile_ids=[mother], profile_mentions=[mention], media_type=None)
-        raise AssertionError("Search must not call a model to filter recalled candidates")
 
-    monkeypatch.setattr(ai, "chat", planned)
+
+    stub_plan(monkeypatch, planned)
     response = context.client.post("/api/ai-search", json={"query": query})
     assert response.status_code == 200, response.text
     data = response.json()
@@ -229,7 +245,7 @@ def test_small_scope_uses_vector_recall_and_reports_owned_progress(context, prov
     add_index(context, mid)
     response = context.client.post("/api/ai-search", json={"query":"海边", "request_id":"my-search"})
     assert response.status_code == 200
-    assert [c[0] for c in provider] == ["chat/completions", "embeddings"]
+    assert [c[0] for c in provider] == ["chat/completions", "embeddings", "chat/completions"]
     assert context.client.get("/api/ai-search/progress/my-search").json() == {"stage":"complete"}
     act(context,"viewer")
     assert context.client.get("/api/ai-search/progress/my-search").json() == {"stage":"waiting"}
@@ -245,6 +261,7 @@ def test_unlimited_results_page_in_stable_order_with_current_visibility(context,
     first = context.client.post("/api/ai-search", json={"query": "海边"}).json()
     path = "/api/ai-search/results/" + first["search_id"]
     expected = sorted(ids, reverse=True)
+    initial_calls = list(provider)
     assert first["page_size"] == 20
     for page in [1, 2, 3, 2, 1]:
         result = context.client.get(path, params={"page": page}).json()
@@ -260,7 +277,9 @@ def test_unlimited_results_page_in_stable_order_with_current_visibility(context,
     assert context.client.get(path, params={"page": 0}).status_code == 422
     act(context, "member")
     assert context.client.get(path, params={"page": 1}).status_code == 410
-    assert [c[0] for c in provider] == ["chat/completions", "embeddings"]
+    assert provider == initial_calls
+    assert sum(call[1].get("response_format", {}).get("json_schema", {}).get("name") == "SceneMatches"
+               for call in initial_calls) >= 2
 
 
 def test_dog_scene_requires_affirmative_evidence_before_paging(context, provider, monkeypatch):
@@ -274,28 +293,72 @@ def test_dog_scene_requires_affirmative_evidence_before_paging(context, provider
     add_index(context, visible, "一只卷毛犬在走廊里奔跑")
     for caption in ["室内吃饭", "床上没有小狗", "袖口印着棕黄色小狗脸", "棕色熊及黄棕色狗玩偶"]:
         add_index(context, upload(context)["media_id"], caption)
-    monkeypatch.setattr(ai, "chat", lambda *args: ai.QueryPlan(
-        scene="小狗", evidence_groups=[["小狗", "狗", "犬"]], depicted=False, start=None,
+    stub_plan(monkeypatch, lambda *args: ai.QueryPlan(
+        scene="小狗", start=None,
         end=None, profile_ids=[], profile_mentions=[], media_type=None))
     result = context.client.post("/api/ai-search", json={"query":"小狗"}).json()
     assert result["total"] == 3
     assert {row["id"] for row in result["items"]} == {linked, tagged, visible}
 
 
-def test_compound_scene_requires_each_concept_and_filters_low_similarity(context, provider, monkeypatch):
+def test_compound_scene_uses_model_verdict(context, provider, monkeypatch):
     wanted = upload(context)["media_id"]
     add_index(context, wanted, "小狗在花园里奔跑")
     for caption, embedding in [("小狗趴在地上", vector()), ("小朋友跑步", vector()),
                                ("海报中画着奔跑的小狗", vector(-1))]:
         add_index(context, upload(context)["media_id"], caption, embedding)
-    monkeypatch.setattr(ai, "chat", lambda *args: ai.QueryPlan(
-        scene="跑步的小狗", evidence_groups=[["狗","犬"],["跑步","奔跑"]], depicted=False,
+    stub_plan(monkeypatch, lambda *args: ai.QueryPlan(
+        scene="跑步的小狗",
         start=None, end=None, profile_ids=[], profile_mentions=[], media_type=None))
     result = context.client.post("/api/ai-search", json={"query":"跑步的小狗"}).json()
     assert result["total"] == 1 and result["items"][0]["id"] == wanted
 
 
-def test_new_indexed_photo_is_returned_in_vector_order_without_model_filter(context, provider):
+def test_full_description_reaches_reviewer_despite_low_similarity_and_missing_keywords(context, provider):
+    wanted = upload(context)["media_id"]
+    caption = "浪花拍到孩子脚边。他拿着塑料铲，将细软的颗粒一铲铲装进小桶。"
+    add_index(context, wanted, caption, vector(-1))
+    add_index(context, upload(context)["media_id"], "海边的停车场，没有人在玩沙。", vector())
+    result = context.client.post("/api/ai-search", json={"query": "海边玩沙"}).json()
+    assert [row["id"] for row in result["items"]] == [wanted]
+    records = json.loads(provider[-1][1]["messages"][1]["content"])["records"]
+    assert len(records) == 2 and caption in [r["description"] for r in records]
+
+
+@pytest.mark.parametrize("positions", [[2], [0], [1, 1]])
+def test_invalid_review_rejects_batch(monkeypatch, positions):
+    matches = [ai.SceneMatch(n=n, relevance="strong", evidence=["one"]) for n in positions]
+    monkeypatch.setattr(ai, "chat", lambda *args: ai.SceneMatches(matches=matches))
+    with pytest.raises(HTTPException) as failure:
+        ai.review_descriptions(None, "search", "scene", ["one description"])
+    assert failure.value.status_code == 502
+
+
+def test_model_cannot_borrow_evidence_from_another_record(monkeypatch):
+    matches = [ai.SceneMatch(n=2, relevance="related", evidence=["浪花拍到脚边"])]
+    monkeypatch.setattr(ai, "chat", lambda *args: ai.SceneMatches(matches=matches))
+    assert ai.review_descriptions(None, "海岸", "海岸", ["浪花拍到脚边", "室内泳池"]) == [0, 0]
+
+
+def test_review_failure_does_not_publish_partial_results(context, provider, monkeypatch):
+    monkeypatch.setattr(ai, "REVIEW_BATCH_ITEMS", 1)
+    for _ in range(2):
+        add_index(context, upload(context)["media_id"])
+    calls = []
+    def review(query, scene, descriptions):
+        calls.append(descriptions)
+        if len(calls) == 2:
+            raise HTTPException(502, "本批判读失败")
+        return [2] * len(descriptions)
+    monkeypatch.setattr(ai, "review_batch", review)
+    cache_before = set(ai.result_cache)
+    failed = context.client.post("/api/ai-search", json={"query":"海边"})
+    assert failed.status_code == 502 and set(ai.result_cache) == cache_before
+    retry = context.client.post("/api/ai-search", json={"query":"海边"})
+    assert retry.status_code == 200 and retry.json()["total"] == 2
+
+
+def test_equally_relevant_photos_are_sorted_by_vector_score(context, provider):
     old = upload(context, taken="2026-11-03T20:36:00")["media_id"]
     newest = upload(context, taken="2026-10-14T21:11:00")["media_id"]
     add_index(context, old, "旧照片海边", [0.8, 0.6] + [0] * (ai.DIMENSIONS - 2))
@@ -303,7 +366,7 @@ def test_new_indexed_photo_is_returned_in_vector_order_without_model_filter(cont
     response = context.client.post("/api/ai-search", json={"query": "海边"})
     assert response.status_code == 200, response.text
     assert [x["id"] for x in response.json()["items"]] == [newest, old]
-    assert [c[0] for c in provider] == ["chat/completions", "embeddings"]
+    assert [c[0] for c in provider] == ["chat/completions", "embeddings", "chat/completions"]
     assert "candidates" not in json.loads(provider[0][1]["messages"][1]["content"])
 
 

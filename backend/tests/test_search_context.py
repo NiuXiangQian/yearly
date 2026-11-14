@@ -2,7 +2,7 @@ import json
 from fastapi import HTTPException
 from app import ai_search as ai
 from app.models import Media, MediaSearchIndex, Child
-from test_ai_search import provider, add_index, vector
+from test_ai_search import provider, add_index, vector, stub_plan
 from test_faces import confirm, image_media
 from test_auto_faces import indexed
 from conftest import upload
@@ -26,8 +26,8 @@ def test_mother_birthday_uses_live_tags_and_confirmed_identity_and_respects_corr
     def plan(db,system,content,schema=None):
         payload=json.loads(content)
         assert '生日' in payload['tag_library']
-        return schema(scene='生日庆祝、生日蛋糕、蜡烛',evidence_groups=[['生日','蛋糕']],depicted=False,start=None,end=None,profile_ids=[mom],profile_mentions=['妈妈'],media_type=None)
-    monkeypatch.setattr(ai,'chat',plan)
+        return schema(scene='生日庆祝、生日蛋糕、蜡烛',start=None,end=None,profile_ids=[mom],profile_mentions=['妈妈'],media_type=None)
+    stub_plan(monkeypatch, plan)
     search=lambda: context.client.post('/api/ai-search',json={'query':'妈妈过生日'})
     assert [m['id'] for m in search().json()['items']]==[], 'unconfirmed identity must not be guessed'
     assert confirm(context,birthday,fid,mom).status_code==200
