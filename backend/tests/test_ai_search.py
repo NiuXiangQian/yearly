@@ -31,7 +31,7 @@ def provider(monkeypatch):
             return {"data": [{"embedding": vector()}]}
         schema = payload.get("response_format", {}).get("json_schema", {}).get("name")
         if schema == "QueryPlan":
-            content = json.dumps(dict(scene="海边玩沙", start=None, end=None, profile_ids=[], profile_mentions=[], media_type=None))
+            content = json.dumps(dict(scene="海边玩沙", evidence_groups=[["海边","沙滩"]], depicted=False, start=None, end=None, profile_ids=[], profile_mentions=[], media_type=None))
         else:
             content = "海边玩沙的孩子，旁边有蓝色小桶。"
         return {"choices": [{"finish_reason": "stop", "message": {"content": content}}]}
@@ -100,7 +100,7 @@ def test_empty_disabled_and_failed_provider(context, provider, monkeypatch):
     assert context.client.post("/api/ai-search", json={"query":"海边"}).json()["items"] == []
     mid = upload(context)["media_id"]
     add_index(context, mid, "室内睡觉")
-    assert [x["id"] for x in context.client.post("/api/ai-search", json={"query":"海边"}).json()["items"]] == [mid]
+    assert context.client.post("/api/ai-search", json={"query":"海边"}).json()["total"] == 0
     monkeypatch.setattr(settings(), "ai_search_enabled", False)
     assert context.client.post("/api/ai-search", json={"query":"海边"}).status_code == 503
     assert context.client.get("/api/timeline").status_code == 200
@@ -174,7 +174,7 @@ def test_inferred_date_person_and_type_are_intersected(context, provider, monkey
     real_chat = ai.chat
     def planned(db, system, content, schema=None):
         if schema is ai.QueryPlan:
-            return schema(scene='', start='2025-06-01',end='2025-08-31',profile_ids=[person['id']],profile_mentions=['哥哥'],media_type='photo')
+            return schema(scene='', evidence_groups=[], depicted=False, start='2025-06-01',end='2025-08-31',profile_ids=[person['id']],profile_mentions=['哥哥'],media_type='photo')
         return real_chat(db,system,content,schema)
     monkeypatch.setattr(ai,'chat',planned)
     response=context.client.post('/api/ai-search',json={'query':'去年夏天哥哥的照片'})
@@ -203,7 +203,7 @@ def test_person_filters_require_specific_mentions_in_query(context, provider, mo
 
     def planned(db, system, content, schema=None):
         if schema is ai.QueryPlan:
-            return schema(scene="过生日吃蛋糕", start=None, end=None,
+            return schema(scene="过生日吃蛋糕", evidence_groups=[["生日","蛋糕"]], depicted=False, start=None, end=None,
                           profile_ids=[mother], profile_mentions=[mention], media_type=None)
         raise AssertionError("Search must not call a model to filter recalled candidates")
 
@@ -216,8 +216,7 @@ def test_person_filters_require_specific_mentions_in_query(context, provider, mo
         assert hits == {together}
     else:
         assert {birthday, together} <= hits
-        assert len(hits) == (20 if large else 2)
-        assert data["total"] == (41 if large else 2)
+        assert len(hits) == data["total"] == 2
     assert data["filters"]["profile_ids"] == ([mother] if person_filter else [])
     assert set(data["filters"]) == {"scene", "start", "end", "profile_ids", "media_type"}
     if not person_filter:
@@ -240,6 +239,8 @@ def test_unlimited_results_page_in_stable_order_with_current_visibility(context,
     ids = [upload(context)["media_id"] for _ in range(41)]
     for mid in ids:
         add_index(context, mid)
+    for caption in ["室内睡觉", "没有海边场景", "印着海边图案的衣服"]:
+        add_index(context, upload(context)["media_id"], caption)
     act(context, "viewer")
     first = context.client.post("/api/ai-search", json={"query": "海边"}).json()
     path = "/api/ai-search/results/" + first["search_id"]
@@ -260,6 +261,38 @@ def test_unlimited_results_page_in_stable_order_with_current_visibility(context,
     act(context, "member")
     assert context.client.get(path, params={"page": 1}).status_code == 410
     assert [c[0] for c in provider] == ["chat/completions", "embeddings"]
+
+
+def test_dog_scene_requires_affirmative_evidence_before_paging(context, provider, monkeypatch):
+    dog = context.client.post("/api/children", json={"name":"团子", "profile_type":"pet", "species":"狗"}).json()["id"]
+    linked = upload(context, [dog])["media_id"]
+    tagged = upload(context)["media_id"]
+    visible = upload(context)["media_id"]
+    add_index(context, linked, "草地旁", vector(-1))
+    add_index(context, tagged, "床边", vector(-1))
+    context.client.put(f"/api/media/{tagged}", json={"tags":["狗"]})
+    add_index(context, visible, "一只卷毛犬在走廊里奔跑")
+    for caption in ["室内吃饭", "床上没有小狗", "袖口印着棕黄色小狗脸", "棕色熊及黄棕色狗玩偶"]:
+        add_index(context, upload(context)["media_id"], caption)
+    monkeypatch.setattr(ai, "chat", lambda *args: ai.QueryPlan(
+        scene="小狗", evidence_groups=[["小狗", "狗", "犬"]], depicted=False, start=None,
+        end=None, profile_ids=[], profile_mentions=[], media_type=None))
+    result = context.client.post("/api/ai-search", json={"query":"小狗"}).json()
+    assert result["total"] == 3
+    assert {row["id"] for row in result["items"]} == {linked, tagged, visible}
+
+
+def test_compound_scene_requires_each_concept_and_filters_low_similarity(context, provider, monkeypatch):
+    wanted = upload(context)["media_id"]
+    add_index(context, wanted, "小狗在花园里奔跑")
+    for caption, embedding in [("小狗趴在地上", vector()), ("小朋友跑步", vector()),
+                               ("海报中画着奔跑的小狗", vector(-1))]:
+        add_index(context, upload(context)["media_id"], caption, embedding)
+    monkeypatch.setattr(ai, "chat", lambda *args: ai.QueryPlan(
+        scene="跑步的小狗", evidence_groups=[["狗","犬"],["跑步","奔跑"]], depicted=False,
+        start=None, end=None, profile_ids=[], profile_mentions=[], media_type=None))
+    result = context.client.post("/api/ai-search", json={"query":"跑步的小狗"}).json()
+    assert result["total"] == 1 and result["items"][0]["id"] == wanted
 
 
 def test_new_indexed_photo_is_returned_in_vector_order_without_model_filter(context, provider):

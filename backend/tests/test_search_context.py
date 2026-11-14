@@ -26,22 +26,24 @@ def test_mother_birthday_uses_live_tags_and_confirmed_identity_and_respects_corr
     def plan(db,system,content,schema=None):
         payload=json.loads(content)
         assert '生日' in payload['tag_library']
-        return schema(scene='生日庆祝、生日蛋糕、蜡烛',start=None,end=None,profile_ids=[mom],profile_mentions=['妈妈'],media_type=None)
+        return schema(scene='生日庆祝、生日蛋糕、蜡烛',evidence_groups=[['生日','蛋糕']],depicted=False,start=None,end=None,profile_ids=[mom],profile_mentions=['妈妈'],media_type=None)
     monkeypatch.setattr(ai,'chat',plan)
     search=lambda: context.client.post('/api/ai-search',json={'query':'妈妈过生日'})
-    assert [m['id'] for m in search().json()['items']]==[street], 'unconfirmed identity must not be guessed'
+    assert [m['id'] for m in search().json()['items']]==[], 'unconfirmed identity must not be guessed'
     assert confirm(context,birthday,fid,mom).status_code==200
     with context.db() as db:
         target=db.get(Media,birthday);row=db.get(MediaSearchIndex,birthday)
         _,fp=ai.search_context(target,row)
         row.context_fingerprint,row.context_embedding=fp,vector();db.commit()
     result=search();assert result.status_code==200,result.text
-    assert [m['id'] for m in result.json()['items']]==[birthday,street]
+    assert [m['id'] for m in result.json()['items']]==[birthday]
     # Removing a label immediately invalidates the old semantic context; do not wait for the worker.
     context.client.put(f'/api/media/{birthday}',json={'tags':[],'child_ids':[mom]})
-    assert [m['id'] for m in search().json()['items']]==[street,birthday]
+    assert [m['id'] for m in search().json()['items']]==[]
+    context.client.put(f'/api/media/{birthday}',json={'tags':['生日'],'child_ids':[mom]})
+    assert [m['id'] for m in search().json()['items']]==[birthday]
     assert confirm(context,birthday,fid,dad).status_code==200
-    assert [m['id'] for m in search().json()['items']]==[street]
+    assert [m['id'] for m in search().json()['items']]==[]
 
 
 def test_context_cache_miss_hit_empty_and_metadata_changes_without_visual_reanalysis(context,provider):
