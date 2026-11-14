@@ -47,7 +47,7 @@ final class MemoryReviewHTTP: URLProtocol {
             switch path {
             case "/auth/me": response = ["id": 1, "username": "演示管理员", "role": Self.role, "csrf_token": "synthetic-csrf"]
             case "/ai-search/status": response = ["enabled": true, "total": 1, "indexed": 1, "failed": 0]
-            case "/ai-search": response = ["items": [Self.media], "indexed": 1]
+            case "/ai-search": response = ["items": [Self.media], "page": 1, "page_size": 20, "search_id": "sample", "total": 1, "indexed": 1]
             case "/children": response = [["id": 7, "name": "家人甲", "nickname": "", "profile_type": "person"], ["id": 8, "name": "多多", "nickname": "", "profile_type": "pet", "species": "狗"]]
             case "/curation/groups": response = ["items": [["key": "42", "kind": "single", "items": [["media": Self.media, "quality": NSNull()]]]], "next_cursor": NSNull(), "group_count": 1, "unfiled_media": 1, "total_media": 1, "quality_enabled": true]
             case "/curation/batch": response = ["count": 1, "undo_token": "synthetic-batch"]

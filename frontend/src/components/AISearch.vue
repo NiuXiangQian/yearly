@@ -9,14 +9,24 @@ import MediaDetail from "./MediaDetail.vue";
 const props = defineProps<{ filters: Record<string, unknown> }>();
 const emit = defineEmits(["close", "locate"]);
 const query = ref("");
-const busy = ref(false), composing = ref(false), searched = ref(false);
+const busy = ref(false), composing = ref(false);
 const error = ref("");
 const stage = ref("waiting"), elapsed = ref(0);
 const stageLabels: Record<string, string> = { waiting: "正在提交搜索…", understanding: "正在理解描述…", matching: "正在查找候选影像…", ranking: "正在核对画面并筛选结果…", complete: "正在整理结果…" };
 let activeRequestID: string | undefined;
 let progressTimer: ReturnType<typeof setInterval> | undefined;
 onUnmounted(() => clearInterval(progressTimer));
-const items = ref<any[]>([]), detail = ref<number | null>(null);
+interface SearchPage {
+  items: any[];
+  search_id: string;
+  page: number;
+  total: number;
+  page_size: number;
+}
+const results = ref<SearchPage>();
+const pageCount = computed(() => results.value ? Math.ceil(results.value.total / results.value.page_size) : 0);
+const paging = ref(false);
+const detail = ref<number | null>(null);
 const status = ref<{ enabled: boolean; indexed: number; total: number; failed: number }>();
 const interpreted = ref<{ start?: string; end?: string; media_type?: string }>();
 const scope = computed(() => {
@@ -31,8 +41,8 @@ async function loadStatus() {
   catch (e) { error.value = (e as Error).message; }
 }
 async function search() {
-  if (composing.value || busy.value || !query.value.trim() || !status.value?.enabled || !status.value.indexed) return;
-  busy.value = true; error.value = ""; items.value = []; searched.value = false; interpreted.value = undefined;
+  if (composing.value || busy.value || paging.value || !query.value.trim() || !status.value?.enabled || !status.value.indexed) return;
+  busy.value = true; error.value = ""; results.value = undefined; interpreted.value = undefined;
   const requestID = crypto.randomUUID(); activeRequestID = requestID;
   stage.value = "waiting"; elapsed.value = 0;
   let polling = false;
@@ -48,9 +58,17 @@ async function search() {
   }, 1000);
   try {
     const result = await post("/ai-search", { ...props.filters, query: query.value.trim(), request_id: requestID });
-    items.value = result.items; interpreted.value = result.filters; searched.value = true;
+    results.value = result; interpreted.value = result.filters;
   } catch (e) { error.value = (e as Error).message; }
   finally { clearInterval(progressTimer); activeRequestID = undefined; busy.value = false; }
+}
+async function changePage(page: number) {
+  if (!results.value || paging.value || busy.value || page < 1 || page > pageCount.value) return;
+  paging.value = true;
+  error.value = "";
+  try { results.value = await api<SearchPage>(`/ai-search/results/${results.value.search_id}?page=${page}`); }
+  catch (e) { error.value = (e as Error).message; }
+  finally { paging.value = false; }
 }
 onMounted(loadStatus);
 </script>
@@ -61,7 +79,7 @@ onMounted(loadStatus);
     <form class="ai-search-form" @submit.prevent="search">
       <input v-model="query" :aria-label="t('描述想找的回忆')" :placeholder="t('例如：去年夏天在海边玩沙子')" maxlength="200" :disabled="busy"
         @compositionstart="composing = true" @compositionend="composing = false" @keydown.enter="($event.isComposing || composing) && $event.preventDefault()" />
-      <button class="button primary" type="submit" :disabled="busy || !query.trim() || !status?.enabled || !status?.indexed"><Search :size="16" />{{ t(busy ? "正在寻找…" : "查找") }}</button>
+      <button class="button primary" type="submit" :disabled="busy || paging || !query.trim() || !status?.enabled || !status?.indexed"><Search :size="16" />{{ t(busy ? "正在寻找…" : "查找") }}</button>
     </form>
     <div class="ai-search-note" aria-live="polite">
       <template v-if="status && !status.enabled">{{ t("智能搜索尚未启用，请管理员配置 OpenAI API Key 并建立索引") }}</template>
@@ -74,10 +92,15 @@ onMounted(loadStatus);
     <p v-if="error" role="alert" class="ai-search-error">{{ error }}</p>
     <p v-if="interpreted?.start || interpreted?.end" class="ai-search-note">{{ t("识别到的归档日期") }}：{{ interpreted?.start || '…' }} — {{ interpreted?.end || '…' }}{{ t("（含起止日）") }}</p>
     <p v-if="busy" role="status">{{ t(stageLabels[stage]) }} · {{ t("已等待") }} {{ elapsed }} {{ t("秒") }}</p>
-    <template v-else-if="searched">
-      <p class="ai-search-count" role="status">{{ items.length }} {{ t("项相关回忆") }} · {{ t("按相关程度排列，最多显示 40 项") }}</p>
-      <div v-if="items.length" class="ai-search-grid">
-        <div v-for="item in items" :key="item.id" class="ai-search-result">
+    <template v-else-if="results">
+      <p class="ai-search-count" role="status">{{ results.total }} {{ t("项相关回忆") }} · {{ t("按相关程度排列") }}</p>
+      <nav v-if="pageCount > 1" class="ai-search-pages" :aria-label="t('搜索结果分页')" :aria-busy="paging">
+        <button class="chip" :disabled="paging || results.page === 1" @click="changePage(results.page - 1)">{{ t("上一页") }}</button>
+        <span role="status">{{ t("第 {page} / {pages} 页", { page: results.page, pages: pageCount }) }}</span>
+        <button class="chip" :disabled="paging || results.page === pageCount" @click="changePage(results.page + 1)">{{ t("下一页") }}</button>
+      </nav>
+      <div v-if="results.items.length" class="ai-search-grid">
+        <div v-for="item in results.items" :key="item.id" class="ai-search-result">
           <MediaCard :media="item" thumbnail @open="detail = item.id" />
           <button class="text-button ai-search-open" @click="detail = item.id">{{ item.title || localDate(item.timeline_day) }} · {{ t("查看") }}</button>
           <button class="text-button ai-search-locate" @click="emit('locate', item)">{{ t("在时间线查看") }}</button>
@@ -105,6 +128,8 @@ onMounted(loadStatus);
 .ai-search-note button { margin-left: 8px; min-height: 36px; }
 .ai-search-error { color: var(--el-color-danger); }
 .ai-search-count { margin: 24px 0 14px; font-variant-numeric: tabular-nums; }
+.ai-search-pages { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.ai-search-pages button { min-height: 44px; }
 .ai-search-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 14px; }
 .ai-search-result { min-width: 0; }
 .ai-search-result .media-card { width: 100%; }

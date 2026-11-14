@@ -1327,10 +1327,11 @@ private struct NativeAISearch: View {
     @FocusState private var queryFocused: Bool
     @State private var query = ""
     @State private var status: NativeSearchStatus?
-    @State private var items: [NativeTimelineItem] = []
+    @State private var results: NativeSearchPage?
+    @State private var paging = false
+    @State private var failedPage: Int?
     @State private var selected: NativeTimelineItem?
     @State private var busy = false
-    @State private var searched = false
     @State private var message = ""
     @State private var searchTask: Task<Void, Never>?
     @State private var searchStage = "waiting"
@@ -1346,7 +1347,7 @@ private struct NativeAISearch: View {
         return labels.joined(separator: " · ")
     }
     private var canSearch: Bool {
-        !busy && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !busy && !paging && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && status?.enabled == true && (status?.indexed ?? 0) > 0
     }
     var body: some View {
@@ -1359,8 +1360,8 @@ private struct NativeAISearch: View {
                         .autocorrectionDisabled().disabled(busy)
                         .onSubmit { performSearch() }
                         .onChange(of: query) { value in if value.count > 200 { query = String(value.prefix(200)) } }
-                    if !query.isEmpty && !busy {
-                        Button { query = ""; searched = false; items = []; queryFocused = true } label: {
+                    if !query.isEmpty && !busy && !paging {
+                        Button { query = ""; results = nil; failedPage = nil; message = ""; queryFocused = true } label: {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                         }.accessibilityLabel("清空搜索")
                     }
@@ -1392,7 +1393,10 @@ private struct NativeAISearch: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("这次没能完成搜索", systemImage: "exclamationmark.circle").font(.headline)
                             Text(message).font(.subheadline).foregroundStyle(.secondary)
-                            Button("重试") { Task { await loadStatus(); if canSearch { performSearch() } } }
+                            Button("重试") {
+                                if let failedPage { changePage(failedPage) }
+                                else { Task { await loadStatus(); if canSearch { performSearch() } } }
+                            }
                                 .buttonStyle(NativeActionStyle(compact: true))
                         }
                     } else if let status, !status.enabled || status.indexed == 0 {
@@ -1403,17 +1407,26 @@ private struct NativeAISearch: View {
                             Button("重新检查") { Task { await loadStatus() } }.buttonStyle(NativeActionStyle(compact: true))
                         }.padding(.vertical, 24)
                     }
-                    if searched {
+                    if let results {
                         HStack {
-                            Text(items.isEmpty ? "没有找到这个画面" : "找到 \(items.count) 个瞬间").font(.title3.bold())
+                            Text(results.total == 0 ? "没有找到这个画面" : "找到 \(results.total) 个瞬间").font(.title3.bold())
                             Spacer()
                         }
-                        if items.isEmpty {
+                        if results.pageCount > 1 {
+                            HStack {
+                                Button("上一页") { changePage(results.page - 1) }.disabled(paging || results.page == 1)
+                                Spacer()
+                                Text("第 \(results.page) / \(results.pageCount) 页").monospacedDigit()
+                                Spacer()
+                                Button("下一页") { changePage(results.page + 1) }.disabled(paging || results.page == results.pageCount)
+                            }
+                        }
+                        if results.items.isEmpty {
                             Text("换个场景、物品或动作试试，也可以减少筛选条件。")
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 20) {
-                            ForEach(items) { item in
+                            ForEach(results.items) { item in
                                 Button { selected = item } label: {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Color(.secondarySystemBackground)
@@ -1471,7 +1484,7 @@ private struct NativeAISearch: View {
         .fullScreenCover(item: $selected) { item in
             NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
                               pagePosition: nil, previous: nil, next: nil, onSaved: { onUpdated(); performSearch() },
-                              onDeleted: { onUpdated(); items.removeAll { $0.id == item.id } },
+                              onDeleted: { onUpdated(); if let results { changePage(results.page) } },
                               onLocate: onLocate.map { locate in { current in selected = nil; locate(current) } })
         }
     }
@@ -1493,10 +1506,30 @@ private struct NativeAISearch: View {
         do { status = try await store.session.get("/ai-search/status", refresh: true) }
         catch { message = error.localizedDescription }
     }
+    private func changePage(_ page: Int) {
+        guard let results, !busy, !paging else { return }
+        paging = true
+        failedPage = nil
+        message = ""
+        searchTask = Task {
+            defer { paging = false }
+            do {
+                let next: NativeSearchPage = try await store.session.get("/ai-search/results/" + results.search_id + "?page=" + String(page), refresh: true)
+                try Task.checkCancellation()
+                self.results = next
+            } catch is CancellationError { }
+            catch let error as NativeAPIError where error.status == 410 {
+                message = error.localizedDescription
+            } catch {
+                failedPage = page
+                message = error.localizedDescription
+            }
+        }
+    }
     private func performSearch() {
         guard canSearch else { return }
         queryFocused = false
-        busy = true; searched = false; message = ""; items = []
+        busy = true; results = nil; failedPage = nil; message = ""
         var body: [String: Any] = ["query": query.trimmingCharacters(in: .whitespacesAndNewlines), "child_ids": Array(store.selected)]
         if let id = store.uploaderID { body["owner_id"] = id }
         if !store.mediaType.isEmpty { body["media_type"] = store.mediaType }
@@ -1520,7 +1553,7 @@ private struct NativeAISearch: View {
             defer { progressTask.cancel(); busy = false }
             do {
                 let result: NativeSearchPage = try await store.session.searchMemories(body)
-                items = result.items; searched = true
+                results = result
             } catch is CancellationError { }
             catch { message = error.localizedDescription }
         }

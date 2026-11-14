@@ -909,6 +909,14 @@ fun EmptyState(title: String, detail: String = "") {
 
 
 @OptIn(ExperimentalMaterial3Api::class)
+private data class SearchResultPage(val searchId: String, val page: Int, val total: Int, val pageSize: Int, val items: List<Memory>) {
+    val pageCount get() = (total + pageSize - 1) / pageSize
+}
+
+private fun org.json.JSONObject.searchResultPage() = SearchResultPage(
+    getString("search_id"), getInt("page"), getInt("total"), getInt("page_size"), objects("items").map(::Memory)
+)
+
 @Composable
 private fun AISearchSheet(model: AppModel, close: () -> Unit, locate: (Memory) -> Unit, open: (Memory) -> Unit) {
     var stage by remember { mutableStateOf("waiting") }
@@ -919,8 +927,19 @@ private fun AISearchSheet(model: AppModel, close: () -> Unit, locate: (Memory) -
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<org.json.JSONObject?>(null) }
     var error by remember { mutableStateOf("") }
-    var items by remember { mutableStateOf<List<Memory>>(emptyList()) }
-    var searched by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<SearchResultPage?>(null) }
+    var paging by remember { mutableStateOf(false) }
+    fun changePage(current: SearchResultPage, page: Int) {
+        if (busy || paging) return
+        paging = true
+        error = ""
+        scope.launch {
+            try { results = model.api.getObject("/ai-search/results/${current.searchId}?page=$page", refresh = true).searchResultPage() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { error = e.message ?: "翻页失败，请重试" }
+            finally { paging = false }
+        }
+    }
     var reload by remember { mutableIntStateOf(0) }
     LaunchedEffect(reload) {
         error = ""
@@ -948,7 +967,7 @@ private fun AISearchSheet(model: AppModel, close: () -> Unit, locate: (Memory) -
             }
             item {
                 Button(onClick = {
-                    busy = true; error = ""; searched = false; items = emptyList(); elapsed = 0; stage = "waiting"
+                    busy = true; error = ""; results = null; elapsed = 0; stage = "waiting"
                     val requestID = java.util.UUID.randomUUID().toString()
                     scope.launch {
                         val progressTask = launch {
@@ -967,13 +986,12 @@ private fun AISearchSheet(model: AppModel, close: () -> Unit, locate: (Memory) -
                             if (filter.type.isNotBlank()) body.put("media_type", filter.type)
                             if (filter.start.isNotBlank()) body.put("start", filter.start + "T00:00:00")
                             if (filter.end.isNotBlank()) body.put("end", java.time.LocalDate.parse(filter.end).plusDays(1).toString() + "T00:00:00")
-                            val result = model.api.searchMemories(body)
-                            items = result.objects("items").map(::Memory); searched = true
+                            results = model.api.searchMemories(body).searchResultPage()
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) { error = e.message ?: "搜索失败，请重试" }
                         finally { progressTask.cancel(); busy = false }
                     }
-                }, enabled = !busy && query.isNotBlank() && status?.optBoolean("enabled") == true && (status?.optInt("indexed") ?: 0) > 0,
+                }, enabled = !busy && !paging && query.isNotBlank() && status?.optBoolean("enabled") == true && (status?.optInt("indexed") ?: 0) > 0,
                     modifier = Modifier.fillMaxWidth()) {
                     if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Text(if (busy) "正在寻找…" else "查找回忆")
@@ -998,8 +1016,17 @@ private fun AISearchSheet(model: AppModel, close: () -> Unit, locate: (Memory) -
                 Text("仅搜索已分析的影像。视频按抽样画面匹配，可能遗漏短暂片段；Live Photo 按静态照片匹配。", style = MaterialTheme.typography.bodySmall)
                 if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
             }
-            if (searched) {
-                item { Text("${items.size} 项相关回忆 · 最多显示 40 项") }
+            val currentPage = results
+            if (currentPage != null) {
+                val items = currentPage.items
+                item { Text("${currentPage.total} 项相关回忆") }
+                if (currentPage.pageCount > 1) item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        TextButton({ changePage(currentPage, currentPage.page - 1) }, enabled = !paging && currentPage.page > 1) { Text("上一页") }
+                        Text("第 ${currentPage.page} / ${currentPage.pageCount} 页")
+                        TextButton({ changePage(currentPage, currentPage.page + 1) }, enabled = !paging && currentPage.page < currentPage.pageCount) { Text("下一页") }
+                    }
+                }
                 if (items.isEmpty()) item { Text("没有找到相关影像，试试描述场景、物体或动作，或放宽时间线筛选。") }
                 items(items.size, key = { items[it].id }) { index ->
                     val memory = items[index]

@@ -216,7 +216,8 @@ def test_person_filters_require_specific_mentions_in_query(context, provider, mo
         assert hits == {together}
     else:
         assert {birthday, together} <= hits
-        assert len(hits) == (40 if large else 2)
+        assert len(hits) == (20 if large else 2)
+        assert data["total"] == (41 if large else 2)
     assert data["filters"]["profile_ids"] == ([mother] if person_filter else [])
     assert set(data["filters"]) == {"scene", "start", "end", "profile_ids", "media_type"}
     if not person_filter:
@@ -235,12 +236,30 @@ def test_small_scope_uses_vector_recall_and_reports_owned_progress(context, prov
     assert context.client.get("/api/ai-search/progress/my-search").json() == {"stage":"waiting"}
 
 
-def test_large_scope_preserves_vector_search_and_scope(context, provider):
-    for _ in range(41): add_index(context, upload(context)["media_id"])
-    response=context.client.post("/api/ai-search",json={"query":"海边"})
-    assert response.status_code == 200
-    assert len(response.json()["items"]) == 40
-    assert [c[0] for c in provider] == ["chat/completions","embeddings"]
+def test_unlimited_results_page_in_stable_order_with_current_visibility(context, provider):
+    ids = [upload(context)["media_id"] for _ in range(41)]
+    for mid in ids:
+        add_index(context, mid)
+    act(context, "viewer")
+    first = context.client.post("/api/ai-search", json={"query": "海边"}).json()
+    path = "/api/ai-search/results/" + first["search_id"]
+    expected = sorted(ids, reverse=True)
+    assert first["page_size"] == 20
+    for page in [1, 2, 3, 2, 1]:
+        result = context.client.get(path, params={"page": page}).json()
+        assert result["page"] == page and result["total"] == 41
+        assert [item["id"] for item in result["items"]] == expected[(page - 1)*20:page*20]
+    assert first["items"] == context.client.get(path, params={"page": 1}).json()["items"]
+    with context.db() as db:
+        db.get(Media, expected[20]).share_allowed = False
+        db.commit()
+    last = context.client.get(path, params={"page": 3}).json()
+    assert last["total"] == 40 and last["page"] == 2
+    assert [item["id"] for item in last["items"]] == expected[21:]
+    assert context.client.get(path, params={"page": 0}).status_code == 422
+    act(context, "member")
+    assert context.client.get(path, params={"page": 1}).status_code == 410
+    assert [c[0] for c in provider] == ["chat/completions", "embeddings"]
 
 
 def test_new_indexed_photo_is_returned_in_vector_order_without_model_filter(context, provider):

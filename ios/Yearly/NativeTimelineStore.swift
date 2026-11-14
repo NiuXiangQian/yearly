@@ -481,7 +481,12 @@ struct NativeSearchStatus: Decodable {
 }
 struct NativeSearchPage: Decodable {
     let items: [NativeTimelineItem]
-    let indexed: Int
+    let search_id: String
+    let page: Int
+    let total: Int
+    let page_size: Int
+
+    var pageCount: Int { (total + page_size - 1) / page_size }
 }
 
 struct NativeSearchProgress: Decodable { let stage: String }

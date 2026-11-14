@@ -20,7 +20,7 @@ async function mount(enabled=true, indexed=3, onLocate = vi.fn()) {
 }
 it("submits explicit scope only once, honors IME composition, and opens a matching item",async()=>{
   const {host,input,form}=await mount();
-  vi.mocked(post).mockResolvedValue({items:[{id:42,title:"草地上的小狗",search_description:"小狗在草地奔跑"}],filters:{start:"2025-06-01",end:"2025-08-31"}});
+  vi.mocked(post).mockResolvedValue({search_id:"test",page:1,page_size:20,total:1,items:[{id:42,title:"草地上的小狗",search_description:"小狗在草地奔跑"}],filters:{start:"2025-06-01",end:"2025-08-31"}});
   input.dispatchEvent(new CompositionEvent("compositionstart",{bubbles:true}));
   form.dispatchEvent(new Event("submit",{cancelable:true}));await nextTick();expect(post).not.toHaveBeenCalled();
   input.dispatchEvent(new CompositionEvent("compositionend",{bubbles:true}));
@@ -36,7 +36,7 @@ it("locates the selected result without replacing its preview action",async()=>{
   const onLocate=vi.fn();
   const {host,form}=await mount(true,3,onLocate);
   const item={id:42,title:"草地上的小狗",timeline_day:"2024-03-31",folder_id:90};
-  vi.mocked(post).mockResolvedValue({items:[item]});
+  vi.mocked(post).mockResolvedValue({search_id:"test",page:1,page_size:20,total:1,items:[item]});
   form.dispatchEvent(new Event("submit",{cancelable:true}));
   await vi.waitFor(()=>expect(host.querySelector('.ai-search-locate')).not.toBeNull());
   (host.querySelector('.ai-search-locate') as HTMLButtonElement).click();
@@ -50,7 +50,7 @@ it("retains input and shows a recoverable failure instead of stale results",asyn
   await vi.waitFor(()=>expect(host.querySelector('[role="alert"]')?.textContent).toContain("预算已用完"));
   expect(input.value).toBe("小狗跑步");
   expect(host.textContent).not.toContain("0 项相关回忆");
-  vi.mocked(post).mockResolvedValue({items:[],filters:null});
+  vi.mocked(post).mockResolvedValue({search_id:"test",page:1,page_size:20,total:0,items:[],filters:null});
   form.dispatchEvent(new Event("submit",{cancelable:true}));
   await vi.waitFor(()=>expect(host.textContent).toContain("没有找到相关影像"));
 });
@@ -68,6 +68,34 @@ it("displays server progress while preserving a pending search",async()=>{
   form.dispatchEvent(new Event("submit",{cancelable:true}));
   await vi.waitFor(()=>expect(host.textContent).toContain("正在核对画面"),{timeout:2000});
   expect(host.textContent).toContain("已等待");
-  finish({items:[]});
+  finish({search_id:"test",page:1,page_size:20,total:0,items:[]});
   await vi.waitFor(()=>expect(host.textContent).toContain("没有找到相关影像"));
+});
+
+it("pages through the submitted search, keeps the current page on error, and resets for a new search", async () => {
+  const {host, input, form} = await mount();
+  const page = (n: number) => ({search_id:"original", page:n, page_size:20, total:41,
+    items:Array.from({length:n === 3 ? 1 : 20}, (_, i) => ({id:(n-1)*20+i+1, title:`result-${(n-1)*20+i+1}`}))});
+  vi.mocked(post).mockResolvedValue(page(1));
+  form.dispatchEvent(new Event("submit"));
+  const nav = () => Array.from(host.querySelectorAll<HTMLButtonElement>("nav button"));
+  await vi.waitFor(() => expect(nav()[0].disabled).toBe(true));
+  input.value = "新的查询"; input.dispatchEvent(new Event("input"));
+  vi.mocked(api).mockRejectedValueOnce(new Error("网络错误")).mockResolvedValueOnce(page(2)).mockResolvedValueOnce(page(3)).mockResolvedValueOnce(page(2));
+  nav()[1].click();
+  await vi.waitFor(() => expect(host.textContent).toContain("网络错误"));
+  expect(host.querySelector(".test-media")?.textContent).toBe("result-1");
+  nav()[1].click();
+  await vi.waitFor(() => expect(host.querySelector(".test-media")?.textContent).toBe("result-21"));
+  expect(api).toHaveBeenLastCalledWith("/ai-search/results/original?page=2");
+  nav()[1].click();
+  await vi.waitFor(() => expect(nav()[1].disabled).toBe(true));
+  await vi.waitFor(() => expect(host.querySelector(".test-media")?.textContent).toBe("result-41"));
+  expect(host.querySelectorAll(".test-media")).toHaveLength(1);
+  nav()[0].click();
+  await vi.waitFor(() => expect(host.textContent).toContain("第 2 / 3 页"));
+  expect(post).toHaveBeenCalledTimes(1);
+  form.dispatchEvent(new Event("submit"));
+  await vi.waitFor(() => expect(host.textContent).toContain("第 1 / 3 页"));
+  expect(post).toHaveBeenLastCalledWith("/ai-search",expect.objectContaining({query:"新的查询"}));
 });

@@ -36,18 +36,29 @@ struct NativeTimelineRail: View {
                     }
                     .frame(width: 44, height: geometry.size.height)
                     .overlay(alignment: .topLeading) {
-                        VStack(spacing: 0) {
-                            if dragRatio != nil {
-                                Text(day.prefix(4)).font(.system(size: 9))
-                            }
+                        if dragRatio != nil {
+                            let badgeHeight: CGFloat = 32
+                            let top = min(max(0, ratio * geometry.size.height - badgeHeight - 12),
+                                          max(0, geometry.size.height - badgeHeight))
+                            Text(day.replacingOccurrences(of: "-", with: "."))
+                                .font(.system(size: 15, weight: .semibold)).monospacedDigit()
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 12).frame(height: badgeHeight)
+                                .background(.regularMaterial, in: Capsule())
+                                .shadow(color: .black.opacity(0.16), radius: 3, y: 1)
+                                .fixedSize()
+                                .padding(.leading, geometry.size.width + 32)
+                                .offset(y: top)
+                                .allowsHitTesting(false)
+                        } else {
                             Text(day.dropFirst(5).replacingOccurrences(of: "-", with: "."))
-                                .font(.system(size: dragRatio == nil ? 10 : 11, weight: .semibold))
+                                .font(.system(size: 10, weight: .semibold))
+                                .monospacedDigit().foregroundStyle(.tint)
+                                .frame(width: 40).padding(.vertical, 2)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+                                .position(x: 22, y: ratio * geometry.size.height)
+                                .allowsHitTesting(false)
                         }
-                            .monospacedDigit().foregroundStyle(.tint)
-                            .frame(width: 40).padding(.vertical, 2)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
-                            .position(x: 22, y: ratio * geometry.size.height)
-                            .allowsHitTesting(false)
                     }
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0)

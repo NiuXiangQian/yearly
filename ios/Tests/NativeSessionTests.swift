@@ -54,7 +54,7 @@ private final class SessionHTTP: URLProtocol {
             else { body = request.httpMethod == "POST" ? #"{"id":3}"# : #"[{"id":1,"username":"synthetic","role":"admin","active":true},{"id":2,"username":"other","role":"member","active":false}]"# }
         case "/yearly/api/users/1", "/yearly/api/users/2": body = #"{"ok":true}"#
         case "/yearly/api/audit-logs": body = #"{"items":[{"id":1,"actor_name":"synthetic","resource_type":"media","resource_id":"42","action":"update","created_at":"2026-11-09T07:00:00.123","changes":{"title":{"before":"old","after":"new"},"password":{"changed":true},"tags":{"before":[],"after":["family"]},"faces":{"before":[],"after":[{"face_id":21,"child_id":7,"ignored":false}]}}}],"total":1}"#
-        case "/yearly/api/ai-search": body = #"{"items":[{"id":42,"media_type":"photo"}],"indexed":1}"#
+        case "/yearly/api/ai-search": body = #"{"items":[{"id":42,"media_type":"photo"}],"page":1,"page_size":20,"search_id":"sample","total":1,"indexed":1}"#
         case "/yearly/api/children":
             if Self.profilesFail { status = 503; body = #"{"detail":"Synthetic profile failure"}"# }
             else { body = Self.profilesJSON }
