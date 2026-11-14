@@ -281,7 +281,7 @@ private final class SessionHTTP: URLProtocol {
         await timeline.load()
         precondition(timeline.cursor != nil)
         let previousRequestCount = SessionHTTP.requests.count
-        timeline.search = "旅途 & 家人"
+        timeline.selected = [7]
         await timeline.load(more: true)
         precondition(SessionHTTP.requests.count == previousRequestCount, "changed filters must not reuse a previous cursor")
         timeline.mediaType = "live_photo"
@@ -291,7 +291,7 @@ private final class SessionHTTP: URLProtocol {
         timeline.endDate = NativeDay.date("2026-11-09")!
         await timeline.load()
         let filters = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
-        precondition(filters.first { $0.name == "q" }?.value == "旅途 & 家人")
+        precondition(!filters.contains { $0.name == "q" }, "timeline no longer sends keyword search")
         precondition(filters.first { $0.name == "media_type" }?.value == "live_photo")
         precondition(filters.first { $0.name == "order" }?.value == "asc")
         precondition(filters.first { $0.name == "start" }?.value == "2026-11-08T00:00:00")
@@ -303,7 +303,6 @@ private final class SessionHTTP: URLProtocol {
         precondition(!timeline.hasFilters)
         await timeline.load()
         precondition(timeline.railDays == ["2020-01-03", "2026-11-07", "2026-11-08"], "the rail includes dates outside the loaded page and follows ascending order")
-        timeline.search = "旅途"
         timeline.mediaType = "photo"
         timeline.selected = [2]
         await timeline.loadIfNeeded()
@@ -314,10 +313,9 @@ private final class SessionHTTP: URLProtocol {
         let jumpParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(jumpParams.contains(URLQueryItem(name: "anchor_day", value: "2020-01-03")))
         precondition(jumpParams.contains(URLQueryItem(name: "before", value: "true")))
-        precondition(jumpParams.contains(URLQueryItem(name: "q", value: "旅途")))
         precondition(jumpParams.contains(URLQueryItem(name: "media_type", value: "photo")))
         precondition(jumpParams.contains(URLQueryItem(name: "child_id", value: "2")))
-        timeline.search = "另一个关键词"
+        timeline.selected = [7]
         precondition(timeline.anchorDay == nil, "changing filters clears the date anchor")
         await timeline.loadIfNeeded()
         precondition(!timeline.archiveExpanded && !timeline.hasNewer)
@@ -339,7 +337,7 @@ private final class SessionHTTP: URLProtocol {
         let reorderBody = try JSONSerialization.jsonObject(with: SessionHTTP.bodyData(reorder)) as? [String: Any]
         precondition(reorder.url?.path.hasSuffix("/media/reorder") == true && reorder.httpMethod == "POST")
         precondition(reorderBody?["target_id"] as? Int == 11 && reorderBody?["placement"] as? String == "after")
-        timeline.search = "原来的筛选"
+        timeline.mediaType = "video"
         let beforeUploadReview = SessionHTTP.requests.count
         timeline.focusOnUploads([43, 42, 42, 44])
         await timeline.loadIfNeeded()
@@ -348,7 +346,7 @@ private final class SessionHTTP: URLProtocol {
         precondition(timeline.items.map(\.stableID) == ["media-42", "media-43"] && timeline.cursor == nil)
         precondition(timeline.items.map(\.day) == ["2018-01-03", "日期未知"])
         timeline.focusOnUploads([])
-        precondition(!timeline.showingUploads && timeline.search == "原来的筛选")
+        precondition(!timeline.showingUploads && timeline.mediaType == "video")
         timeline.showDay("2018-01-03")
         await timeline.loadIfNeeded()
         let dayParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
@@ -555,7 +553,6 @@ private final class SessionHTTP: URLProtocol {
         precondition(aiRequest.value(forHTTPHeaderField: "Origin") == "https://native.invalid")
         let searchTimeline = NativeTimelineStore(session: session)
         searchTimeline.showRecentUploads()
-        searchTimeline.search = "旧关键词"
         searchTimeline.selected = [7]
         searchTimeline.uploaderID = 2
         searchTimeline.mediaType = "video"
@@ -580,6 +577,6 @@ private final class SessionHTTP: URLProtocol {
         SessionHTTP.secureCookie = false
         do { try await expired.login(username: "synthetic", password: "not-saved-password", captcha: captcha, answer: "ABCDE"); fatalError("insecure cookie accepted") }
         catch { precondition(expired.account == nil && store.values.isEmpty) }
-        print("Native session mocks passed: captcha, login, Keychain boundary, app-path isolation, CSRF, role, expiry, logout, native timeline search/date/type/order, account management/session invalidation, ownership, audit values, uploader filter/cache, share create/revoke/scope/role/expiry, HTTPS Cookie requirements; no live network.")
+        print("Native session mocks passed: captcha, login, Keychain boundary, app-path isolation, CSRF, role, expiry, logout, native semantic search and timeline date/type/order, account management/session invalidation, ownership, audit values, uploader filter/cache, share create/revoke/scope/role/expiry, HTTPS Cookie requirements; no live network.")
     }
 }

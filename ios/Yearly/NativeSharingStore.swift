@@ -89,7 +89,7 @@ struct NativeShare: Decodable, Identifiable {
             if let mediaIDs, result.scope != "selection" || result.selected_count != Set(mediaIDs).count {
                 // Never expose a date-wide URL when the user selected specific media.
                 try? await session.write("/shares/\(result.id)", method: "DELETE", json: [:])
-                throw UploadFailure(message: "服务端未确认指定影像范围，未提供链接。请更新分享接口，并刷新记录检查撤销状态。")
+                throw UploadFailure(message: "服务端未确认指定影像范围，未提供链接。请刷新记录检查撤销状态。")
             }
             created = result
             shares.insert(result, at: 0)

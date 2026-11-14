@@ -143,7 +143,6 @@ class NativeProtocolTest {
                         "/family/api/uploads" ->
                             if (request.method == "GET")
                                 MockResponse()
-                                    .setHeader("X-Yearly-Upload-Protocol", "idempotent-v1")
                                     .setBody("[]")
                             else {
                                 creates.incrementAndGet()
@@ -266,41 +265,6 @@ class NativeProtocolTest {
             }
             withContext(Dispatchers.Main) { assertFalse(File(root, "original").exists()) }
 
-            val legacyId = "legacy-date"
-            val legacyRoot = File(testDirectory, "original-queue/$legacyId").apply { mkdirs() }
-            InstrumentationRegistry.getInstrumentation()
-                .context
-                .assets
-                .open("metadata-creation.mp4")
-                .use { source ->
-                    File(legacyRoot, "original").outputStream().use { source.copyTo(it) }
-                }
-            val legacy =
-                entry.copy(
-                    id = legacyId,
-                    mime = "video/mp4",
-                    fields = json("time_source" to "unknown"),
-                )
-            val alreadyStarted = legacy.copy(id = "already-started", confirmed = true)
-            File(testDirectory, "original-queue/queue.json")
-                .writeText(
-                    JSONArray(listOf(legacy.serialize(), alreadyStarted.serialize())).toString()
-                )
-            val refreshed = UploadQueue(queueContext, api, scope)
-            withContext(Dispatchers.Main) {
-                refreshed.refreshDates(setOf(legacyId, alreadyStarted.id))
-                assertEquals(
-                    "2021-07-08T13:14:15",
-                    refreshed.items.value.first().fields.getString("original_taken_at_local"),
-                )
-                assertEquals(
-                    "unknown",
-                    refreshed.items.value.last().fields.getString("time_source"),
-                )
-                refreshed.confirm(setOf(legacyId), emptySet(), "手动日期", "2019-01-02")
-                assertEquals("2019-01-02", refreshed.items.value.first().archive)
-                refreshed.pause(legacyId)
-            }
             val resumedId = "22222222-2222-4222-8222-222222222222"
             val resumedRoot = File(testDirectory, "original-queue/$resumedId").apply { mkdirs() }
             File(resumedRoot, "original").writeBytes(data)

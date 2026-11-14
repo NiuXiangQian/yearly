@@ -643,15 +643,11 @@ struct NativeTimelineView: View {
         labels += store.profiles.filter { store.selected.contains($0.id) }.map(\.label)
         if !store.mediaType.isEmpty { labels.append(typeLabel) }
         if store.useDateRange { labels.append(NativeDay.string(store.startDate) + " 至 " + NativeDay.string(store.endDate)) }
-        if !store.search.isEmpty { labels.append("“" + store.search + "”") }
         return labels.joined(separator: " · ")
     }
     private var filtersBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                Button { showingAISearch = true } label: {
-                    Label("智能找回忆", systemImage: "sparkles")
-                }.buttonStyle(NativeActionStyle(compact: true))
                 Button { showingFilter = true } label: {
                     Label(filterCount == 0 ? "筛选" : "筛选 \(filterCount)", systemImage: "slider.horizontal.3")
                 }.buttonStyle(NativeActionStyle(kind: filterCount == 0 ? .secondary : .primary, compact: true))
@@ -684,7 +680,7 @@ struct NativeTimelineView: View {
         NavigationStack {
             Group {
                 if store.isFocused { timelineList.id(store.queryKey) }
-                else { timelineList.searchable(text: $store.search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索回忆") }
+                else { timelineList }
             }
             .navigationTitle(store.showingUploads ? "刚上传的回忆" : "家庭时光")
             .navigationBarTitleDisplayMode(.inline)
@@ -704,8 +700,8 @@ struct NativeTimelineView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     if store.session.isAdmin {
-                        NavigationLink { NativeMemoryReviewView(session: store.session, onUpdated: { Task { await store.load(refresh: true) } }) } label: {
-                            Label("AI 整理", systemImage: "sparkles").font(.subheadline.weight(.semibold))
+                        NavigationLink { NativeOrganizationHomeView(session: store.session, onUpdated: { Task { await store.load(refresh: true) } }) } label: {
+                            Label("照片助手", systemImage: "sparkles").font(.subheadline.weight(.semibold))
                         }
                     }
                 }
@@ -750,7 +746,23 @@ struct NativeTimelineView: View {
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if !store.isFocused { filtersBar }
+                if !store.isFocused {
+                    VStack(spacing: 0) {
+                        Button { showingAISearch = true } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "magnifyingglass")
+                                Text("搜索照片和视频，试着描述画面")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .font(.subheadline).foregroundStyle(.secondary)
+                            .padding(.horizontal, 14).frame(minHeight: 46)
+                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain).accessibilityLabel("搜索照片和视频")
+                        .padding(.horizontal, 16).padding(.top, 8)
+                        filtersBar
+                    }.background(NativeTheme.background)
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 if selecting {
@@ -772,13 +784,13 @@ struct NativeTimelineView: View {
                 NativeSharingView(session: store.session, day: request.day, selectedItems: request.items)
             }
             .nativeSheet(isPresented: $showingFilter) { NativeTimelineFilters(store: store) }
-            .nativeSheet(isPresented: $showingAISearch) {
-                NativeAISearch(store: store) { item in
+            .fullScreenCover(isPresented: $showingAISearch) {
+                NativeAISearch(store: store, onUpdated: { Task { await store.load(refresh: true) } }, onLocate: { item in
                     showingAISearch = false
                     collapsedMonths[String(item.day.prefix(7))] = false
                     expandedDays[item.day] = true
                     store.locate(item)
-                }
+                })
             }
             .nativeSheet(isPresented: $showingTrash) { NativeMediaTrash(store: store) }
             .nativeSheet(item: $editingItem) { item in
@@ -1016,6 +1028,7 @@ struct NativeMediaDetail: View {
     @State private var offset: CGSize = .zero
     @State private var dragOrigin: CGSize = .zero
     @State private var confirmingDelete = false
+    @State private var showingPeople = false
     @State private var savingToPhotos = false
     @State private var deleting = false
     private var item: NativeTimelineItem { detail ?? initial }
@@ -1124,6 +1137,9 @@ struct NativeMediaDetail: View {
                                 Button("跳到归档位置", systemImage: "scope") { stop(); onLocate(item) }
                             }
                             if item.kind != "event" {
+                                if session.isAdmin {
+                                    Button("确认人物与宠物", systemImage: "person.crop.rectangle") { stop(); showingPeople = true }
+                                }
                                 Button("保存到相册", systemImage: "square.and.arrow.down") { Task { await saveToPhotos() } }
                                     .disabled(savingToPhotos || deleting)
                                 if item.editable(by: session.account) {
@@ -1150,6 +1166,12 @@ struct NativeMediaDetail: View {
                 Button("取消", role: .cancel) {}
             } message: { Text("可以从时间线的回收站恢复这项影像。") }
             .nativeSheet(isPresented: $showingShare) { NativeSharingView(session: session, day: item.day, selectedItems: item.kind == "event" ? nil : [item]) }
+            .nativeSheet(isPresented: $showingPeople) {
+                NavigationStack {
+                    NativeMemoryReviewView(session: session, mediaID: item.id, onUpdated: onSaved)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showingPeople = false } } }
+                }
+            }
             .nativeSheet(isPresented: $showingInfo) {
                 if item.kind == "event" {
                     NativeDiaryEditor(session: session, profiles: profiles, existing: item) { Task { await reloadDiary() } }
@@ -1299,7 +1321,8 @@ struct NativeMediaDetail: View {
 
 private struct NativeAISearch: View {
     @ObservedObject var store: NativeTimelineStore
-    let onLocate: (NativeTimelineItem) -> Void
+    var onUpdated: () -> Void = {}
+    var onLocate: ((NativeTimelineItem) -> Void)? = nil
     @NativeDismiss private var dismiss
     @FocusState private var queryFocused: Bool
     @State private var query = ""
@@ -1311,9 +1334,9 @@ private struct NativeAISearch: View {
     @State private var message = ""
     @State private var searchTask: Task<Void, Never>?
     @State private var searchStage = "waiting"
-    @State private var searchStarted = Date()
+    @State private var didFocus = false
     private var stageLabel: String {
-        ["waiting": "正在提交搜索…", "understanding": "正在理解描述…", "matching": "正在查找候选影像…", "ranking": "正在核对画面并筛选结果…", "complete": "正在整理结果…"][searchStage] ?? "正在搜索…"
+        ["waiting": "正在提交搜索…", "understanding": "正在理解描述…", "matching": "正在找照片和视频…", "ranking": "正在核对画面并筛选结果…", "complete": "正在整理结果…"][searchStage] ?? "正在搜索…"
     }
     private var scope: String {
         var labels = store.profiles.filter { store.selected.contains($0.id) }.map(\.label)
@@ -1322,78 +1345,148 @@ private struct NativeAISearch: View {
         if store.useDateRange { labels.append("归档日期 " + NativeDay.string(store.startDate) + " 至 " + NativeDay.string(store.endDate)) }
         return labels.joined(separator: " · ")
     }
+    private var canSearch: Bool {
+        !busy && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && status?.enabled == true && (status?.indexed ?? 0) > 0
+    }
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("描述一个画面，找回照片和视频里的瞬间。")
-                    if !scope.isEmpty { Text("沿用当前筛选：" + scope).font(.caption).foregroundStyle(.secondary) }
-                    TextField("例如：去年夏天在海边玩沙子", text: $query, axis: .vertical)
-                        .textFieldStyle(.roundedBorder).lineLimit(2...4).disabled(busy)
-                        .focused($queryFocused)
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(NativeTheme.accent)
+                    TextField("描述画面，找照片和视频", text: $query)
+                        .focused($queryFocused).submitLabel(.search)
+                        .autocorrectionDisabled().disabled(busy)
+                        .onSubmit { performSearch() }
                         .onChange(of: query) { value in if value.count > 200 { query = String(value.prefix(200)) } }
-                    Button { performSearch() } label: {
-                        HStack { if busy { ProgressView() }; Text(busy ? "正在寻找…" : "查找回忆") }.frame(maxWidth: .infinity)
-                    }.buttonStyle(NativeActionStyle(kind: .primary))
-                        .disabled(busy || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || status?.enabled != true || status?.indexed == 0)
-                    if busy {
-                        TimelineView(.periodic(from: searchStarted, by: 1)) { context in
-                            VStack(alignment: .leading, spacing: 6) {
-                                ProgressView(stageLabel)
-                                Text("已等待 \(Int(context.date.timeIntervalSince(searchStarted))) 秒").font(.caption).foregroundStyle(.secondary)
-                            }.accessibilityElement(children: .combine)
-                        }
+                    if !query.isEmpty && !busy {
+                        Button { query = ""; searched = false; items = []; queryFocused = true } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }.accessibilityLabel("清空搜索")
                     }
-                    if let status {
-                        Text(status.enabled ? "已分析 \(status.indexed) / \(status.total) 项影像" : "智能搜索尚未启用，请管理员配置 OpenAI API Key 并建立索引")
+                    if !query.isEmpty {
+                        Button(action: performSearch) {
+                            Image(systemName: "arrow.up.circle.fill").font(.title2)
+                                .foregroundStyle(canSearch ? NativeTheme.accent : Color.secondary)
+                        }.disabled(!canSearch).accessibilityLabel("搜索")
+                    }
+                }
+                .padding(.horizontal, 14).frame(minHeight: 50)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                Button("取消") { searchTask?.cancel(); dismiss() }
+                    .font(.subheadline.weight(.medium)).frame(minHeight: 44)
+            }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if !scope.isEmpty {
+                        Label(scope, systemImage: "line.3.horizontal.decrease")
                             .font(.caption).foregroundStyle(.secondary)
-                        if status.enabled && status.indexed == 0 { Text("正在等待后台建立索引，完成后即可搜索。").font(.caption) }
                     }
-                    Button("刷新状态") { Task { await loadStatus() } }.disabled(busy)
-                    Text("仅搜索已分析的影像。视频按抽样画面匹配，可能遗漏短暂片段；Live Photo 按静态照片匹配。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if !message.isEmpty { Text(message).foregroundStyle(.red) }
+                    if busy {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ProgressView(stageLabel).tint(NativeTheme.accent)
+                            Text("正在从回忆里寻找这个画面").font(.subheadline).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 24)
+                    }
+                    if !message.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("这次没能完成搜索", systemImage: "exclamationmark.circle").font(.headline)
+                            Text(message).font(.subheadline).foregroundStyle(.secondary)
+                            Button("重试") { Task { await loadStatus(); if canSearch { performSearch() } } }
+                                .buttonStyle(NativeActionStyle(compact: true))
+                        }
+                    } else if let status, !status.enabled || status.indexed == 0 {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label(status.enabled ? "照片正在准备中" : "画面搜索尚未开启", systemImage: "photo.badge.magnifyingglass").font(.headline)
+                            Text(status.enabled ? "照片准备完成后，就可以描述画面来查找。" : "请联系家庭管理员开启画面搜索。")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                            Button("重新检查") { Task { await loadStatus() } }.buttonStyle(NativeActionStyle(compact: true))
+                        }.padding(.vertical, 24)
+                    }
                     if searched {
-                        Text("\(items.count) 项相关回忆 · 最多显示 40 项").font(.subheadline)
-                        if items.isEmpty { Text("没有找到相关影像，试试描述场景、物体或动作，或放宽时间线筛选。").foregroundStyle(.secondary) }
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                        HStack {
+                            Text(items.isEmpty ? "没有找到这个画面" : "找到 \(items.count) 个瞬间").font(.title3.bold())
+                            Spacer()
+                        }
+                        if items.isEmpty {
+                            Text("换个场景、物品或动作试试，也可以减少筛选条件。")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 20) {
                             ForEach(items) { item in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Button { selected = item } label: {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            if let file = item.primary {
-                                                NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
-                                                    .frame(height: 150).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+                                Button { selected = item } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Color(.secondarySystemBackground)
+                                            .aspectRatio(1, contentMode: .fit)
+                                            .overlay {
+                                                if let file = item.primary {
+                                                    NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id)
+                                                } else {
+                                                    Image(systemName: "photo").font(.largeTitle).foregroundStyle(.tertiary)
+                                                }
                                             }
-                                            Text(item.day + (item.media_type == "video" ? " · 视频" : "")).font(.caption)
-                                        }
-                                    }.buttonStyle(.plain).accessibilityLabel("查看 " + item.label)
-                                    Button { onLocate(item) } label: {
-                                        Label("在时间线查看", systemImage: "scope")
-                                            .font(.caption).frame(minHeight: 44)
-                                    }.buttonStyle(.plain)
-                                }
+                                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                                            .overlay(alignment: .bottomTrailing) {
+                                                if item.media_type == "video" || item.media_type == "live_photo" {
+                                                    Image(systemName: item.media_type == "video" ? "play.fill" : "livephoto")
+                                                        .font(.caption).foregroundStyle(.white).padding(8)
+                                                        .background(.black.opacity(0.45), in: Capsule()).padding(8)
+                                                }
+                                            }
+                                        Text(item.day).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                                    }
+                                }.buttonStyle(.plain).accessibilityLabel("查看 " + item.label)
+                                    .contextMenu {
+                                        if let onLocate { Button("在时间线查看", systemImage: "scope") { onLocate(item) } }
+                                    }
                             }
                         }
-                    } else if !busy {
-                        ForEach(["在草地上奔跑的小狗", "吹生日蜡烛的视频", "穿黄色雨衣踩水坑"], id: \.self) { example in
-                            Button(example) { query = example }.buttonStyle(NativeActionStyle(compact: true))
+                    } else if !busy && message.isEmpty && status?.enabled != false {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("记得画面，就能找到").font(.title2.bold())
+                            Text("地点、动作、一件小物品，都可以。")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }.padding(.top, 12)
+                        VStack(spacing: 0) {
+                            suggestion("在草地上奔跑的小狗", symbol: "pawprint")
+                            Divider().padding(.leading, 44)
+                            suggestion("吹生日蜡烛的视频", symbol: "birthday.cake")
+                            Divider().padding(.leading, 44)
+                            suggestion("穿黄色雨衣踩水坑", symbol: "cloud.rain")
                         }
                     }
-                }.padding(20)
-            }
-            .background(NativeTheme.background)
-            .navigationTitle("智能找回忆").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
-            .task { await loadStatus() }
-            .onDisappear { searchTask?.cancel() }
-            .fullScreenCover(item: $selected) { item in
-                NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
-                                  pagePosition: nil, previous: nil, next: nil, onSaved: { performSearch() },
-                                  onDeleted: { items.removeAll { $0.id == item.id } },
-                                  onLocate: { current in selected = nil; onLocate(current) })
-            }
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.bottom, 24)
+            }.scrollDismissesKeyboard(.interactively)
         }
+        .background(NativeTheme.background)
+        .task {
+            guard !didFocus else { return }
+            didFocus = true
+            // Focus after presentation attaches the field to its window, without waiting for the network.
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if !Task.isCancelled { queryFocused = true }
+        }
+        .task { await loadStatus(); await store.loadProfiles() }
+        .onDisappear { searchTask?.cancel() }
+        .fullScreenCover(item: $selected) { item in
+            NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
+                              pagePosition: nil, previous: nil, next: nil, onSaved: { onUpdated(); performSearch() },
+                              onDeleted: { onUpdated(); items.removeAll { $0.id == item.id } },
+                              onLocate: onLocate.map { locate in { current in selected = nil; locate(current) } })
+        }
+    }
+    private func suggestion(_ text: String, symbol: String) -> some View {
+        Button {
+            query = text
+            if canSearch { performSearch() }
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: symbol).frame(width: 26).foregroundStyle(NativeTheme.accent)
+                Text(text).font(.subheadline).foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.left").font(.caption).foregroundStyle(.tertiary)
+            }.frame(minHeight: 58).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(busy)
     }
     private func loadStatus() async {
         message = ""
@@ -1401,7 +1494,7 @@ private struct NativeAISearch: View {
         catch { message = error.localizedDescription }
     }
     private func performSearch() {
-        guard !busy else { return }
+        guard canSearch else { return }
         queryFocused = false
         busy = true; searched = false; message = ""; items = []
         var body: [String: Any] = ["query": query.trimmingCharacters(in: .whitespacesAndNewlines), "child_ids": Array(store.selected)]
@@ -1413,7 +1506,7 @@ private struct NativeAISearch: View {
         }
         let requestID = UUID().uuidString
         body["request_id"] = requestID
-        searchStage = "waiting"; searchStarted = Date()
+        searchStage = "waiting"
         searchTask = Task {
             let progressTask = Task {
                 while !Task.isCancelled {

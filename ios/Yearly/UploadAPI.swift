@@ -127,7 +127,7 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
     }
 
     private func send(_ path: String, method: String = "GET", body: Data? = nil, cookie: String,
-                      csrf: String? = nil, key: UUID? = nil, requireIdempotency: Bool = false) async throws -> Data {
+                      csrf: String? = nil, key: UUID? = nil) async throws -> Data {
         guard let url = URL(string: "api" + path, relativeTo: site.url)?.absoluteURL, site.contains(url) else {
             throw UploadFailure(message: "无效的家庭站点请求。")
         }
@@ -147,9 +147,6 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
             if status == 401 { unauthorized?(cookie) }
             throw UploadHTTPError(status: status, isOSS: false, detail: nativeResponseDetail(data))
         }
-        if requireIdempotency && http.value(forHTTPHeaderField: "X-Yearly-Upload-Protocol") != "idempotent-v1" {
-            throw UploadFailure(message: "家庭服务尚未支持可靠的原生任务恢复，请先更新本分支的上传接口。未创建上传任务。")
-        }
         return data
     }
 
@@ -165,9 +162,6 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         let cookie = try await cookie()
         // Revalidate the account and obtain the CSRF token with the very same cookie.
         let account = try await authenticate(cookie: cookie)
-        if key != nil {
-            _ = try await send("/uploads", cookie: cookie, requireIdempotency: true)
-        }
         return try await send(path, method: body == nil ? "GET" : "POST", body: body, cookie: cookie, csrf: account.csrf_token, key: key)
     }
     func profiles() async throws -> [UploadProfile] {

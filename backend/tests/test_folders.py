@@ -1,3 +1,4 @@
+import pytest
 import json
 from urllib.parse import quote
 from sqlalchemy import select, delete
@@ -170,7 +171,7 @@ def test_read_only_users_cannot_modify_folders(context):
     )
 
 
-def test_backup_restores_folder_and_accepts_older_manifest(context):
+def test_backup_restores_folder_and_rejects_incomplete_manifest(context):
     f = folder(context)
     m = upload(context, folder_id=f["id"])["media_id"]
     document = context.client.get("/api/export/manifest").json()
@@ -193,9 +194,10 @@ def test_backup_restores_folder_and_accepts_older_manifest(context):
     for row in document["tables"]["media"]:
         row.pop("folder_id", None)
     path.write_text(json.dumps(document))
-    restore_manifest(path, 1)
+    with pytest.raises(ValueError, match="清单表不完整"):
+        restore_manifest(path, 1)
     with context.db() as db:
-        assert db.get(Media, m).folder_id is None
+        assert db.get(Media, m) is None
 
 
 def test_folder_thumbnails_are_bounded_ordered_and_filtered(context):

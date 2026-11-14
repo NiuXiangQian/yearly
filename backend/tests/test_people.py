@@ -21,7 +21,7 @@ def person(context, name="林先生", relationship="爸爸", **fields):
     return response.json()
 
 
-def test_people_relationships_optional_birthdays_and_legacy_edit(context):
+def test_people_relationships_optional_birthdays_and_edit(context):
     client = context.client
     dad = person(context)
     mom = person(context, "林女士", "妈妈", birthday="1990-08-01")
@@ -34,7 +34,7 @@ def test_people_relationships_optional_birthdays_and_legacy_edit(context):
     assert dad["birthday"] is None
     assert client.get(f"/api/children/{dad['id']}/milestones").json() == []
     updated = client.put(
-        f"/api/children/{mom['id']}", json={"name": "妈妈", "birthday": "1990-08-01"}
+        f"/api/children/{mom['id']}", json={**mom, "name": "妈妈", "birthday": "1990-08-01"}
     ).json()
     assert updated["profile_type"] == "person" and updated["relationship"] == "妈妈"
     stats = client.get("/api/stats").json()

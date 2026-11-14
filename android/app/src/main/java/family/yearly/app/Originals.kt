@@ -167,7 +167,6 @@ object OriginalMetadata {
                 "representation" to "provider_original",
                 "parser_name" to "Android ExifInterface / MediaMetadataRetriever",
                 "parse_status" to "parsed",
-                "date_reader_version" to 2,
             )
         val fields = json("time_source" to "unknown", "time_confidence" to "unknown")
         if (video) {

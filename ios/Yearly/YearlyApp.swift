@@ -128,8 +128,8 @@ struct NativeAppShell: View {
                             }
                             Section("管理与记录") {
                                 if session.isAdmin {
-                                    NavigationLink { NativeMemoryReviewView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } }) } label: {
-                                        NativeSettingsLabel(title: "AI 整理", symbol: "sparkles", detail: "整份影像批量归档 · 画质复核")
+                                    NavigationLink { NativeOrganizationHomeView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } }) } label: {
+                                        NativeSettingsLabel(title: "照片助手", symbol: "sparkles", detail: "整理家人相册 · 自动整理记录")
                                     }
                                     NavigationLink { NativeAccountsView(session: session) } label: {
                                         NativeSettingsLabel(title: "账号管理", symbol: "person.2.badge.gearshape")
@@ -176,8 +176,8 @@ struct NativeAppShell: View {
                         .toolbar(.hidden, for: .tabBar)
                     if session.isAdmin {
                         NavigationStack {
-                            NativeMemoryReviewView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } })
-                        }.tabItem { Label("AI 整理", systemImage: "sparkles") }.tag(4)
+                            NativeOrganizationHomeView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } })
+                        }.tabItem { Label("照片助手", systemImage: "sparkles") }.tag(4)
                             .toolbar(.hidden, for: .tabBar)
                     }
                 }

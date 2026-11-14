@@ -246,7 +246,6 @@ def test_refresh_preserves_reviewed_faces_and_ids_and_adds_missed_people(context
     assert len(items) == 2 and items[0]["id"] == original["id"]
     assert items[0]["child_id"] == person["id"] and items[0]["thumbnail"] == original["thumbnail"]
     assert items[1]["child_id"] is None
-    assert refreshed.json()["refresh_supported"] is True
     assert context.client.get(f"/api/media/{mid}").json() == legacy
     # Repeated refreshes do not multiply results or invalidate an old client's face ID.
     assert len(context.client.post(f"/api/faces/media/{mid}/analyze", json={"refresh": True}).json()["faces"]) == 2

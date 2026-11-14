@@ -43,7 +43,7 @@ async function search() {
     try {
       const progress = await api(`/ai-search/progress/${requestID}`);
       if (busy.value && activeRequestID === requestID && progress.stage in stageLabels) stage.value = progress.stage;
-    } catch { /* An older server can still return the normal search result. */ }
+    } catch { clearInterval(progressTimer); }
     finally { polling = false; }
   }, 1000);
   try {

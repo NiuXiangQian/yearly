@@ -9,15 +9,17 @@ vi.mock("../../components/MediaViewer.vue", () => ({ default: { props: ["media"]
 vi.mock("../../components/MotionDialog.vue", () => ({ default: { props: ["modelValue", "title"], template: '<div v-if="modelValue" role="dialog"><slot /></div>' } }));
 let app: ReturnType<typeof createApp>;
 afterEach(() => { app?.unmount(); document.body.innerHTML = ""; vi.resetAllMocks(); });
-const entry = { id: 31, kind: "tags", status: "pending", automatic: true, media: { id: 42, tags: ["原有", "公园"], timeline_day: "2026-11-13", files: [] }, before: { tags: ["原有"] }, proposed: { tags: ["公园"] }, current: { tags: ["公园"], decisions: { 公园: "公园" } }, names: {}, thumbnail: "", frame_seconds: null, evidence: { tags: [{ name: "公园", evidence: "在公园散步", rule: "default" }] }, events: [{ action: "automatic", at: "2026-11-13T10:00:00", actor_name: "自动整理", value: { tags: ["公园"] } }], created_at: "2026-11-13T10:00:00", updated_at: "2026-11-13T10:00:00" };
+const entry = { id: 31, kind: "tags", status: "automatic", automatic: true, media: { id: 42, tags: ["原有", "公园"], timeline_day: "2026-11-13", files: [] }, before: { tags: ["原有"] }, proposed: { tags: ["公园"] }, current: { tags: ["公园"], decisions: { 公园: "公园" } }, names: {}, thumbnail: "", frame_seconds: null, evidence: { tags: [{ name: "公园", evidence: "在公园散步", rule: "default" }] }, events: [{ action: "automatic", at: "2026-11-13T10:00:00", actor_name: "自动整理", value: { tags: ["公园"] } }], created_at: "2026-11-13T10:00:00", updated_at: "2026-11-13T10:00:00" };
 const button = (host: HTMLElement, label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent?.trim() === label)!;
 async function mount(items = [entry]) {
-  vi.mocked(api).mockImplementation(async path => path.startsWith("/organization/settings") ? { tags_enabled: true, people_enabled: true, tag_rules: {}, person_rules: {} } : { items, pending: items.length, next_cursor: null, errors: [] });
+  vi.mocked(api).mockImplementation(async path => path.startsWith("/organization/settings") ? { tags_enabled: true, people_enabled: true, tag_rules: {}, person_rules: {} } : { items, pending: items.filter(item => item.kind !== "tags").length, next_cursor: null, errors: [] });
   const host = document.createElement("div"); document.body.append(host); app = createApp(OrganizationReview); app.mount(host);
   await vi.waitFor(() => expect(host.querySelectorAll(".organization-entry")).toHaveLength(items.length)); await nextTick(); return host;
 }
 it("shows automatic tag evidence and source and keeps an edited habit on failure", async () => {
   const host = await mount();
+  expect(button(host, "保留结果")).toBeUndefined();
+  expect(host.textContent).toContain("已自动确认");
   expect(host.textContent).toContain("在公园散步"); expect(host.textContent).toContain("原有标签");
   button(host, "查看来源照片或视频").click(); await nextTick(); expect(host.querySelector('[role="dialog"]')?.textContent).toContain("42");
   const input = host.querySelector<HTMLInputElement>('[aria-label="修改标签 公园"]')!;
@@ -52,7 +54,7 @@ it("keeps superseded history readable and directs edits to the current source", 
 });
 
 it("shows additional face matches returned by a review confirmation", async () => {
-  const host=await mount(); vi.mocked(put).mockResolvedValue({auto_linked:2});
+  const host=await mount([{ ...entry, kind: "face" }]); vi.mocked(put).mockResolvedValue({auto_linked:2});
   button(host,"保留结果").click();
   await vi.waitFor(() => expect(host.querySelector('[role="dialog"]')?.textContent).toContain("另外 2 张"));
 });

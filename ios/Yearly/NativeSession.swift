@@ -114,7 +114,7 @@ struct LoginCaptcha: Decodable {
         if path.hasPrefix("/curation/media/") && path.hasSuffix("/quality") { request.timeoutInterval = 180 }
         if path == "/ai-search" { request.timeoutInterval = 150 }
         if path.hasPrefix("/faces/media/") && path.hasSuffix("/analyze") { request.timeoutInterval = 180 }
-        if path.hasPrefix("/faces/analyze-next") || path.hasPrefix("/pets/") && path.contains("analyze") || path.hasPrefix("/memory-interviews/") && (path.hasSuffix("/prepare") || path.hasSuffix("/reply")) {
+        if path.hasPrefix("/faces/analyze-next") || path.hasPrefix("/pets/") && path.contains("analyze") {
             request.timeoutInterval = 180
         }
         request.httpBody = body

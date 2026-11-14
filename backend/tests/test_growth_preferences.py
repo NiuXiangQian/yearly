@@ -49,13 +49,12 @@ def test_growth_defaults_and_filter_only_people(context):
     )
 
 
-def test_toggle_growth_preserves_associations_and_legacy_updates(context):
+def test_toggle_growth_preserves_associations(context):
     client = context.client
     dog = pet(context, birthday="2023-01-01", growth_enabled=False)
     mid = upload(context, [dog["id"]])["media_id"]
     assert client.get(f"/api/children/{dog['id']}/milestones").json() == []
-    legacy = {k: v for k, v in dog.items() if k != "growth_enabled"}
-    result = client.put(f"/api/children/{dog['id']}", json=legacy).json()
+    result = client.put(f"/api/children/{dog['id']}", json=dog).json()
     assert result["growth_enabled"] is False
     result = client.put(
         f"/api/children/{dog['id']}", json={**result, "growth_enabled": True}
@@ -72,7 +71,7 @@ def test_toggle_growth_preserves_associations_and_legacy_updates(context):
 
 
 @pytest.mark.parametrize("legacy", [False, True])
-def test_growth_setting_backup_and_old_manifest_defaults(context, legacy):
+def test_growth_setting_backup_current_schema_and_reject_missing_fields(context, legacy):
     kid = child(context)
     dad = person(context, growth_enabled=True)
     dog = pet(context, growth_enabled=False)
@@ -83,6 +82,10 @@ def test_growth_setting_backup_and_old_manifest_defaults(context, legacy):
             row.pop("growth_enabled")
     path = context.tmp_path / "growth.json"
     path.write_text(json.dumps(doc))
+    if legacy:
+        with pytest.raises(ValueError, match="清单字段"):
+            restore_manifest(path, 1)
+        return
     with context.db() as db:
         db.execute(delete(UploadTask))
         for model in reversed(TABLES):
@@ -91,8 +94,8 @@ def test_growth_setting_backup_and_old_manifest_defaults(context, legacy):
     restore_manifest(path, 1)
     profiles = {p["id"]: p for p in context.client.get("/api/children").json()}
     assert profiles[kid["id"]]["growth_enabled"] is True
-    assert profiles[dad["id"]]["growth_enabled"] is (not legacy)
-    assert profiles[dog["id"]]["growth_enabled"] is legacy
+    assert profiles[dad["id"]]["growth_enabled"] is True
+    assert profiles[dog["id"]]["growth_enabled"] is False
     assert set(context.client.get(f"/api/media/{mid}").json()["child_ids"]) == {
         kid["id"],
         dad["id"],

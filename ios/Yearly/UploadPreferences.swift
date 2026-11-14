@@ -14,12 +14,11 @@ struct UploadProfilePreferences {
         let valid = ids.filter { $0 > 0 }.sorted()
         if let data = try? JSONEncoder().encode(valid) { defaults.set(data, forKey: key) }
     }
-    func restore(validIDs: Set<Int>, fallback: [Int]? = nil) -> Set<Int> {
+    func restore(validIDs: Set<Int>) -> Set<Int> {
         let remembered: [Int]
         if let data = defaults.data(forKey: key) {
-            // Explicitly saving [] means family-only; never replace it with a prior batch.
             remembered = (try? JSONDecoder().decode([Int].self, from: data)) ?? []
-        } else { remembered = fallback ?? [] }
+        } else { remembered = [] }
         let selection = Set(remembered).intersection(validIDs)
         save(selection) // Retire deleted profiles only after a successful profile list fetch.
         return selection

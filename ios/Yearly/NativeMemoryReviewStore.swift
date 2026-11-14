@@ -31,8 +31,8 @@ struct MemoryFaceQueue: Decodable {
     let auto_link_enabled: Bool?
 }
 struct MemoryFaceConfirmation: Decodable {
-    let auto_linked: Int?
-    let auto_reset: Int?
+    let auto_linked: Int
+    let auto_reset: Int
 }
 struct MemoryDog: Decodable, Identifiable {
     let index: Int
@@ -56,40 +56,6 @@ struct MemoryDogQueue: Decodable {
     let unanalysed_media: Int
     let next_cursor: Int?
 }
-struct MemoryInterviewQueue: Decodable {
-    let items: [NativeTimelineItem]
-    let next_cursor: Int?
-}
-struct MemoryInterviewState: Decodable {
-    struct Message: Decodable { let role: String; let content: String }
-    struct IdentityQuestion: Decodable { let face_id: Int; let question: String }
-    struct Tag: Decodable, Identifiable {
-        let name: String
-        let source: String
-        let evidence: String
-        var id: String { name }
-        var sourceLabel: String { ["visual": "画面描述", "answer": "你的回答", "existing": "已有记录"][source] ?? source }
-    }
-    struct Suggestions: Decodable {
-        let question: String
-        let options: [String]
-        let story: String
-        let tags: [Tag]
-    }
-    let media: NativeTimelineItem
-    let description: String
-    let confirmed_people: [String]
-    let confirmed_pets: [String]?
-    let identity_questions: [IdentityQuestion]
-    let faces: [MemoryReviewFace]
-    let face_enabled: Bool
-    let face_ready: Bool
-    let messages: [Message]
-    let status: String
-    let outdated: Bool
-    let suggestions: Suggestions?
-}
-
 enum MemoryReviewSubject: Identifiable {
     case face(MemoryReviewFace, NativeTimelineItem)
     case pet(MemoryDog, NativeTimelineItem)
@@ -105,14 +71,13 @@ struct MemoryReviewCursor {
 }
 
 @MainActor final class NativeMemoryReviewStore: ObservableObject {
-    enum Tab: String, CaseIterable { case faces = "人物与宠物", memories = "智能打标签", organization = "审核记录" }
+    enum Tab: String, CaseIterable { case faces = "确认人物与宠物", organization = "自动整理记录" }
     let session: NativeSession
     let mediaID: Int?
     @Published var tab = Tab.faces
     @Published var includeReviewed = false
     @Published private(set) var faces: MemoryFaceQueue?
     @Published private(set) var pets: MemoryDogQueue?
-    @Published private(set) var memories: [NativeTimelineItem] = []
     @Published private(set) var profiles: [UploadProfile] = []
     @Published private(set) var busy = false
     @Published private(set) var error = ""
@@ -133,7 +98,7 @@ struct MemoryReviewCursor {
     var people: [UploadProfile] { profiles.filter { $0.profile_type != "pet" } }
     var dogs: [UploadProfile] { profiles.filter { $0.profile_type == "pet" && $0.species == "狗" } }
     private func fetch() async throws {
-        guard session.isAdmin else { throw NativeAPIError(status: 403, message: "AI 整理需要管理员权限。") }
+        guard session.isAdmin else { throw NativeAPIError(status: 403, message: "整理照片需要管理员权限。") }
         profiles = try await session.get("/children", refresh: true)
         let query = "scope=\(includeReviewed ? "all" : "pending")&limit=12"
         let filter = mediaID.map { "&media_id=\($0)" } ?? ""
@@ -162,9 +127,6 @@ struct MemoryReviewCursor {
             }
             subjects = items.sorted { $0.mediaID == $1.mediaID ? $0.id < $1.id : $0.mediaID > $1.mediaID }
             nextCursor = next.facesFinished && next.petsFinished ? nil : next
-        case .memories:
-            let data: MemoryInterviewQueue = try await session.get("/memory-interviews?" + query + (before.memory.map { "&before=\($0)" } ?? ""))
-            memories = data.items; nextCursor = data.next_cursor.map { MemoryReviewCursor(memory: $0) }
         case .organization:
             organizationSettings = try await session.get("/organization/settings", refresh: true)
             let data: MemoryOrganizationQueue = try await session.get("/organization/reviews?" + query + filter
@@ -194,9 +156,9 @@ struct MemoryReviewCursor {
             let result: MemoryFaceConfirmation = try await session.put("/faces/media/\(mediaID)/confirm", json: ["assignments": [["face_id": face.id,
                 "child_id": choice > 0 ? choice as Any : NSNull(), "ignored": choice == -1]]])
             faceChoices.removeValue(forKey: face.id)
-            autoLinkedCount = result.auto_linked ?? 0
-            notice = "人脸确认已保存，另自动关联 \(result.auto_linked ?? 0) 张相关人脸。"
-            if let reset = result.auto_reset, reset > 0 { notice += "另撤回 \(reset) 条不再明确的自动关联。" }
+            autoLinkedCount = result.auto_linked
+            notice = "人脸确认已保存，另自动关联 \(result.auto_linked) 张相关人脸。"
+            if result.auto_reset > 0 { notice += "另撤回 \(result.auto_reset) 条不再明确的自动关联。" }
             try await fetch()
         } catch { self.error = friendly(error) }
     }
@@ -209,6 +171,15 @@ struct MemoryReviewCursor {
                 "child_id": choice > 0 ? choice as Any : NSNull(), "ignored": choice == -1])
             dogChoices.removeValue(forKey: key); notice = "宠物确认已保存，已建立后续匹配的参考样本。"
             try await fetch()
+        } catch { self.error = friendly(error) }
+    }
+    func loadOrganizationSettings() async {
+        busy = true; error = ""
+        defer { busy = false }
+        do {
+            guard session.isAdmin else { throw NativeAPIError(status: 403, message: "整理照片需要管理员权限。") }
+            profiles = try await session.get("/children", refresh: true)
+            organizationSettings = try await session.get("/organization/settings", refresh: true)
         } catch { self.error = friendly(error) }
     }
     func saveOrganizationSettings() async {
@@ -274,81 +245,6 @@ struct MemoryReviewCursor {
     }
 }
 
-@MainActor final class NativeMemoryInterviewStore: ObservableObject {
-    let session: NativeSession
-    let mediaID: Int
-    @Published private(set) var state: MemoryInterviewState?
-    @Published private(set) var profiles: [UploadProfile] = []
-    @Published private(set) var busy = false
-    @Published private(set) var error = ""
-    @Published private(set) var notice = ""
-    @Published var answer = ""
-    @Published var addition = ""
-    @Published var extraTag = ""
-    @Published var tags: [String] = []
-    @Published var people: [Int] = []
-    @Published var tagsEdited = false
-    @Published var noteEdited = false
-    @Published var peopleEdited = false
-    var hasEdits: Bool { !answer.isEmpty || !extraTag.isEmpty || tagsEdited || noteEdited || peopleEdited }
-    init(session: NativeSession, mediaID: Int) { self.session = session; self.mediaID = mediaID }
-    private func accept(_ value: MemoryInterviewState, generated: Bool = false) {
-        let first = state == nil
-        state = value
-        if !peopleEdited { people = value.media.child_ids ?? [] }
-        if first || generated {
-            if !tagsEdited { tags = value.suggestions?.tags.map(\.name) ?? [] }
-            if !noteEdited { addition = value.suggestions?.story ?? "" }
-        }
-    }
-    func load() async {
-        busy = true; error = ""
-        defer { busy = false }
-        do {
-            profiles = try await session.get("/children", refresh: true)
-            accept(try await session.get("/memory-interviews/\(mediaID)"))
-        } catch { if !Task.isCancelled { self.error = friendly(error) } }
-    }
-    func prepare() async {
-        busy = true; error = ""; notice = ""
-        defer { busy = false }
-        do { accept(try await session.post("/memory-interviews/\(mediaID)/prepare", json: ["refresh": state?.outdated == true || state?.status == "completed"]), generated: true) }
-        catch { self.error = friendly(error) }
-    }
-    func reply() async {
-        busy = true; error = ""; notice = ""
-        defer { busy = false }
-        do {
-            accept(try await session.post("/memory-interviews/\(mediaID)/reply", json: ["answer": answer]), generated: true)
-            answer = ""
-        } catch { self.error = friendly(error) }
-    }
-    func savePeople() async {
-        busy = true; error = ""
-        defer { busy = false }
-        do {
-            try await session.write("/memory-interviews/\(mediaID)/people", json: ["child_ids": people])
-            peopleEdited = false
-            accept(try await session.get("/memory-interviews/\(mediaID)"))
-            notice = "人物关联已保存；每张脸的身份仍可单独确认。"
-        } catch { self.error = friendly(error) }
-    }
-    func addTag() {
-        let tag = extraTag.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !tag.isEmpty && !tags.contains(tag) && !(state?.media.tags ?? []).contains(tag) { tags.append(tag) }
-        extraTag = ""; tagsEdited = true
-    }
-    func apply() async {
-        busy = true; error = ""; notice = ""
-        defer { busy = false }
-        do {
-            let value: MemoryInterviewState = try await session.post("/memory-interviews/\(mediaID)/apply", json: ["tags": tags, "remark_addition": addition])
-            accept(value); addition = ""; tags = []; tagsEdited = false; noteEdited = false
-            notice = "标签和小记已保存。"
-        } catch { self.error = friendly(error) }
-    }
-}
-
 struct MemoryOrganizationSettings: Codable {
     struct TagRule: Codable { var target: String; var mode: String }
     var tags_enabled: Bool
@@ -396,7 +292,7 @@ struct MemoryOrganizationEntry: Decodable, Identifiable {
     let auto_reset: Int?
     var title: String { kind == "tags" ? "自动标签" : kind == "pet" ? "宠物关联" : "人物关联" }
     static func statusLabel(_ value: String) -> String {
-        ["imported": "补录现有结果", "applied": "自动写入", "pending": "待审核", "automatic": "按习惯自动通过", "approved": "已审核", "corrected": "已修改", "rejected": "已撤回", "superseded": "已有后续修改", "confirmed": "人工确认"][value] ?? value
+        ["imported": "补录现有结果", "applied": "自动写入", "pending": "待审核", "automatic": "已自动确认", "approved": "已审核", "corrected": "已修改", "rejected": "已撤回", "superseded": "已有后续修改", "confirmed": "人工确认"][value] ?? value
     }
 }
 struct MemoryOrganizationQueue: Decodable {
@@ -458,6 +354,7 @@ struct NativeCurationQueue: Decodable {
     private var before: Int?
     init(session: NativeSession) { self.session = session }
     var pageIDs: [Int] { queue?.items.flatMap { $0.items.map(\.id) } ?? [] }
+    var selectedAlbumNames: String { profiles.filter { selectedProfiles.contains($0.id) }.map(\.name).joined(separator: "、") }
     func toggle(_ ids: [Int]) {
         if ids.allSatisfy({ selected.contains($0) }) { selected.subtract(ids) }
         else { selected.formUnion(ids) }
@@ -466,12 +363,14 @@ struct NativeCurationQueue: Decodable {
         guard session.isAdmin else { throw NativeAPIError(status: 403, message: "相册整理需要管理员权限。") }
         profiles = try await session.get("/children", refresh: true)
         let result: NativeCurationQueue = try await session.get("/curation/groups?scope=\(scope)&limit=24" + (before.map { "&before=\($0)" } ?? ""), refresh: true)
-        queue = result; selected = []
+        queue = result
+        selected.formIntersection(pageIDs)
+        selectedProfiles.formIntersection(profiles.map(\.id))
     }
     func load(reset: Bool = false) async {
         if reset { before = nil; history = [] }
         busy = true; error = ""; defer { busy = false }
-        do { try await fetch() } catch { self.error = error.localizedDescription }
+        do { try await fetch(); if reset { selected = []; selectedProfiles = [] } } catch { self.error = friendly(error) }
     }
     func page(next: Bool) async {
         let oldBefore = before, oldHistory = history
@@ -480,16 +379,29 @@ struct NativeCurationQueue: Decodable {
         await load()
         if !error.isEmpty { before = oldBefore; history = oldHistory }
     }
-    func save(action: String) async {
-        guard !selected.isEmpty, !busy else { return }
-        guard selected.count <= 300 else { error = "每次最多整理300份影像，请减少选择。"; return }
+    @discardableResult func save(action: String) async -> Bool {
+        guard !selected.isEmpty, !busy else { return false }
+        guard session.isAdmin else { error = "整理照片需要管理员权限。"; return false }
+        guard ["add", "done", "ignore"].contains(action) else { return false }
+        guard selected.count <= 300 else { error = "每次最多整理 300 项，请减少选择。"; return false }
+        guard action != "add" || !selectedProfiles.isEmpty else { error = "请先选择要添加到的相册。"; return false }
         busy = true; error = ""; notice = ""; defer { busy = false }
         struct Result: Decodable { let count: Int; let undo_token: String }
+        let albums = selectedAlbumNames
         do {
-            let result: Result = try await session.post("/curation/batch", json: ["media_ids": selected.sorted(), "child_ids": selectedProfiles.sorted(), "action": action])
-            undoToken = result.undo_token; notice = "已处理 \(result.count) 份影像，可撤销。"
-            try await fetch()
-        } catch { self.error = error.localizedDescription }
+            let result: Result = try await session.post("/curation/batch", json: ["media_ids": selected.sorted(), "child_ids": action == "add" ? selectedProfiles.sorted() : [], "action": action])
+            undoToken = result.undo_token
+            switch action {
+            case "add": notice = "已将 \(result.count) 项添加到\(albums)，并标记为已整理。"
+            case "done": notice = "已将 \(result.count) 项标记为已整理，所属相册未改变。"
+            default: notice = "已将 \(result.count) 项移出待整理列表，照片仍保留在时间线和原相册中。"
+            }
+            selected = []; selectedProfiles = []
+        } catch { self.error = friendly(error); return false }
+        // A committed write must not look like a failed save if the refresh fails.
+        do { try await fetch() }
+        catch { self.error = "保存成功，但列表刷新失败。请重新加载。" }
+        return true
     }
     func undo() async {
         guard let token = undoToken, !busy else { return }
@@ -502,7 +414,7 @@ struct NativeCurationQueue: Decodable {
     func reviewQuality() async {
         let ids = selected.sorted()
         guard !busy, !ids.isEmpty else { return }
-        guard ids.count <= 20 else { error = "每次最多复核20份影像，请减少选择。"; return }
+        guard ids.count <= 20 else { error = "每次最多检查 20 项，请减少选择。"; return }
         busy = true; reviewing = true; stopRequested = false; error = ""; notice = ""
         defer { busy = false; reviewing = false }
         var completed = 0
@@ -516,7 +428,7 @@ struct NativeCurationQueue: Decodable {
                     } }
                     queue = data
                 }
-                completed += 1; notice = "已复核 \(completed)/\(ids.count) 份影像。"
+                completed += 1; notice = "已检查 \(completed)/\(ids.count) 项，可在照片下方展开清晰度结果。"
             }
         } catch { self.error = error.localizedDescription }
     }

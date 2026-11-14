@@ -351,8 +351,7 @@ def update_user(uid: int, data: UserEdit, db=Depends(get_db), user=Depends(admin
         ):
             share.revoked = True
     row.username = data.username
-    if "nickname" in data.model_fields_set:
-        row.nickname = data.nickname
+    row.nickname = data.nickname
     row.role = data.role
     row.active = data.active
     if data.password is not None:
@@ -487,18 +486,11 @@ def update_child(cid: int, data: ChildIn, db=Depends(get_db), user=Depends(edito
         raise HTTPException(404, "档案已删除")
     if data.avatar_media_id and data.avatar_media_id != child.avatar_media_id:
         require_avatar_image(db, data.avatar_media_id, user)
-    if data.profile_type == "pet" and "profile_type" in data.model_fields_set:
+    if data.profile_type == "pet":
         db.execute(update(MediaFace).where(MediaFace.child_id == cid).values(child_id=None, confirmed_by=None, auto_match_score=None, auto_reference_face_id=None))
-    if "profile_type" in data.model_fields_set and data.profile_type != "pet" and child.profile_type == "pet":
+    if data.profile_type != "pet" and child.profile_type == "pet":
         detach_pet_profile(db, cid)
     for key, value in data.model_dump().items():
-        # Older clients omit these fields; preserve the existing profile type and details.
-        if (
-            key
-            in {"profile_type", "relationship", "species", "breed", "growth_enabled"}
-            and key not in data.model_fields_set
-        ):
-            continue
         setattr(child, key, value)
     db.commit()
     return child_data(child)
@@ -1003,9 +995,7 @@ def timeline_ordering(source, order):
 
 
 def timeline_boundary(ordering, position, *, before, inclusive=False):
-    # Old cursors only contain sort_at; derive their day for compatibility.
-    day = position.sort_day or (position.sort_at.date() if position.sort_at else None)
-    values = (day, position.sort_order, position.sort_group, position.sort_at, position.id, position.kind)
+    values = (position.sort_day, position.sort_order, position.sort_group, position.sort_at, position.id, position.kind)
     prefix, alternatives = [], []
     for (column, ascending, nullable), value in zip(ordering, values):
         if value is not None:

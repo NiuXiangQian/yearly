@@ -53,11 +53,10 @@ def test_pet_optional_birthday_validation_and_edit(context):
         client.get(f"/api/children/{p['id']}/milestones").json()[0]["date"]
         == "2023-03-01"
     )
-    # An older client may omit new fields when editing a profile.
-    legacy = client.put(
-        f"/api/children/{p['id']}", json={"name": "团团", "birthday": "2023-03-01"}
+    renamed = client.put(
+        f"/api/children/{p['id']}", json={**updated, "name": "团团", "birthday": "2023-03-01"}
     ).json()
-    assert (legacy["profile_type"], legacy["species"], legacy["breed"]) == (
+    assert (renamed["profile_type"], renamed["species"], renamed["breed"]) == (
         "pet",
         "猫",
         "英短",
@@ -131,7 +130,7 @@ def test_pet_batch_link_avatar_and_archive(context):
 
 
 @pytest.mark.parametrize("legacy", [False, True])
-def test_profile_backup_roundtrip_and_old_manifest(context, legacy):
+def test_profile_backup_current_schema_and_reject_missing_fields(context, legacy):
     a = child(context)
     p = pet(context) if not legacy else None
     ids = [a["id"]] + ([p["id"]] if p else [])
@@ -143,6 +142,10 @@ def test_profile_backup_roundtrip_and_old_manifest(context, legacy):
                 row.pop(key)
     target = context.tmp_path / "profiles.json"
     target.write_text(json.dumps(document))
+    if legacy:
+        with pytest.raises(ValueError, match="清单字段"):
+            restore_manifest(target, 1)
+        return
     with context.db() as db:
         db.execute(delete(UploadTask))
         for model in reversed(TABLES):

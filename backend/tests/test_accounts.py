@@ -384,7 +384,7 @@ def test_uploaders_empty_and_authentication(context):
     assert context.client.get("/api/uploaders").status_code == 401
 
 
-def test_account_nickname_create_edit_clear_and_old_client_compatibility(context):
+def test_account_nickname_create_edit_and_clear(context):
     client = context.client
     created = client.post("/api/users", json={
         "username": "family-login", "nickname": "  小禾爸爸  ",
@@ -394,10 +394,10 @@ def test_account_nickname_create_edit_clear_and_old_client_compatibility(context
     uid = created.json()["id"]
     row = next(row for row in client.get("/api/users").json() if row["id"] == uid)
     assert row["username"] == "family-login" and row["nickname"] == "小禾爸爸"
-    payload = {"username": "family-login", "role": "member", "active": True}
+    payload = {"username": "family-login", "nickname": "小禾爸爸", "role": "member", "active": True}
     assert client.put(f"/api/users/{uid}", json=payload).status_code == 200
     with context.db() as db:
-        assert db.get(User, uid).display_name == "小禾爸爸", "older clients must preserve the nickname"
+        assert db.get(User, uid).display_name == "小禾爸爸"
     assert client.put(f"/api/users/{uid}", json={**payload, "nickname": "  "}).status_code == 200
     with context.db() as db:
         assert db.get(User, uid).nickname == "" and db.get(User, uid).display_name == "family-login"

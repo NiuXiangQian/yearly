@@ -450,37 +450,6 @@ class UploadQueue(
         }
     }
 
-    // Re-read old prepared items with the fixed parser, before their first request.
-    // Confirmed/retried tasks retain their original idempotent payload.
-    suspend fun refreshDates(ids: Set<String>) {
-        for (entry in visible().filter { it.id in ids && it.phase == "ready" && !it.confirmed }) {
-            if (entry.fields.optJSONObject("metadata")?.optInt("date_reader_version") == 2) continue
-            val fields =
-                withContext(Dispatchers.IO) {
-                    val original = entry.resources.first { it.role == "original" }
-                    OriginalMetadata.read(
-                            local(entry.id, original),
-                            entry.mime.startsWith("video/"),
-                        )
-                        .fields
-                        .apply {
-                            getJSONObject("metadata")
-                                .put(
-                                    "android_source_dates",
-                                    entry.fields
-                                        .optJSONObject("metadata")
-                                        ?.optJSONObject("android_source_dates")
-                                        ?: OriginalMetadata.sourceDates(
-                                            context,
-                                            Uri.parse(entry.source),
-                                        ),
-                                )
-                        }
-                }
-            update(entry.id) { it.copy(fields = fields) }
-        }
-    }
-
     fun confirm(ids: Set<String>, children: Set<Int>, batch: String, archive: String) {
         check(api.account.value?.canWrite == true) { "此账户没有上传权限" }
         if (archive.isNotBlank()) java.time.LocalDate.parse(archive)
@@ -559,7 +528,6 @@ class UploadQueue(
                     val actor = Account.parse(api.getObject("/auth/me", true))
                     check(actor.id == current.owner && actor.canWrite) { "请使用创建任务的账户继续上传" }
                     if (current.resources.any { it.task == null }) {
-                        api.getArray("/uploads", true)
                         val body =
                             JSONObject(current.fields.toString()).apply {
                                 put("media_type", current.type)

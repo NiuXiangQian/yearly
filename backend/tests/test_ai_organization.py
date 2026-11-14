@@ -51,7 +51,7 @@ def test_automatic_tags_review_habits_and_durable_revisions(context, monkeypatch
     mid, person = memory(context)
     enable(context)
     entry = generate(context, mid)
-    assert entry['status'] == 'pending' and entry['current']['tags'] == ['公园']
+    assert entry['status'] == 'automatic' and entry['current']['tags'] == ['公园']
     assert context.client.get(f'/api/media/{mid}').json()['tags'] == ['原有标签', '公园']
     # A later manual tag must survive reviewing or withdrawing only this automatic decision.
     with context.db() as db:
@@ -152,7 +152,8 @@ def test_interview_additions_also_auto_apply_tags_with_reviewable_evidence(conte
     assert response.status_code == 200, response.text
     assert not response.json()['outdated']
     assert context.client.get(f'/api/media/{mid}').json()['tags'] == ['原有标签','公园']
-    entry = context.client.get('/api/organization/reviews?kind=tags').json()['items'][0]
+    assert context.client.get('/api/organization/reviews?kind=tags').json()['pending'] == 0
+    entry = context.client.get('/api/organization/reviews?kind=tags&scope=all').json()['items'][0]
     assert entry['evidence']['tags'][0]['source'] == 'visual' and entry['current']['tags'] == ['公园']
 
 
@@ -185,3 +186,53 @@ def test_reviewing_a_face_also_returns_additional_automatic_match_counts(context
     assert result.json()['auto_linked']==1 and result.json()['auto_reset']==0
     with context.db() as db:
         assert db.get(MediaFace,chained_id).child_id==person['id'] and db.get(MediaFace,chained_id).confirmed_by is None
+
+
+def test_automatic_tags_never_queue_even_at_capacity_and_manual_rules_rejected(context):
+    mid, _ = memory(context)
+    enable(context, tag_rules={'不要': {'target': '', 'mode': 'skip'}})
+    with context.db() as db:
+        media = db.get(Media, mid)
+        media.tags = [f'已有{i}' for i in range(29)]
+        organization.apply_automatic_tags(db, media, [
+            dict(name=name, source='visual', evidence=name) for name in ['公园', '散步', '不要']
+        ], '公园散步', 'test')
+        db.commit()
+    result = context.client.get('/api/organization/reviews?kind=tags').json()
+    assert result['pending'] == 0 and result['items'] == []
+    row = context.client.get('/api/organization/reviews?kind=tags&scope=all').json()['items'][0]
+    assert row['status'] == 'automatic' and row['current'] == {'tags': ['公园'], 'decisions': {'公园': '公园', '散步': None}}
+    assert len(row['media']['tags']) == 30
+    options = context.client.get('/api/organization/settings').json()
+    options['tag_rules'] = {'公园': {'target': '公园', 'mode': 'manual'}}
+    assert context.client.put('/api/organization/settings', json=options).status_code == 422
+
+
+def test_tag_queue_migration_preserves_edits_skips_and_identity_reviews(context):
+    import importlib.util
+    from pathlib import Path
+    from app.models import OrganizationSettings
+    path = Path(__file__).parents[1] / 'alembic/versions/0026_automatic_tags.py'
+    spec = importlib.util.spec_from_file_location('automatic_tags_migration', path)
+    migration = importlib.util.module_from_spec(spec); spec.loader.exec_module(migration)
+    mid, _ = memory(context)
+    enable(context)
+    with context.db() as db:
+        db.get(Media, mid).tags = ['原有标签', '手动新增']
+        db.get(OrganizationSettings, 1).options = dict(tags_enabled=True, people_enabled=True,
+            tag_rules={'待添加': {'target': '待添加', 'mode': 'manual'}, '忽略': {'target': '', 'mode': 'skip'}}, person_rules={})
+        row = OrganizationReview(media_id=mid, kind='tags', target_id=str(mid), automatic=True, status='pending',
+            before_value={'tags': ['原有标签']}, proposed_value={'tags': ['手动已移除', '待添加', '忽略']},
+            current_value={'tags': ['手动已移除']}, evidence={'tags': [{'name': '待添加', 'source_name': '待添加', 'rule': 'manual'}]}, events=[])
+        person = OrganizationReview(media_id=mid, kind='face', target_id='1', automatic=True, status='pending',
+            before_value={}, proposed_value={}, current_value={}, evidence={}, events=[])
+        db.add_all([row, person]); db.flush()
+        assert migration.confirm_pending_tags(db.connection()) == 1
+        db.expire_all()
+        assert db.get(Media, mid).tags == ['原有标签', '手动新增', '待添加']
+        assert row.status == 'automatic' and row.current_value['tags'] == ['待添加']
+        assert row.events[-1]['action'] == 'automatic'
+        assert person.status == 'pending'
+        assert db.get(OrganizationSettings, 1).options['tag_rules']['待添加']['mode'] == 'automatic'
+        assert migration.confirm_pending_tags(db.connection()) == 0
+        assert len(row.events) == 1

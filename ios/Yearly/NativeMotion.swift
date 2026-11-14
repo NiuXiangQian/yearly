@@ -14,7 +14,7 @@ struct NativeLiquidNavigation: View {
     @State private var firstEdge: CGFloat = 0
     @State private var lastEdge: CGFloat = 0
     @State private var previous = 0
-    private var titles: [String] { ["时间线", "上传", "家人", "账号"] + (showsMemoryReview ? ["AI 整理"] : []) }
+    private var titles: [String] { ["时间线", "上传", "家人", "账号"] + (showsMemoryReview ? ["照片助手"] : []) }
     private var symbols: [String] { ["photo.on.rectangle", "square.and.arrow.up", "person.2", "person.crop.circle"] + (showsMemoryReview ? ["sparkles"] : []) }
     var body: some View {
         GeometryReader { geometry in

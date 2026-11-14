@@ -42,6 +42,11 @@ def test_export_restore_stable_ids_and_relationships(context, archive_format):
     assert "sha256" in csv.text
     target = context.tmp_path / "manifest.json"
     target.write_text(json.dumps(document))
+    if archive_format != "yearly":
+        with pytest.raises(ValueError, match="不支持的清单格式"):
+            restore_manifest(target, 1)
+        assert context.client.get(f"/api/media/{mid}").status_code == 200
+        return
     with context.db() as db:
         db.execute(delete(UploadTask))
         for model in reversed(TABLES):

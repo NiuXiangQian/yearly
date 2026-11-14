@@ -26,10 +26,11 @@ import Foundation
         let assignments = MemoryReviewHTTP.body(confirm)["assignments"] as! [[String: Any]]
         precondition(confirm.httpMethod == "PUT" && assignments[0]["child_id"] as? Int == 7)
         precondition(confirm.value(forHTTPHeaderField: "X-CSRF-Token") == "synthetic-csrf")
-        MemoryReviewHTTP.includeAutoCounts = false
+        MemoryReviewHTTP.omitConfirmationCounts = true
         review.faceChoices[21] = -1; await review.confirm(face: firstFace, mediaID: 42)
-        precondition(review.error.isEmpty && review.notice.contains("自动关联 0 张"), "old responses without counters still decode")
-        precondition(review.autoLinkedCount == 0, "zero or missing matches must not interrupt confirmation")
+        precondition(!review.error.isEmpty, "confirmation requires the current response fields")
+        precondition(review.autoLinkedCount == 0, "invalid responses must not show a success alert")
+        MemoryReviewHTTP.omitConfirmationCounts = false
         let ignored = MemoryReviewHTTP.body(MemoryReviewHTTP.requests.last { $0.httpMethod == "PUT" }!)["assignments"] as! [[String: Any]]
         precondition(ignored[0]["child_id"] is NSNull && ignored[0]["ignored"] as? Bool == true)
         let petReads = MemoryReviewHTTP.requests.filter { $0.url!.path.hasSuffix("/pets/review") }.count
@@ -49,25 +50,6 @@ import Foundation
         let perMedia = NativeMemoryReviewStore(session: session, mediaID: 42)
         await perMedia.load(); precondition(MemoryReviewHTTP.requests.last!.url!.query!.contains("media_id=42"))
         await perMedia.analyzeNext(pets: true); precondition(MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/analyze") }!.url!.path == "/yearly/api/pets/media/42/analyze")
-        review.tab = .memories; await review.load(reset: true); precondition(review.memories.count == 1)
-        let interview = NativeMemoryInterviewStore(session: session, mediaID: 42)
-        await interview.load(); precondition(interview.state?.suggestions == nil)
-        await interview.prepare(); precondition(interview.tags == ["公园散步"] && interview.state?.messages.count == 1)
-        precondition(MemoryReviewHTTP.requests.last!.timeoutInterval == 180)
-        interview.answer = "那天是奶奶提议的。"; interview.addition = "手动编辑的小记"; interview.noteEdited = true
-        interview.tags = ["我的标签"]; interview.tagsEdited = true
-        MemoryReviewHTTP.failWrites = true; await interview.reply()
-        precondition(!interview.error.isEmpty && interview.answer == "那天是奶奶提议的。", "failed reply keeps answer")
-        MemoryReviewHTTP.failWrites = false; await interview.reply()
-        precondition(interview.answer.isEmpty && interview.state?.messages.count == 3)
-        precondition(interview.tags == ["我的标签"] && interview.addition == "手动编辑的小记", "follow-up does not overwrite edits")
-        interview.extraTag = "手动标签"; interview.addTag(); precondition(interview.tags == ["我的标签", "手动标签"])
-        MemoryReviewHTTP.failWrites = true; await interview.apply()
-        precondition(interview.noteEdited && interview.addition == "手动编辑的小记")
-        MemoryReviewHTTP.failWrites = false; await interview.apply()
-        let applied = MemoryReviewHTTP.body(MemoryReviewHTTP.requests.last!)
-        precondition(applied["remark_addition"] as? String == "手动编辑的小记" && applied["tags"] as? [String] == ["我的标签", "手动标签"])
-        precondition(interview.state?.status == "completed" && !interview.noteEdited && interview.addition.isEmpty)
         review.tab = .organization; await review.load(reset: true)
         precondition(review.error.isEmpty && review.organizationQueue?.items.count == 1 && review.organizationSettings?.tags_enabled == true)
         let organizationEntry = review.organizationQueue!.items[0]
@@ -85,28 +67,60 @@ import Foundation
         precondition(MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/organization/run") }!.timeoutInterval == 300)
         review.organizationKind = "face"; await review.load(reset: true)
         precondition(MemoryReviewHTTP.requests.last!.url!.query!.contains("kind=face"))
-        review.tab = .memories
-        MemoryReviewHTTP.empty = true; await review.load(); precondition(review.memories.isEmpty && review.error.isEmpty)
+        review.tab = .faces
+        MemoryReviewHTTP.empty = true; await review.load(reset: true); precondition(review.subjects.isEmpty && review.error.isEmpty)
         let curation = NativeCurationStore(session: session)
         await curation.load()
         precondition(curation.error.isEmpty && curation.queue?.group_count == 1)
         precondition(MemoryReviewHTTP.requests.last!.url!.query!.contains("scope=unfiled"))
         let curationStart = MemoryReviewHTTP.requests.count
-        curation.toggle([42]); curation.selectedProfiles = [7]
+        curation.toggle([42])
+        let beforeEmptyAlbumSave = MemoryReviewHTTP.requests.count
+        let missingAlbumSaved = await curation.save(action: "add")
+        precondition(!missingAlbumSaved && MemoryReviewHTTP.requests.count == beforeEmptyAlbumSave, "no write without an album")
+        curation.selectedProfiles = [7]
+        await curation.load()
+        precondition(curation.selected == [42] && curation.selectedProfiles == [7], "refresh preserves in-progress selection")
+        MemoryReviewHTTP.failCurationReads = true; await curation.load()
+        precondition(curation.selected == [42] && curation.selectedProfiles == [7], "failed refresh preserves selection")
+        MemoryReviewHTTP.failCurationReads = false
         MemoryReviewHTTP.failWrites = true; await curation.save(action: "add")
         precondition(!curation.error.isEmpty && curation.selected == [42], "failed curation retains selection")
         MemoryReviewHTTP.failWrites = false; await curation.save(action: "add")
         precondition(curation.error.isEmpty && curation.undoToken == "synthetic-batch" && curation.selected.isEmpty)
         let batchRequest = MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/curation/batch") }!
         precondition(MemoryReviewHTTP.body(batchRequest)["media_ids"] as? [Int] == [42])
+        precondition(curation.selectedProfiles.isEmpty && curation.notice.contains("家人甲"), "success clears album selection and names the destination")
         await curation.undo(); precondition(curation.undoToken == nil && curation.error.isEmpty)
+        curation.toggle([42]); curation.selectedProfiles = [7]
+        MemoryReviewHTTP.failCurationReads = true
+        let committed = await curation.save(action: "add")
+        precondition(committed && curation.selected.isEmpty && curation.undoToken != nil && curation.error.contains("保存成功"), "successful write remains successful when refresh fails")
+        MemoryReviewHTTP.failCurationReads = false
+        await curation.load()
+        for action in ["done", "ignore"] {
+            curation.toggle([42]); curation.selectedProfiles = [7]
+            let saved = await curation.save(action: action)
+            precondition(saved)
+            let request = MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/curation/batch") }!
+            precondition(MemoryReviewHTTP.body(request)["child_ids"] as? [Int] == [], "completion and skip cannot accidentally change albums")
+        }
         curation.toggle([42]); await curation.reviewQuality()
         precondition(curation.queue?.items[0].items[0].quality?.frames[0].clarity == 4 && curation.selected == [42])
         precondition(MemoryReviewHTTP.requests.last!.timeoutInterval == 180)
         precondition(MemoryReviewHTTP.requests.dropFirst(curationStart).allSatisfy { $0.url!.path.contains("/curation/") || $0.url!.path.hasSuffix("/children") }, "manual curation never calls identity review")
+        let settingsStart = MemoryReviewHTTP.requests.count
+        await review.loadOrganizationSettings()
+        precondition(review.error.isEmpty && review.organizationSettings != nil)
+        precondition(!MemoryReviewHTTP.requests.dropFirst(settingsStart).contains { $0.url!.path.hasSuffix("/organization/reviews") }, "settings load independently of review queue")
         MemoryReviewHTTP.role = "member"; await session.restore()
         let count = MemoryReviewHTTP.requests.count; await review.load()
         precondition(!review.error.isEmpty && MemoryReviewHTTP.requests.count == count, "non-admin review is denied")
-        print("Native AI review tests passed: face/dog confirmation and null assignment, CSRF, pagination, per-media analysis, auto-link, interview follow-up, tag/note preservation on failure and generation, apply, empty and admin access.")
+        curation.selected = [42]; curation.selectedProfiles = [7]
+        let denied = await curation.save(action: "add")
+        precondition(!denied && MemoryReviewHTTP.requests.count == count, "non-admin curation cannot write")
+        await review.loadOrganizationSettings()
+        precondition(MemoryReviewHTTP.requests.count == count, "non-admin settings cannot read")
+        print("Native AI review tests passed: face/dog confirmation and null assignment, CSRF, pagination, per-media analysis, auto-link, organization, curation save and undo, empty and admin access.")
     }
 }

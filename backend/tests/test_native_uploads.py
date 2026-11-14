@@ -31,7 +31,6 @@ def finish(context, task, content):
 
 
 def test_native_create_lost_response_reuses_both_tasks(context):
-    assert context.client.get("/api/uploads").headers["X-Yearly-Upload-Protocol"] == "idempotent-v1"
     key = {"Idempotency-Key": str(uuid4())}
     body = live_body()
     first = context.client.post("/api/uploads", json=body, headers=key)

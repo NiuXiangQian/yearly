@@ -192,10 +192,7 @@ fun UploadScreen(model: AppModel, showRecent: () -> Unit, showUploaded: (Int) ->
                     {
                         confirmIds = ready.map { it.id }.toSet()
                         error = ""
-                        model.run {
-                            model.uploads.refreshDates(confirmIds)
-                            confirming = true
-                        }
+                        confirming = true
                     },
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
                     enabled = !model.busy,

@@ -508,9 +508,8 @@ struct NativeUploadView: View {
                 account = nil
                 throw UploadFailure(message: "当前账号没有上传权限，请重新登录。")
             }
-            let previousBatch = items.last(where: { $0.confirmed })?.childIDs
             let remembered = UploadProfilePreferences(site: site, ownerID: current.id)
-                .restore(validIDs: Set(loaded.map(\.id)), fallback: previousBatch)
+                .restore(validIDs: Set(loaded.map(\.id)))
             account = current; profiles = loaded; children = remembered
             hasLoaded = true; loadedProfileRevision = profileRevision; message = ""
         } catch {

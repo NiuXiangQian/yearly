@@ -195,10 +195,10 @@ class TimelineCursor(BaseModel):
     order: Literal["asc", "desc"] = "desc"
     id: int = Field(ge=1)
     kind: Literal["media", "event", "folder"]
-    sort_at: datetime | None = None
-    sort_day: date | None = None
-    sort_order: int = 0
-    sort_group: int = 0
+    sort_at: datetime | None
+    sort_day: date | None
+    sort_order: int
+    sort_group: int
 
     @field_validator("sort_at")
     @classmethod

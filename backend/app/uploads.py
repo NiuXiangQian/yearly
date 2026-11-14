@@ -5,7 +5,7 @@ from datetime import timedelta
 from pathlib import PurePath
 from uuid import UUID, uuid4
 import oss2
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy import select
 from .db import get_db, now
 from .models import Media, MediaFile, MediaMetadata, UploadTask, User
@@ -291,10 +291,7 @@ def create_upload(
 
 
 @router.get("")
-def list_uploads(response: Response, db=Depends(get_db), user=Depends(editor)):
-    # Native clients check this before their first create; older servers must not
-    # silently ignore Idempotency-Key and create duplicates after a lost response.
-    response.headers["X-Yearly-Upload-Protocol"] = "idempotent-v1"
+def list_uploads(db=Depends(get_db), user=Depends(editor)):
     tasks = db.scalars(
         select(UploadTask)
         .where(

@@ -312,13 +312,6 @@ class YearlyApi(private val context: Context, transport: OkHttpClient? = null) {
                         message.ifBlank { "请求失败（${response.code}），请重试。" }.take(500),
                     )
                 }
-                if (
-                    path == "/uploads" &&
-                        method == "GET" &&
-                        response.header("X-Yearly-Upload-Protocol") != "idempotent-v1"
-                ) {
-                    throw ApiFailure(0, "家庭服务需要升级以支持可靠的上传恢复。")
-                }
                 text to response.headers("Set-Cookie")
             }
         }

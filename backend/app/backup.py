@@ -169,8 +169,7 @@ def restore_manifest(path, owner_id, storage=None, object_directory=None):
         header = next(ijson.items(source, "format"), None)
     with path.open("rb") as source:
         version = next(ijson.items(source, "version"), None)
-    # Import historical archives created before the yearly rename.
-    if header not in ("yearly", "family-timeline") or version != 1:
+    if header != "yearly" or version != 1:
         raise ValueError("不支持的清单格式")
     with path.open("rb") as source:
         names = {
@@ -179,8 +178,13 @@ def restore_manifest(path, owner_id, storage=None, object_directory=None):
             if prefix == "tables" and event == "map_key"
         }
     expected = {m.__tablename__ for m in TABLES}
-    if not expected - {"timeline_folder", "timeline_day", "display_preview", "video_preview"} <= names <= expected:
+    if names != expected:
         raise ValueError("清单表不完整")
+    # Reject obsolete schemas before writing any objects or database records.
+    for model in TABLES:
+        columns = {column.name for column in model.__table__.columns}
+        if any(set(row) != columns for row in rows(model.__tablename__)):
+            raise ValueError("清单字段与当前版本不一致")
     from sqlalchemy import Date, DateTime, Time
 
     with SessionLocal() as db:
@@ -251,11 +255,6 @@ def restore_manifest(path, owner_id, storage=None, object_directory=None):
                     row["updated_by"] = None
                 if model is Event:
                     row["created_by"] = owner_id
-                if model is Child and "growth_enabled" not in row:
-                    row["growth_enabled"] = (
-                        row.get("profile_type", "child") in {"child", "pet"}
-                        or row.get("relationship") == "孩子"
-                    )
                 if model is Child and row.get("avatar_media_id"):
                     avatars.append((row["id"], row["avatar_media_id"]))
                     row["avatar_media_id"] = None

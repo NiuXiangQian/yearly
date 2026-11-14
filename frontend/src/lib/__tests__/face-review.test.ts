@@ -88,14 +88,14 @@ it("explains disabled setup and translates the review controls", async () => {
 });
 
 it("refreshes cached faces without clearing reviewed identities, and protects unsaved choices", async () => {
-  const { host, updated } = await mount(state({ refresh_supported: true }));
+  const { host, updated } = await mount(state());
   const refresh = button(host, "重新查找人脸");
   expect(refresh.disabled).toBe(false);
   button(host, "选择").click(); await nextTick();
   expect(refresh.disabled).toBe(true);
   const select = host.querySelector("select")!;
   select.value = ""; select.dispatchEvent(new Event("change")); await nextTick();
-  vi.mocked(post).mockResolvedValue(state({ refresh_supported: true, child_ids: [7, 2], faces: [
+  vi.mocked(post).mockResolvedValue(state({ child_ids: [7, 2], faces: [
     state().faces[0], { ...state().faces[0], id: 22, child_id: 2 },
   ] }));
   refresh.click();
@@ -107,13 +107,9 @@ it("refreshes cached faces without clearing reviewed identities, and protects un
   expect(host.textContent).toContain("Find faces again");
 });
 
-it("hides refresh for older servers", async () => {
-  const { host } = await mount();
-  expect(button(host, "重新查找人脸")).toBeUndefined();
-});
 
 it("retains cached faces when refreshing fails", async () => {
-  const { host } = await mount(state({ refresh_supported: true }));
+  const { host } = await mount(state());
   vi.mocked(post).mockRejectedValueOnce(new Error("重新查找失败"));
   button(host, "重新查找人脸").click();
   await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain("重新查找失败"));

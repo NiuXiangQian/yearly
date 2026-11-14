@@ -1,33 +1,89 @@
 import SwiftUI
 
+// Entry points describe the task; each destination owns one workflow.
+struct NativeOrganizationHomeView: View {
+    let session: NativeSession
+    var onUpdated: () -> Void = {}
+    var body: some View {
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("把照片整理到家人相册").font(.title2.bold())
+                    Text("选择照片，整理到家人或宠物的相册。")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }.padding(.vertical, 12)
+            }.listRowBackground(Color.clear)
+            Section {
+                if session.isAdmin {
+                    NavigationLink {
+                        NativeCurationView(session: session, onUpdated: onUpdated)
+                    } label: {
+                        NativeOrganizationTaskLabel(title: "整理到家人相册", detail: "选照片，再选择要加入的家人或宠物相册", symbol: "person.crop.rectangle.stack")
+                    }
+                }
+            }
+            if session.isAdmin {
+                Section("记录与设置") {
+                    NavigationLink {
+                        NativeMemoryReviewView(session: session, tab: .organization, onUpdated: onUpdated)
+                    } label: {
+                        Label("自动整理记录", systemImage: "clock.arrow.circlepath")
+                    }
+                    NavigationLink {
+                        NativeOrganizationSettingsView(session: session)
+                    } label: {
+                        Label("自动整理设置", systemImage: "slider.horizontal.3")
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped).scrollContentBackground(.hidden).background(NativeTheme.background)
+        .navigationTitle("照片助手")
+    }
+}
+
+private struct NativeOrganizationTaskLabel: View {
+    let title: String
+    let detail: String
+    let symbol: String
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: symbol).font(.title3).foregroundStyle(NativeTheme.accent)
+                .frame(width: 42, height: 42)
+                .background(NativeTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.headline).foregroundStyle(.primary)
+                Text(detail).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }.padding(.vertical, 12)
+    }
+}
+
 struct NativeMemoryReviewView: View {
     @StateObject private var store: NativeMemoryReviewStore
     let onUpdated: () -> Void
-    @State private var interviewing: NativeTimelineItem?
     @State private var previewing: NativeTimelineItem?
     @State private var previewSeconds: Double?
     init(session: NativeSession, mediaID: Int? = nil, tab: NativeMemoryReviewStore.Tab = .faces, onUpdated: @escaping () -> Void = {}) {
         _store = StateObject(wrappedValue: NativeMemoryReviewStore(session: session, mediaID: mediaID, tab: tab))
         self.onUpdated = onUpdated
     }
-    var body: some View {
-        Group {
-            if store.mediaID == nil && store.tab == .faces {
-                NativeCurationView(session: store.session, onUpdated: onUpdated)
-            } else { legacyBody }
+    private var introduction: String {
+        switch store.tab {
+        case .faces: return "看看照片里是谁，选择对应的家人或宠物。确认后会帮助整理其他明确匹配的照片。"
+        case .organization: return "查看自动添加的标签和人物。结果不合适时，可以修改或撤回。"
         }
     }
-    private var legacyBody: some View {
+    var body: some View {
         Group {
             if store.session.isAdmin {
                 List {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("认出家人，留下故事").font(.title2.bold())
-                            Text("确认人物与宠物，根据画面和补充信息生成标签。")
+                            Text(introduction)
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }.padding(.vertical, 6)
-                        Toggle(store.tab == .organization ? "全部记录，可复审修改" : "包含已处理，可修改确认结果", isOn: $store.includeReviewed).disabled(store.busy)
+                        Toggle(store.tab == .organization ? "显示全部记录" : "显示已处理的照片", isOn: $store.includeReviewed).disabled(store.busy)
                         if store.mediaID != nil { Text("仅查看当前影像的识别结果").font(.caption).foregroundStyle(.secondary) }
                     }
                     if store.busy { Section { ProgressView("正在处理，请稍候…") } }
@@ -40,30 +96,25 @@ struct NativeMemoryReviewView: View {
                     if !store.notice.isEmpty { Section { Label(store.notice, systemImage: "checkmark.circle").foregroundStyle(NativeTheme.accent) } }
                     switch store.tab {
                     case .faces: subjectSections
-                    case .memories: memorySections
                     case .organization:
                         NativeOrganizationReviewSections(store: store, preview: { media, seconds in previewSeconds = seconds; previewing = media }, onUpdated: onUpdated)
                     }
-                    Section {
-                        HStack {
-                            Button("上一页") { Task { await store.page(next: false) } }.disabled(store.history.isEmpty || store.busy)
-                            Spacer()
-                            Button("下一页") { Task { await store.page(next: true) } }.disabled(store.nextCursor == nil || store.busy)
-                        }.frame(minHeight: 44)
+                    if !store.history.isEmpty || store.nextCursor != nil {
+                        Section {
+                            HStack {
+                                Button("上一页") { Task { await store.page(next: false) } }.disabled(store.history.isEmpty || store.busy)
+                                Spacer()
+                                Button("下一页") { Task { await store.page(next: true) } }.disabled(store.nextCursor == nil || store.busy)
+                            }.frame(minHeight: 44)
+                        }
                     }
                 }
                 .listStyle(.insetGrouped).scrollContentBackground(.hidden).background(NativeTheme.background)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    Picker("整理内容", selection: $store.tab) {
-                        ForEach(NativeMemoryReviewStore.Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented).disabled(store.busy)
-                        .padding(.horizontal, 16).padding(.vertical, 10).background(NativeTheme.background)
-                }
                 .refreshable { if !store.busy { await store.load() } }
                 .task(id: "\(store.tab)-\(store.includeReviewed)-\(store.organizationKind)") { await store.load(reset: true) }
-            } else { Text("AI 整理需要管理员权限。").padding() }
+            } else { Text("整理照片需要管理员权限。").padding() }
         }
-        .navigationTitle("AI 整理").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(store.tab.rawValue).navigationBarTitleDisplayMode(.inline)
         .alert("已自动整理相似人脸", isPresented: Binding(get: { store.autoLinkedCount > 0 }, set: { if !$0 { store.autoLinkedCount = 0 } })) {
             Button("知道了", role: .cancel) { store.autoLinkedCount = 0 }
         } message: { Text("已将另外 \(store.autoLinkedCount) 张明确匹配的人脸关联到对应人物，可在已处理项中查看和修改。") }
@@ -72,9 +123,6 @@ struct NativeMemoryReviewView: View {
                 onSaved: { Task { await store.load(); onUpdated() } },
                 onDeleted: { previewing = nil; Task { await store.load(); onUpdated() } }, onLocate: nil, initialPlaybackSeconds: previewSeconds)
         }
-        .nativeSheet(item: $interviewing, onDismiss: { Task { await store.load(); onUpdated() } }) { media in
-            NativeMemoryInterviewView(session: store.session, media: media, onUpdated: onUpdated)
-        }
     }
     @ViewBuilder private var subjectSections: some View {
         if let queue = store.faces {
@@ -82,10 +130,10 @@ struct NativeMemoryReviewView: View {
                 LabeledContent("待确认人物", value: "\(queue.pending_faces) 张脸")
                 LabeledContent("识别到宠物 · 待确认", value: "\(store.pets?.pending_pets ?? 0) 条")
                 if !queue.enabled || !queue.ready { Text(queue.message).font(.caption).foregroundStyle(.secondary) }
-                Button(store.mediaID == nil ? "分析下一批人物影像" : "查找本影像中的人脸", systemImage: "viewfinder") {
+                Button(store.mediaID == nil ? "查找更多照片里的人物" : "查找本影像中的人脸", systemImage: "viewfinder") {
                     Task { await store.analyzeNext(); onUpdated() }
                 }.disabled(store.busy || !queue.enabled || !queue.ready || (store.mediaID == nil && queue.unanalysed_photos == 0))
-                Button(store.mediaID == nil ? "补充宠物识别" : "识别本影像中的宠物", systemImage: "pawprint") {
+                Button(store.mediaID == nil ? "查找更多照片里的宠物" : "识别本影像中的宠物", systemImage: "pawprint") {
                     Task { await store.analyzeNext(pets: true); onUpdated() }
                 }.disabled(store.busy || (store.mediaID == nil && store.pets?.unanalysed_media == 0))
                 Text("每次确认人物后会自动整理相似人脸，关联到其他人脸时会弹窗提醒。宠物按外观推荐并由你确认。")
@@ -99,7 +147,7 @@ struct NativeMemoryReviewView: View {
                     }
                 }
             }
-            if store.subjects.isEmpty && !store.busy { Section { Text("当前没有待确认的人物或宠物，可查看已处理项或继续分析影像。").foregroundStyle(.secondary) } }
+            if store.subjects.isEmpty && !store.busy { Section { Text("暂时没有需要确认的人物或宠物。你可以查找更多照片，或打开“显示已处理的照片”修改之前的结果。").foregroundStyle(.secondary) } }
         }
     }
     private func faceRow(_ face: MemoryReviewFace, _ media: NativeTimelineItem) -> some View {
@@ -125,7 +173,6 @@ struct NativeMemoryReviewView: View {
             }.disabled(store.busy)
             Button("确认人物") { Task { await store.confirm(face: face, mediaID: media.id); onUpdated() } }
                 .buttonStyle(NativeActionStyle(kind: .primary)).disabled(store.busy || (faceChoice(face).wrappedValue == face.choice && face.auto_assigned != true))
-            Button("智能打标签", systemImage: "tag") { interviewing = media }.disabled(store.busy)
         }.padding(.vertical, 6)
     }
     private func petRow(_ dog: MemoryDog, _ media: NativeTimelineItem) -> some View {
@@ -151,7 +198,6 @@ struct NativeMemoryReviewView: View {
             }.disabled(store.busy)
             Button("确认宠物") { Task { await store.confirm(dog: dog, mediaID: media.id); onUpdated() } }
                 .buttonStyle(NativeActionStyle(kind: .primary)).disabled(store.busy || dogChoice(dog, mediaID: media.id).wrappedValue == dog.choice)
-            Button("智能打标签", systemImage: "tag") { interviewing = media }.disabled(store.busy)
         }.padding(.vertical, 6)
     }
     private func sourceButton(_ media: NativeTimelineItem, seconds: Double?) -> some View {
@@ -161,28 +207,6 @@ struct NativeMemoryReviewView: View {
             Label(media.media_type == "video" || seconds != nil ? "查看来源视频" : "查看来源照片", systemImage: "photo.on.rectangle")
                 .frame(minHeight: 44)
         }.disabled(store.busy)
-    }
-    private var memorySections: some View {
-        Section {
-            Text("根据已识别的人物、宠物和画面内容推荐标签。可以补充信息以完善建议，确认后保存标签与小记。")
-                .font(.subheadline).foregroundStyle(.secondary)
-            ForEach(store.memories) { media in
-                Button { interviewing = media } label: {
-                    HStack(spacing: 14) {
-                        if let file = media.primary {
-                            NativeMediaImage(session: store.session, mediaID: media.id, fileID: file.id).frame(width: 72, height: 80).clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(media.title.flatMap { $0.isEmpty ? nil : $0 } ?? media.day).font(.headline).foregroundStyle(.primary)
-                            Text(media.interview_status == "completed" ? "已保存，可继续补充" : media.interview_status == "draft" ? "继续完善标签" : "识别场景 · 推荐标签").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                    }.padding(.vertical, 6)
-                }.buttonStyle(.plain)
-            }
-            if store.memories.isEmpty && !store.busy { Text("当前回忆已处理完成，可勾选“包含已处理”继续补充。").foregroundStyle(.secondary) }
-        } header: { Text("智能打标签") }
     }
     private func faceChoice(_ face: MemoryReviewFace) -> Binding<Int> {
         Binding(get: { store.faceChoices[face.id] ?? face.choice }, set: { store.faceChoices[face.id] = $0 })
@@ -226,160 +250,30 @@ private struct MemoryCandidateChoices: View {
     }
 }
 
-struct NativeMemoryInterviewView: View {
-    @StateObject private var store: NativeMemoryInterviewStore
-    let media: NativeTimelineItem
-    let onUpdated: () -> Void
-    @NativeDismiss private var dismiss
-    @State private var previewing = false
-    @State private var reviewingFaces = false
-    @State private var closing = false
-    init(session: NativeSession, media: NativeTimelineItem, onUpdated: @escaping () -> Void = {}) {
-        _store = StateObject(wrappedValue: NativeMemoryInterviewStore(session: session, mediaID: media.id))
-        self.media = media; self.onUpdated = onUpdated
+private struct NativeOrganizationSettingsView: View {
+    @StateObject private var store: NativeMemoryReviewStore
+    init(session: NativeSession) {
+        _store = StateObject(wrappedValue: NativeMemoryReviewStore(session: session, tab: .organization))
     }
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    if let file = media.primary {
-                        NativeMediaImage(session: store.session, mediaID: media.id, fileID: file.id, purpose: "preview")
-                            .frame(height: 200).clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    Text(media.day).font(.caption).foregroundStyle(.secondary)
-                    Button("查看完整照片或视频", systemImage: "play.rectangle") { previewing = true }
+        Form {
+            if store.busy { ProgressView("正在加载…") }
+            if !store.error.isEmpty {
+                Section { Text(store.error).foregroundStyle(.red)
+                    Button("重新加载") { Task { await store.loadOrganizationSettings() } }.disabled(store.busy)
                 }
-                if store.busy { Section { ProgressView("正在整理这份回忆…") } }
-                if !store.error.isEmpty { Section {
-                    Text(store.error).foregroundStyle(.red)
-                    if store.state == nil { Button("重新加载") { Task { await store.load() } }.disabled(store.busy) }
-                } }
-                if !store.notice.isEmpty { Section { Text(store.notice).foregroundStyle(NativeTheme.accent) } }
-                if let state = store.state {
-                    identitySection(state)
-                    if !state.description.isEmpty { Section { DisclosureGroup("已有画面描述") { Text(state.description).font(.subheadline) } } }
-                    Section {
-                        if state.outdated { Text("人物或影像有更新，请更新提问与标签建议。").font(.caption).foregroundStyle(.secondary) }
-                        if state.suggestions == nil || state.outdated || state.status == "completed" {
-                            Button(state.suggestions == nil ? "生成推荐标签" : "更新标签建议") { Task { await store.prepare() } }
-                                .buttonStyle(NativeActionStyle(kind: .primary)).disabled(store.busy)
-                        }
-                    }
-                    if let suggestions = state.suggestions {
-                        conversation(state, suggestions)
-                        tagSection(state, suggestions)
-                        Section {
-                            if let remark = state.media.remark, !remark.isEmpty { DisclosureGroup("原有小记") { Text(remark) } }
-                            TextField("你的回答作为草稿，可修改后保存", text: Binding(get: { store.addition }, set: { store.addition = $0; store.noteEdited = true }), axis: .vertical)
-                                .lineLimit(3...12).disabled(store.busy)
-                            if store.noteEdited && suggestions.story != store.addition {
-                                Button("使用最新回答的小记草稿") { store.addition = suggestions.story; store.noteEdited = false }.disabled(store.busy)
-                            }
-                            Text("补充内容将追加保存，原有小记与人物关联保留。").font(.caption).foregroundStyle(.secondary)
-                            Button("保存标签与小记") { Task { await store.apply(); onUpdated() } }
-                                .buttonStyle(NativeActionStyle(kind: .primary)).disabled(store.busy || state.status == "completed" || store.addition.count > 4000)
-                        } header: { Text("补充到时光小记") }
-                    }
-                    Section { Text("智能打标签与宠物分析使用站点 AI 额度，人脸匹配在服务端本地运行。").font(.caption).foregroundStyle(.secondary) }
-                }
-            }.scrollContentBackground(.hidden).background(NativeTheme.background)
-                .navigationTitle("智能打标签").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { if store.hasEdits { closing = true } else { dismiss() } }.disabled(store.busy)
-                } }
-                .confirmationDialog("还有未保存的编辑", isPresented: $closing, titleVisibility: .visible) {
-                    Button("继续编辑", role: .cancel) {}
-                    Button("放弃编辑并关闭", role: .destructive) { dismiss() }
-                }
-                .task { await store.load() }
-        }
-        .interactiveDismissDisabled(store.busy || store.hasEdits)
-        .nativeSheet(isPresented: $previewing) {
-            NativeMediaDetail(session: store.session, initial: media, profiles: store.profiles, pagePosition: nil, previous: nil, next: nil,
-                onSaved: { Task { await store.load(); onUpdated() } }, onDeleted: { dismiss(); onUpdated() }, onLocate: nil)
-        }
-        .nativeSheet(isPresented: $reviewingFaces, onDismiss: { Task { await store.load(); onUpdated() } }) {
-            reviewSheet()
-        }
-    }
-    private func reviewSheet() -> some View {
-        NavigationStack {
-            NativeMemoryReviewView(session: store.session, mediaID: media.id, onUpdated: onUpdated)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("返回智能打标签") { reviewingFaces = false } } }
-        }
-    }
-    private func identitySection(_ state: MemoryInterviewState) -> some View {
-        Section {
-            if !state.confirmed_people.isEmpty { LabeledContent("已确认人物", value: state.confirmed_people.joined(separator: "、")) }
-            if let pets = state.confirmed_pets, !pets.isEmpty { LabeledContent("已确认宠物", value: pets.joined(separator: "、")) }
-            ForEach(state.identity_questions, id: \.face_id) { Text($0.question).font(.subheadline) }
-            Button("确认这份影像中的人物与宠物", systemImage: "person.crop.rectangle") { reviewingFaces = true }.disabled(store.busy)
-            DisclosureGroup("补充关联人物与宠物") {
-                ForEach(store.profiles) { profile in
-                    Toggle(profile.label, isOn: Binding(get: { store.people.contains(profile.id) }, set: { enabled in
-                        store.people.removeAll { $0 == profile.id }; if enabled { store.people.append(profile.id) }; store.peopleEdited = true
-                    })).disabled(store.busy)
-                }
-                Button("保存人物关联") { Task { await store.savePeople(); onUpdated() } }.disabled(store.busy || !store.peopleEdited)
-                Text("整张影像关联不能代替每张脸的身份确认。").font(.caption).foregroundStyle(.secondary)
             }
-        } header: { Text("这里面都有谁？") }
-    }
-    private func conversation(_ state: MemoryInterviewState, _ suggestions: MemoryInterviewState.Suggestions) -> some View {
-        Section {
-            ForEach(Array(state.messages.enumerated()), id: \.offset) { _, message in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(message.role == "user" ? "你的补充" : "标签助手").font(.caption.weight(.semibold)).foregroundStyle(NativeTheme.accent)
-                    Text(message.content).textSelection(.enabled)
-                }.padding(.vertical, 5)
-            }
-            ForEach(suggestions.options, id: \.self) { option in Button(option) { store.answer = option }.disabled(store.busy) }
-            TextField("补充场景、活动等信息，帮助完善标签", text: $store.answer, axis: .vertical).lineLimit(3...10).disabled(store.busy)
-            Button("补充信息并更新标签") { Task { await store.reply() } }
-                .buttonStyle(NativeActionStyle()).disabled(store.busy || store.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.answer.count > 2000)
-        } header: { Text("标签补充信息") }
-    }
-    private func tagSection(_ state: MemoryInterviewState, _ suggestions: MemoryInterviewState.Suggestions) -> some View {
-        Section {
-            ForEach(suggestions.tags) { tag in
-                Toggle(isOn: Binding(get: { store.tags.contains(tag.name) }, set: { enabled in
-                    store.tags.removeAll { $0 == tag.name }; if enabled { store.tags.append(tag.name) }; store.tagsEdited = true
-                })) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(tag.name)
-                        Text("\(tag.sourceLabel) · \(tag.evidence)").font(.caption).foregroundStyle(.secondary)
-                    }
-                }.disabled(store.busy)
-            }
-            if suggestions.tags.isEmpty { Text("现有信息不足以推荐新标签，可继续补充或手动添加。").font(.caption).foregroundStyle(.secondary) }
-            TextField("补充标签", text: $store.extraTag).disabled(store.busy)
-            Button("添加标签") { store.addTag() }.disabled(store.busy || store.extraTag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.extraTag.count > 80)
-            ForEach(store.tags.filter { selected in !suggestions.tags.contains { $0.name == selected } }, id: \.self) { tag in
-                HStack { Text(tag); Spacer(); Button("移除") { store.tags.removeAll { $0 == tag }; store.tagsEdited = true }.disabled(store.busy) }
-            }
-            if let tags = state.media.tags, !tags.isEmpty { Text("已有标签 · " + tags.joined(separator: "、")).font(.caption).foregroundStyle(.secondary) }
-        } header: { Text("推荐标签") } footer: { Text("勾选要保存的标签，每项显示推荐依据。") }
-    }
-}
-
-private struct NativeOrganizationReviewSections: View {
-    @ObservedObject var store: NativeMemoryReviewStore
-    let preview: (NativeTimelineItem, Double?) -> Void
-    let onUpdated: () -> Void
-    var body: some View {
-        Section {
-            Text("标签自动写入，明确匹配的人物自动关联。查看来源后可保留、修改或撤回；所有处理都有记录。")
-                .font(.subheadline).foregroundStyle(.secondary)
+            if !store.notice.isEmpty { Text(store.notice).foregroundStyle(NativeTheme.accent) }
             if store.organizationSettings != nil {
-                DisclosureGroup("自动整理与我的习惯") {
-                    Toggle("自动打标签并进入审核列表", isOn: Binding(get: { store.organizationSettings?.tags_enabled == true }, set: { store.organizationSettings?.tags_enabled = $0 })).disabled(store.busy)
-                    Toggle("自动关联明确匹配的人物与宠物并记录", isOn: Binding(get: { store.organizationSettings?.people_enabled == true }, set: { store.organizationSettings?.people_enabled = $0 })).disabled(store.busy)
-                    Text("审核时勾选“以后按这次处理”，记住标签用词或人物处理方式。自动通过的结果仍可复审。")
+                Section("自动整理") {
+                    Toggle("自动添加标签", isOn: Binding(get: { store.organizationSettings?.tags_enabled == true }, set: { store.organizationSettings?.tags_enabled = $0 })).disabled(store.busy)
+                    Toggle("自动确认明确匹配的人物与宠物", isOn: Binding(get: { store.organizationSettings?.people_enabled == true }, set: { store.organizationSettings?.people_enabled = $0 })).disabled(store.busy)
+                    Text("标签开启后自动保存并确认，无需人工审核。你仍可修改或撤回已保存的结果。")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach((store.organizationSettings?.tag_rules.keys.sorted() ?? []), id: \.self) { source in
                         if let rule = store.organizationSettings?.tag_rules[source] {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("\(source) → \(rule.mode == "skip" ? "不再添加" : rule.mode == "manual" ? "先审核" : "自动通过") \(rule.target)").font(.subheadline)
+                                Text("\(source) → \(rule.mode == "skip" ? "不再添加" : "自动确认") \(rule.target)").font(.subheadline)
                                 Button("移除习惯") { store.organizationSettings?.tag_rules.removeValue(forKey: source) }.disabled(store.busy)
                             }
                         }
@@ -391,16 +285,32 @@ private struct NativeOrganizationReviewSections: View {
                             Button("移除习惯") { store.organizationSettings?.person_rules.removeValue(forKey: id) }.disabled(store.busy)
                         }
                     }
-                    Button("保存整理习惯") { Task { await store.saveOrganizationSettings() } }.disabled(store.busy)
+                    Button("保存设置") { Task { await store.saveOrganizationSettings() } }.disabled(store.busy)
                 }
             }
+
+        }
+        .navigationTitle("自动整理设置").navigationBarTitleDisplayMode(.inline)
+        .task { await store.loadOrganizationSettings() }
+    }
+}
+
+private struct NativeOrganizationReviewSections: View {
+    @ObservedObject var store: NativeMemoryReviewStore
+    let preview: (NativeTimelineItem, Double?) -> Void
+    let onUpdated: () -> Void
+    var body: some View {
+        Section {
+            Text("标签自动保存并确认，无需逐条处理。人物与宠物仍可核对；所有结果都保留记录。")
+                .font(.subheadline).foregroundStyle(.secondary)
+            NavigationLink("自动整理设置") { NativeOrganizationSettingsView(session: store.session) }
             Picker("记录类型", selection: $store.organizationKind) {
                 Text("全部类型").tag(""); Text("标签").tag("tags"); Text("人物").tag("face"); Text("宠物").tag("pet")
             }.disabled(store.busy)
-            if let queue = store.organizationQueue { LabeledContent("待审核", value: "\(queue.pending) 条") }
+            if let queue = store.organizationQueue { LabeledContent("待核对人物与宠物", value: "\(queue.pending) 条") }
             Button("立即整理一批") { Task { await store.organizeBatch(); onUpdated() } }
                 .disabled(store.busy || store.organizationSettings?.tags_enabled != true)
-        } header: { Text("自动整理审核") }
+        } header: { Text("自动整理记录") }
         if let queue = store.organizationQueue {
             if !queue.errors.isEmpty {
                 Section("分析未完成") {
@@ -509,8 +419,10 @@ private struct NativeOrganizationReviewCard: View {
         Text("当前影像标签 · " + ((entry.media.tags ?? []).isEmpty ? "无" : entry.media.tags!.joined(separator: "、"))).font(.caption).foregroundStyle(.secondary)
     }
     @ViewBuilder private var actions: some View {
-        Button("保留结果") { submit("approve") }.buttonStyle(NativeActionStyle(kind: .primary))
-            .disabled(busy || (entry.kind != "tags" && person != (entry.current.child_id ?? 0)))
+        if entry.kind != "tags" {
+            Button("保留结果") { submit("approve") }.buttonStyle(NativeActionStyle(kind: .primary))
+                .disabled(busy || person != (entry.current.child_id ?? 0))
+        }
         Button("保存修改") { submit("correct") }.buttonStyle(NativeActionStyle()).disabled(busy)
         Button("撤回这次结果", role: .destructive) { submit("reject") }.buttonStyle(NativeActionStyle()).disabled(busy)
     }
@@ -521,72 +433,151 @@ private struct NativeCurationView: View {
     let onUpdated: () -> Void
     @State private var previewing: NativeTimelineItem?
     @State private var seconds: Double?
+    @State private var choosingAlbums = false
+    @State private var pendingAction: String?
     init(session: NativeSession, onUpdated: @escaping () -> Void) {
         _store = StateObject(wrappedValue: NativeCurationStore(session: session)); self.onUpdated = onUpdated
     }
     var body: some View {
         List {
             Section {
-                Text("按整份影像整理，一次选择，批量归档。").font(.headline)
-                Text("已有相册关联直接沿用，未归档也不影响浏览。同组只表示内容重复或拍摄时间接近。").font(.caption).foregroundStyle(.secondary)
-                Picker("显示", selection: $store.scope) {
-                    Text("尚未归档").tag("unfiled")
-                    Text("全部影像").tag("all")
-                    Text("已处理和略过").tag("handled")
-                }.disabled(store.busy)
+                Text("选中照片，再添加到家人或宠物相册。").font(.headline)
+                Text("照片和视频仍保留在时间线，已有相册也会保留。")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Picker("查看", selection: $store.scope) {
+                    Text("待整理").tag("unfiled")
+                    Text("全部照片和视频").tag("all")
+                    Text("已完成或暂不整理").tag("handled")
+                }.disabled(store.busy || !store.selected.isEmpty)
                 if let queue = store.queue {
-                    Text("\(queue.unfiled_media) 份未归档 · 当前共 \(queue.group_count) 组").font(.subheadline)
+                    Text("还有 \(queue.unfiled_media) 项待整理").font(.caption).foregroundStyle(.secondary)
+                }
+                NavigationLink {
+                    NativeMemoryReviewView(session: store.session, onUpdated: onUpdated)
+                } label: { Label("通过人脸确认家人和宠物", systemImage: "person.crop.rectangle") }
+            }
+            if store.busy { Section { ProgressView(store.reviewing ? "正在检查清晰度…" : "正在加载…") } }
+            if !store.error.isEmpty {
+                Section {
+                    Text(store.error).foregroundStyle(.red)
+                    Button("重新加载") { Task { await store.load() } }.disabled(store.busy)
                 }
             }
-            if store.busy { Section { ProgressView("正在处理…") } }
-            if !store.error.isEmpty { Section { Text(store.error).foregroundStyle(.red); Button("重新加载") { Task { await store.load() } }.disabled(store.busy) } }
-            if !store.notice.isEmpty { Section { Text(store.notice).foregroundStyle(NativeTheme.accent) } }
-            selectionSection
+            if !store.notice.isEmpty || store.undoToken != nil {
+                Section {
+                    if !store.notice.isEmpty { Label(store.notice, systemImage: "checkmark.circle").foregroundStyle(NativeTheme.accent) }
+                    if store.undoToken != nil {
+                        Button("撤销上次整理") { Task { await store.undo(); onUpdated() } }.disabled(store.busy)
+                    }
+                }
+            }
+            if !store.pageIDs.isEmpty {
+                Section {
+                    Button(store.pageIDs.allSatisfy { store.selected.contains($0) } ? "取消选择本页" : "选择本页全部") {
+                        store.toggle(store.pageIDs)
+                    }.disabled(store.busy)
+                } footer: {
+                    Text("按拍摄时间或重复内容分组，展开后可以逐项选择。")
+                }
+            }
             ForEach(store.queue?.items ?? []) { group in
                 NativeCurationGroupCard(group: group, store: store) { item, representative in
                     seconds = representative ? item.quality?.representativeSeconds : nil; previewing = item.media
                 }
             }
-            if store.queue?.items.isEmpty == true && !store.busy {
-                Section { Text("这里没有需要整理的影像，可切换全部影像或继续浏览相册。") }
+            if store.queue?.items.isEmpty == true && !store.busy && store.error.isEmpty {
+                Section { Label("这里已整理好，可以切换范围查看其他照片。", systemImage: "checkmark.circle") }
             }
-            Section {
-                HStack {
-                    Button("上一页") { Task { await store.page(next: false) } }.disabled(store.busy || store.history.isEmpty)
-                    Spacer()
-                    Button("下一页") { Task { await store.page(next: true) } }.disabled(store.busy || store.queue?.next_cursor == nil)
+            if !store.history.isEmpty || store.queue?.next_cursor != nil {
+                Section {
+                    HStack {
+                        Button("上一页") { Task { await store.page(next: false) } }.disabled(store.busy || store.history.isEmpty || !store.selected.isEmpty)
+                        Spacer()
+                        Button("下一页") { Task { await store.page(next: true) } }.disabled(store.busy || store.queue?.next_cursor == nil || !store.selected.isEmpty)
+                    }
+                    if !store.selected.isEmpty { Text("先处理或取消当前选择，再翻页。").font(.caption).foregroundStyle(.secondary) }
                 }
-                NavigationLink("智能打标签") { NativeMemoryReviewView(session: store.session, tab: .memories, onUpdated: onUpdated) }
-                NavigationLink("标签与处理记录") { NativeMemoryReviewView(session: store.session, tab: .organization, onUpdated: onUpdated) }
             }
         }
-        .navigationTitle("相册整理").navigationBarTitleDisplayMode(.inline)
+        .listStyle(.insetGrouped).scrollContentBackground(.hidden).background(NativeTheme.background)
+        .navigationTitle("整理到家人相册").navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom, spacing: 0) { if !store.selected.isEmpty { selectionBar } }
         .task { await store.load() }
         .onChange(of: store.scope) { _ in Task { await store.load(reset: true) } }
         .refreshable { if !store.busy { await store.load() } }
         .onDisappear { store.stopRequested = true }
+        .nativeSheet(isPresented: $choosingAlbums) { albumSheet }
+        .confirmationDialog(pendingAction == "done" ? "这些照片已经整理好了吗？" : "暂不整理这些照片？", isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
+            Button(pendingAction == "done" ? "标记已整理" : "暂不整理") {
+                let action = pendingAction ?? "ignore"; pendingAction = nil
+                Task { await store.save(action: action); onUpdated() }
+            }
+            Button("取消", role: .cancel) { pendingAction = nil }
+        } message: {
+            Text(pendingAction == "done" ? "所选 \(store.selected.count) 项会移出待整理列表，不改变所属相册。可以撤销。" : "所选 \(store.selected.count) 项会移出待整理列表，照片仍在时间线和原相册中。可以撤销。")
+        }
         .nativeSheet(item: $previewing) { media in
             NativeMediaDetail(session: store.session, initial: media, profiles: store.profiles, pagePosition: nil, previous: nil, next: nil,
                 onSaved: { Task { await store.load(); onUpdated() } }, onDeleted: { previewing = nil; Task { await store.load(); onUpdated() } }, onLocate: nil, initialPlaybackSeconds: seconds)
         }
     }
-    private var selectionSection: some View {
-        Section("已选 \(store.selected.count) 份影像") {
-            Button("选择／取消本页") { store.toggle(store.pageIDs) }.disabled(store.busy || store.pageIDs.isEmpty)
-            DisclosureGroup("添加到人物／宠物相册（已选 \(store.selectedProfiles.count) 个）") {
-                ForEach(store.profiles) { profile in
-                    Toggle(profile.name, isOn: Binding(get: { store.selectedProfiles.contains(profile.id) }, set: { value in
-                        if value { store.selectedProfiles.insert(profile.id) } else { store.selectedProfiles.remove(profile.id) }
-                    })).disabled(store.busy)
+    private var selectionBar: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Text("已选 \(store.selected.count) 项").font(.subheadline.weight(.semibold))
+                Spacer()
+                Button("取消选择") { store.selected = []; store.selectedProfiles = [] }.disabled(store.busy)
+                Menu {
+                    Button("已经整理好") { pendingAction = "done" }
+                    Button("暂不整理") { pendingAction = "ignore" }
+                    Button("检查照片清晰度") { Task { await store.reviewQuality() } }
+                        .disabled(store.queue?.quality_enabled != true || store.selected.count > 20)
+                } label: { Label("更多", systemImage: "ellipsis.circle") }.disabled(store.busy)
+            }.font(.subheadline)
+            if store.reviewing {
+                Button("停止后续检查") { store.stopRequested = true }
+            } else {
+                Button { choosingAlbums = true } label: { Text("下一步：选择相册").frame(maxWidth: .infinity) }
+                    .buttonStyle(NativeActionStyle(kind: .primary)).disabled(store.busy)
+            }
+        }.padding(.horizontal, 16).padding(.vertical, 12).background(.bar)
+    }
+    private var albumSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("将 \(store.selected.count) 项照片和视频添加到哪些相册？").font(.headline)
+                    Text("可以选择多个家人或宠物。已有相册不会被替换。")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                Section("选择相册") {
+                    ForEach(store.profiles) { profile in
+                        Toggle(profile.name, isOn: Binding(get: { store.selectedProfiles.contains(profile.id) }, set: { value in
+                            if value { store.selectedProfiles.insert(profile.id) } else { store.selectedProfiles.remove(profile.id) }
+                        })).disabled(store.busy)
+                    }
+                    if store.profiles.isEmpty { Text("还没有家人或宠物档案，请先到“家人”页面添加。").foregroundStyle(.secondary) }
+                }
+                if !store.error.isEmpty { Section { Text(store.error).foregroundStyle(.red) } }
+                if !store.selectedProfiles.isEmpty {
+                    Section("保存后") {
+                        Text("\(store.selected.count) 项将加入：\(store.selectedAlbumNames)。")
+                        Text("同时标记为已整理。返回后可撤销这次操作。").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
-            Button("添加关联并完成") { Task { await store.save(action: "add"); onUpdated() } }.disabled(store.busy || store.selected.isEmpty || store.selectedProfiles.isEmpty)
-            Button("标记整理完成") { Task { await store.save(action: "done"); onUpdated() } }.disabled(store.busy || store.selected.isEmpty)
-            Button("略过所选（保留原片）") { Task { await store.save(action: "ignore"); onUpdated() } }.disabled(store.busy || store.selected.isEmpty)
-            Button("大模型画质复核") { Task { await store.reviewQuality() } }.disabled(store.busy || store.selected.isEmpty || store.queue?.quality_enabled != true)
-            if store.reviewing { Button("停止后续复核") { store.stopRequested = true } }
-            if store.undoToken != nil { Button("撤销上次整理") { Task { await store.undo(); onUpdated() } }.disabled(store.busy) }
-        }
+            .navigationTitle("选择相册").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("返回选照片") { choosingAlbums = false }.disabled(store.busy) } }
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    Task { if await store.save(action: "add") { choosingAlbums = false; onUpdated() } }
+                } label: {
+                    HStack { if store.busy { ProgressView() }; Text(store.busy ? "正在保存…" : "添加到相册") }.frame(maxWidth: .infinity)
+                }.buttonStyle(NativeActionStyle(kind: .primary))
+                    .disabled(store.busy || store.selectedProfiles.isEmpty || store.selected.isEmpty)
+                    .padding(16).background(.bar)
+            }
+        }.nativeInteractiveDismissDisabled(store.busy)
     }
 }
 private struct NativeCurationGroupCard: View {
@@ -594,26 +585,34 @@ private struct NativeCurationGroupCard: View {
     @ObservedObject var store: NativeCurationStore
     let preview: (NativeCurationItem, Bool) -> Void
     @State private var expanded = false
+    private var selectedCount: Int { group.items.filter { store.selected.contains($0.id) }.count }
     var body: some View {
         Section {
-            Button { store.toggle(group.items.map(\.id)) } label: {
-                Label("\(group.label) · \(group.items.count) 份", systemImage: group.items.allSatisfy { store.selected.contains($0.id) } ? "checkmark.square.fill" : "square")
-            }.disabled(store.busy)
-            if group.items.count > 1 { Button(expanded ? "收起" : "展开检查") { expanded.toggle() } }
+            if group.items.count > 1 {
+                Button { store.toggle(group.items.map(\.id)) } label: {
+                    Label("\(group.label) · \(group.items.count) 项 · 已选 \(selectedCount)", systemImage: selectedCount == group.items.count ? "checkmark.square.fill" : selectedCount == 0 ? "square" : "minus.square.fill")
+                }.disabled(store.busy)
+                Button(expanded ? "收起照片" : "展开全部 \(group.items.count) 项") { expanded.toggle() }
+            }
             ForEach(expanded ? group.items : Array(group.items.prefix(1))) { item in
                 VStack(alignment: .leading, spacing: 10) {
-                    Toggle(item.media.title?.isEmpty == false ? item.media.title! : "未命名影像", isOn: Binding(get: { store.selected.contains(item.id) }, set: { _ in store.toggle([item.id]) })).disabled(store.busy)
                     Button { preview(item, item.quality != nil) } label: {
                         if let quality = item.quality, let raw = quality.thumbnail.split(separator: ",").last, let data = Data(base64Encoded: String(raw)), let image = UIImage(data: data) {
-                            Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220).accessibilityLabel("代表画面")
-                        } else if let file = item.media.files?.first(where: { $0.file_role == "original" }) {
+                            Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220)
+                        } else if let file = item.media.primary {
                             NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id).frame(height: 180).clipped()
+                        } else {
+                            Image(systemName: "photo").font(.largeTitle).frame(maxWidth: .infinity).frame(height: 100).foregroundStyle(.secondary)
                         }
-                    }.buttonStyle(.plain)
-                    Text("已关联：" + ((item.media.child_ids ?? []).compactMap { id in store.profiles.first { $0.id == id }?.name }.joined(separator: "、"))).font(.caption).foregroundStyle(.secondary)
+                    }.buttonStyle(.plain).accessibilityLabel("预览\(item.media.label)")
+                    Toggle(item.media.title?.isEmpty == false ? item.media.title! : item.media.day + (item.media.media_type == "video" ? " 视频" : " 照片"), isOn: Binding(get: { store.selected.contains(item.id) }, set: { _ in store.toggle([item.id]) })).disabled(store.busy)
+                    let names = (item.media.child_ids ?? []).compactMap { id in store.profiles.first { $0.id == id }?.name }
+                    Text(names.isEmpty ? "还未加入家人相册" : "所在相册：" + names.joined(separator: "、")).font(.caption).foregroundStyle(.secondary)
                     if let quality = item.quality {
-                        ForEach(quality.frames) { frame in Text("\(frame.clarity)/5 · \(frame.reason)").font(.caption).foregroundStyle(.secondary) }
-                        Button("查看原影像") { preview(item, false) }
+                        DisclosureGroup("清晰度检查结果") {
+                            ForEach(quality.frames) { frame in Text("清晰度 \(frame.clarity)/5 · \(frame.reason)").font(.caption).foregroundStyle(.secondary) }
+                            Button("查看原照片或视频") { preview(item, false) }
+                        }
                     }
                 }.padding(.vertical, 6)
             }

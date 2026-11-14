@@ -8,25 +8,14 @@ final class MemoryReviewCredentials: SessionCredentialStore {
 final class MemoryReviewHTTP: URLProtocol {
     static var requests: [URLRequest] = []
     static var failWrites = false
+    static var failCurationReads = false
     static var role = "admin"
     static var empty = false
-    static var started = false
-    static var includeAutoCounts = true
-    static var completed = false
-    static var answers: [String] = []
+    static var omitConfirmationCounts = false
     static let media: [String: Any] = ["id": 42, "title": "公园里的周末", "media_type": "photo", "timeline_day": "2026-11-01", "tags": ["周末"], "remark": "原有小记", "child_ids": [7], "files": []]
     static let candidate: [String: Any] = ["child_id": 7, "name": "家人甲", "similarity": 0.91, "reference_thumbnail": ""]
     static var face: [String: Any] { ["id": 21, "thumbnail": "", "child_id": NSNull(), "ignored": false, "frame_seconds": 2.5, "auto_assigned": false, "candidates": [candidate], "media": media] }
     static var dog: [String: Any] { ["index": 0, "thumbnail": "", "appearance": "浅色毛、垂耳的小狗", "child_id": NSNull(), "ignored": false, "frame_seconds": NSNull(), "candidates": [["child_id": 8, "name": "多多", "similarity": 0.88, "reference_thumbnail": ""]]] }
-    static var interview: [String: Any] {
-        var messages: [[String: String]] = started ? [["role": "assistant", "content": "还记得是谁提议这次去公园的吗？"]] : []
-        for answer in answers { messages += [["role": "user", "content": answer], ["role": "assistant", "content": "那天还有什么值得留下的小插曲？"]] }
-        return ["media": media, "description": "家人在公园散步，旁边有一只浅色小狗。", "confirmed_people": ["家人甲"], "confirmed_pets": ["多多"],
-                "identity_questions": [["face_id": 21, "question": "这张脸可能是家人甲，是本人吗？"]], "faces": [face], "face_enabled": true, "face_ready": true,
-                "messages": messages, "status": completed ? "completed" : started ? "draft" : "not_started", "outdated": false,
-                "suggestions": started ? ["question": "还记得是谁提议这次去公园的吗？", "options": ["家人提议的", "临时决定的", "暂时不记得"], "story": answers.joined(separator: "\n"),
-                    "tags": [["name": "公园散步", "source": "visual", "evidence": "公园散步"]]] as Any : NSNull()]
-    }
     static let organizationSettings: [String: Any] = ["tags_enabled": true, "people_enabled": true, "tag_rules": [String: String](), "person_rules": [String: String]()]
     static var organizationEntry: [String: Any] {
         ["id": 31, "auto_linked": 2, "auto_reset": 0, "kind": "tags", "status": "pending", "automatic": true, "media": media,
@@ -52,10 +41,13 @@ final class MemoryReviewHTTP: URLProtocol {
         let writing = request.httpMethod != "GET"
         var response: Any = [String: String]()
         var status = 200
-        if Self.failWrites && writing { status = 503; response = ["detail": "模拟保存失败"] }
+        if Self.failCurationReads && path == "/curation/groups" { status = 503; response = ["detail": "模拟刷新失败"] }
+        else if Self.failWrites && writing { status = 503; response = ["detail": "模拟保存失败"] }
         else {
             switch path {
             case "/auth/me": response = ["id": 1, "username": "演示管理员", "role": Self.role, "csrf_token": "synthetic-csrf"]
+            case "/ai-search/status": response = ["enabled": true, "total": 1, "indexed": 1, "failed": 0]
+            case "/ai-search": response = ["items": [Self.media], "indexed": 1]
             case "/children": response = [["id": 7, "name": "家人甲", "nickname": "", "profile_type": "person"], ["id": 8, "name": "多多", "nickname": "", "profile_type": "pet", "species": "狗"]]
             case "/curation/groups": response = ["items": [["key": "42", "kind": "single", "items": [["media": Self.media, "quality": NSNull()]]]], "next_cursor": NSNull(), "group_count": 1, "unfiled_media": 1, "total_media": 1, "quality_enabled": true]
             case "/curation/batch": response = ["count": 1, "undo_token": "synthetic-batch"]
@@ -64,17 +56,12 @@ final class MemoryReviewHTTP: URLProtocol {
             case "/faces/review": response = ["enabled": true, "ready": true, "message": "", "items": Self.empty ? [] : [Self.face], "next_cursor": Self.empty ? NSNull() : 21,
                 "pending_faces": Self.empty ? 0 : 12, "pending_memories": 8, "unanalysed_photos": 0, "auto_link_enabled": true]
             case "/pets/review": response = ["items": Self.empty ? [] : [["media": Self.media, "dogs": [Self.dog]]], "pending_pets": Self.empty ? 0 : 3, "unanalysed_media": 0, "next_cursor": NSNull()]
-            case "/memory-interviews": response = ["items": Self.empty ? [] : [Self.media], "next_cursor": NSNull()]
-            case "/memory-interviews/42/prepare": Self.started = true; Self.completed = false; response = Self.interview
-            case "/memory-interviews/42/reply": Self.answers.append(Self.body(request)["answer"] as! String); response = Self.interview
-            case "/memory-interviews/42/apply": Self.completed = true; response = Self.interview
-            case "/memory-interviews/42", "/memory-interviews/42/people": response = Self.interview
             case "/organization/settings": response = Self.organizationSettings
             case "/organization/reviews": response = ["items": Self.empty ? [] : [Self.organizationEntry], "pending": 1, "next_cursor": NSNull(), "errors": []]
             case "/organization/reviews/31": response = Self.organizationEntry
             case "/organization/run": response = ["processed": 3, "busy": false]
             case "/faces/auto-link": response = ["linked_faces": 2, "reset_faces": 1]
-            case "/faces/media/42/confirm": response = Self.includeAutoCounts ? ["auto_linked": 2, "auto_reset": 1] : [:]
+            case "/faces/media/42/confirm": response = Self.omitConfirmationCounts ? [:] : ["auto_linked": 2, "auto_reset": 1]
             case "/faces/analyze-next", "/pets/analyze-next": response = ["processed": [42], "failed": []]
             case "/media/42": response = Self.media
             case "/timeline": response = ["items": [], "total": 0]

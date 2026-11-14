@@ -6,14 +6,13 @@ private final class MockHTTP: URLProtocol {
     static var requests: [URLRequest] = []
     static var role = "member"
     static var authenticated = true
-    static var capable = true
     static var invalidUpload = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.lock.lock()
         Self.requests.append(request)
-        let role = Self.role, authenticated = Self.authenticated, capable = Self.capable
+        let role = Self.role, authenticated = Self.authenticated
         Self.lock.unlock()
         var status = 200, headers = ["Content-Type": "application/json"], body = "{}"
         switch request.url!.path {
@@ -23,7 +22,6 @@ private final class MockHTTP: URLProtocol {
         case "/yearly/api/uploads":
             if request.httpMethod == "GET" {
                 body = "[]"
-                if capable { headers["X-Yearly-Upload-Protocol"] = "idempotent-v1" }
             } else if Self.invalidUpload {
                 status = 422
                 body = #"{"detail":[{"type":"string_too_long","loc":["body","batch_name"],"ctx":{"max_length":255},"input":"private-input-must-not-appear"}]}"#
@@ -37,9 +35,9 @@ private final class MockHTTP: URLProtocol {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() { }
-    static func reset(role: String = "member", authenticated: Bool = true, capable: Bool = true) {
+    static func reset(role: String = "member", authenticated: Bool = true) {
         lock.lock(); defer { lock.unlock() }
-        requests = []; self.role = role; self.authenticated = authenticated; self.capable = capable
+        requests = []; self.role = role; self.authenticated = authenticated
     }
     static func captured() -> [URLRequest] { lock.lock(); defer { lock.unlock() }; return requests }
 }
@@ -62,7 +60,7 @@ private final class MockHTTP: URLProtocol {
         let result = try await api.create(body: Data("{}".utf8), key: key)
         precondition(result.duplicate == true && result.media_id == 42)
         let requests = MockHTTP.captured()
-        precondition(requests.map { $0.url!.path } == ["/yearly/api/auth/me", "/yearly/api/uploads", "/yearly/api/uploads"])
+        precondition(requests.map { $0.url!.path } == ["/yearly/api/auth/me", "/yearly/api/uploads"])
         let create = requests.last!
         precondition(create.value(forHTTPHeaderField: "Cookie") == "yearly_session=synthetic-session")
         precondition(create.value(forHTTPHeaderField: "Origin") == "https://yearly.invalid")
@@ -92,8 +90,8 @@ private final class MockHTTP: URLProtocol {
         } catch let error as UploadHTTPError {
             precondition(error.status == 403 && sent == 0, "failed PUT clears uncommitted progress")
         }
-        for (role, authenticated, capable) in [("viewer", true, true), ("member", false, true), ("member", true, false)] {
-            MockHTTP.reset(role: role, authenticated: authenticated, capable: capable)
+        for (role, authenticated) in [("viewer", true), ("member", false)] {
+            MockHTTP.reset(role: role, authenticated: authenticated)
             do { _ = try await api.create(body: Data("{}".utf8), key: key); fatalError("Must reject before create") }
             catch { precondition(!MockHTTP.captured().contains { $0.httpMethod == "POST" }) }
         }
@@ -106,6 +104,6 @@ private final class MockHTTP: URLProtocol {
         let noCookie = UploadAPI(site: site, ownerID: 1, cookieProvider: { [wrong] }, session: session)
         do { _ = try await noCookie.create(body: Data("{}".utf8), key: key); fatalError("Must reject wrong-origin cookie") }
         catch { precondition(MockHTTP.captured().isEmpty) }
-        print("Passed native HTTP mock checks: Cookie/CSRF/Origin, OSS credential isolation, role/session/account checks, old-server preflight.")
+        print("Passed native HTTP mock checks: Cookie/CSRF/Origin, OSS credential isolation, role/session/account checks, current idempotent upload contract.")
     }
 }

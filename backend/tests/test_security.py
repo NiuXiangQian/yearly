@@ -169,7 +169,6 @@ def test_prefixed_session_is_secure_and_removed_on_logout(context, monkeypatch):
     assert "Secure" in response.headers["set-cookie"]
     uploads = client.get("/yearly/api/uploads")
     assert uploads.status_code == 200
-    assert uploads.headers["X-Yearly-Upload-Protocol"] == "idempotent-v1"
     assert client.get("/api/uploads").status_code == 401
     client.headers["X-CSRF-Token"] = response.json()["csrf_token"]
     logout = client.post("/yearly/api/auth/logout", json={})

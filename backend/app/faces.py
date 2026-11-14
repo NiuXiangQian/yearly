@@ -118,7 +118,7 @@ def result(db, media):
     index = db.get(MediaFaceIndex, media.id)
     rows = db.scalars(select(MediaFace).where(MediaFace.media_id == media.id).order_by(MediaFace.id)).all()
     items, references = face_items(db, rows, index is not None and index.model == MODEL_VERSION)
-    return dict(**availability(), analyzed=index is not None, faces=items, refresh_supported=True,
+    return dict(**availability(), analyzed=index is not None, faces=items,
                 reference_people=len({person.id for sample, person in references if sample.media_id != media.id}),
                 child_ids=list(db.scalars(select(MediaChild.child_id).where(MediaChild.media_id == media.id))))
 

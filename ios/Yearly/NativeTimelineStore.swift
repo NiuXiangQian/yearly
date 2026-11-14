@@ -74,7 +74,6 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var files: [NativeMediaFile]?
     var children: [UploadProfile]?
     var child_ids: [Int]?
-    var interview_status: String?
     var media_position: NativeMediaPosition?
     var stableID: String { "\(kind ?? "media")-\(id)" }
     var label: String { [title, batch_name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "珍藏的瞬间" }
@@ -173,7 +172,6 @@ struct NativeTimelineScale {
     @Published private(set) var uploadersError = ""
     @Published private(set) var uploadersLoading = false
     @Published var selected: Set<Int> = []
-    @Published var search = ""
     @Published var mediaType = ""
     @Published var ascending = false
     @Published private(set) var byUpload = false { didSet { groupedCache = nil } }
@@ -218,11 +216,11 @@ struct NativeTimelineScale {
     }
     private var filterKey: String {
         if showingUploads { return "uploads|\(uploadedMediaIDs)" }
-        return "\(uploaderID ?? 0)|\(selected.sorted())|\(search)|\(mediaType)|\(ascending)|\(byUpload)|\(anchorMediaID ?? 0)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
+        return "\(uploaderID ?? 0)|\(selected.sorted())|\(mediaType)|\(ascending)|\(byUpload)|\(anchorMediaID ?? 0)|\(useDateRange)|\(NativeDay.string(startDate))|\(NativeDay.string(endDate))"
     }
     var queryKey: String { filterKey + "|" + (anchorDay ?? "") }
-    var hasFilters: Bool { uploaderID != nil || !selected.isEmpty || !search.isEmpty || !mediaType.isEmpty || useDateRange }
-    func resetFilters() { uploaderID = nil; selected = []; search = ""; mediaType = ""; useDateRange = false }
+    var hasFilters: Bool { uploaderID != nil || !selected.isEmpty || !mediaType.isEmpty || useDateRange }
+    func resetFilters() { uploaderID = nil; selected = []; mediaType = ""; useDateRange = false }
 
     @Published var loading = false
     @Published var error = ""
@@ -328,8 +326,6 @@ struct NativeTimelineScale {
         }
         if let anchorMediaID { params.append(URLQueryItem(name: "anchor_media_id", value: String(anchorMediaID))) }
         if let anchorDay { params.append(URLQueryItem(name: "anchor_day", value: anchorDay)) }
-        let queryText = String(search.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
-        if !queryText.isEmpty { params.append(URLQueryItem(name: "q", value: queryText)) }
         if ["photo", "video", "live_photo"].contains(mediaType) { params.append(URLQueryItem(name: "media_type", value: mediaType)) }
         if let uploaderID { params.append(URLQueryItem(name: "owner_id", value: String(uploaderID))) }
         params += selected.sorted().map { URLQueryItem(name: "child_id", value: String($0)) }

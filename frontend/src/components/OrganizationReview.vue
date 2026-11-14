@@ -20,7 +20,7 @@ const pending = ref(0), before = ref<number>(), next = ref<number | null>(), his
 const busy = ref(false), error = ref(""), notice = ref(""), failures = ref<{ media_id: number; message: string }[]>([]), preview = ref<Entry>();
 const labels = ref<Record<number, Record<string, string>>>({}), enabled = ref<Record<number, Record<string, boolean>>>({}), people = ref<Record<number, string>>({}), remember = ref<Record<number, boolean>>({});
 const eventTime = (value: string) => new Date(value + "Z").toLocaleString(undefined, { timeZone: "Asia/Shanghai" });
-const statusLabel = (value: string) => t(({ imported: "补录现有结果", applied: "自动写入", confirmed: "人工确认", pending: "待审核", automatic: "按习惯自动通过", approved: "已审核", corrected: "已修改", rejected: "已撤回", superseded: "已有后续修改" } as Record<string, string>)[value] ?? value);
+const statusLabel = (value: string) => t(({ imported: "补录现有结果", applied: "自动写入", confirmed: "人工确认", pending: "待审核", automatic: "已自动确认", approved: "已审核", corrected: "已修改", rejected: "已撤回", superseded: "已有后续修改" } as Record<string, string>)[value] ?? value);
 const personName = (entry: Entry, id?: number | null) => id ? yearly.children.find(p => p.id === id)?.name || entry.names[id] || `#${id}` : t("未关联");
 async function load(reset = false) {
   busy.value = true; error.value = "";
@@ -62,17 +62,17 @@ onMounted(() => load());
 </script>
 <template>
   <section class="organization-review" :aria-label="t('自动整理审核')">
-    <p>{{ t("标签自动写入，明确匹配的人物自动关联。先查看来源，再保留、修改或撤回；所有处理都有记录。") }}</p>
+    <p>{{ t("标签自动保存并确认，无需逐条处理。人物与宠物仍可核对；所有结果都保留记录。") }}</p>
     <p v-if="error" role="alert" class="notice">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <details v-if="options" class="habits"><summary>{{ t("自动整理与我的习惯") }}</summary>
-      <label><input type="checkbox" v-model="options.tags_enabled" :disabled="busy" />{{ t("自动打标签并进入审核列表") }}</label>
+      <label><input type="checkbox" v-model="options.tags_enabled" :disabled="busy" />{{ t("自动保存并确认标签，无需人工审核") }}</label>
       <label><input type="checkbox" v-model="options.people_enabled" :disabled="busy" />{{ t("自动关联明确匹配的人物与宠物并记录") }}</label>
       <p class="muted">{{ t("在审核时勾选“以后按这次处理”，记住标签用词或人物处理方式；自动通过的结果仍可在全部记录中复审。") }}</p>
-      <div v-for="(rule, source) in options.tag_rules" :key="source" class="habit-row"><span>{{ source }} → {{ t(rule.mode === 'skip' ? '不再添加' : rule.mode === 'manual' ? '先审核' : '自动通过') }} {{ rule.target }}</span><button class="button small" :disabled="busy" @click="delete options.tag_rules[source]">{{ t("移除习惯") }}</button></div>
+      <div v-for="(rule, source) in options.tag_rules" :key="source" class="habit-row"><span>{{ source }} → {{ t(rule.mode === 'skip' ? '不再添加' : '自动确认') }} {{ rule.target }}</span><button class="button small" :disabled="busy" @click="delete options.tag_rules[source]">{{ t("移除习惯") }}</button></div>
       <div v-for="(mode, id) in options.person_rules" :key="id" class="habit-row"><span>{{ yearly.children.find(p => p.id === Number(id))?.name || id }} · {{ t(mode === 'manual' ? '每次人工确认' : '明确匹配时自动通过') }}</span><button class="button small" :disabled="busy" @click="delete options.person_rules[id]">{{ t("移除习惯") }}</button></div>
       <button class="button primary" :disabled="busy" @click="saveSettings">{{ t("保存整理习惯") }}</button>
     </details>
-    <div class="review-toolbar"><label><input type="checkbox" v-model="all" :disabled="busy" @change="load(true)" />{{ t("全部记录，可复审修改") }}</label><select v-model="kind" :disabled="busy" :aria-label="t('记录类型')" @change="load(true)"><option value="">{{ t("全部类型") }}</option><option value="tags">{{ t("标签") }}</option><option value="face">{{ t("人物") }}</option><option value="pet">{{ t("宠物") }}</option></select><span>{{ t("{n} 条待审核", { n: pending }) }}</span><button class="button" :disabled="busy" @click="load()">{{ t("刷新") }}</button><button class="button" :disabled="busy || !options?.tags_enabled" @click="run()">{{ t("立即整理一批") }}</button></div>
+    <div class="review-toolbar"><label><input type="checkbox" v-model="all" :disabled="busy" @change="load(true)" />{{ t("全部记录，可复审修改") }}</label><select v-model="kind" :disabled="busy" :aria-label="t('记录类型')" @change="load(true)"><option value="">{{ t("全部类型") }}</option><option value="tags">{{ t("标签") }}</option><option value="face">{{ t("人物") }}</option><option value="pet">{{ t("宠物") }}</option></select><span>{{ t("{n} 条人物与宠物待核对", { n: pending }) }}</span><button class="button" :disabled="busy" @click="load()">{{ t("刷新") }}</button><button class="button" :disabled="busy || !options?.tags_enabled" @click="run()">{{ t("立即整理一批") }}</button></div>
     <div v-if="failures.length" class="notice"><p v-for="item in failures" :key="item.media_id">#{{ item.media_id }} · {{ item.message }}</p><button class="button" :disabled="busy" @click="run(true)">{{ t("重试失败影像") }}</button></div>
     <p v-if="busy" role="status">{{ t("正在处理，请稍候…") }}</p>
     <article v-for="entry in entries" :key="entry.id" class="organization-entry">
@@ -82,7 +82,7 @@ onMounted(() => load());
       <template v-else><p>{{ personName(entry, entry.before.child_id) }} → {{ personName(entry, entry.proposed.child_id) }}</p><p class="muted">{{ entry.evidence.reason }}<span v-if="entry.evidence.similarity != null"> · {{ t('相似度 {score}', { score: entry.evidence.similarity }) }}</span></p><select v-model="people[entry.id]" :disabled="busy" :aria-label="t('修改关联人物')"><option value="">{{ t("未关联") }}</option><option v-for="profile in yearly.children.filter(p => entry.kind === 'pet' ? p.profile_type === 'pet' && p.species === '狗' : p.profile_type !== 'pet')" :key="profile.id" :value="String(profile.id)">{{ profile.name }}</option></select></template>
       <p v-if="entry.status === 'superseded'" class="muted">{{ t("此记录已有后续修改，可打开来源查看当前结果。") }}</p>
       <label v-else class="remember"><input type="checkbox" v-model="remember[entry.id]" :disabled="busy" />{{ t("以后按这次处理") }}</label>
-      <div v-if="entry.status !== 'superseded'" class="review-actions"><button class="button primary" :disabled="busy || (entry.kind !== 'tags' && people[entry.id] !== String(entry.current.child_id ?? ''))" @click="review(entry, 'approve')">{{ t("保留结果") }}</button><button class="button" :disabled="busy" @click="review(entry, 'correct')">{{ t("保存修改") }}</button><button class="button danger" :disabled="busy" @click="review(entry, 'reject')">{{ t("撤回这次结果") }}</button></div>
+      <div v-if="entry.status !== 'superseded'" class="review-actions"><button v-if="entry.kind !== 'tags'" class="button primary" :disabled="busy || people[entry.id] !== String(entry.current.child_id ?? '')" @click="review(entry, 'approve')">{{ t("保留结果") }}</button><button class="button" :disabled="busy" @click="review(entry, 'correct')">{{ t("保存修改") }}</button><button class="button danger" :disabled="busy" @click="review(entry, 'reject')">{{ t("撤回这次结果") }}</button></div>
       <details><summary>{{ t("处理记录与依据") }} · {{ eventTime(entry.created_at) }}</summary><p v-if="entry.evidence.model">{{ entry.evidence.model }}</p><p v-if="entry.evidence.description">{{ entry.evidence.description }}</p><div v-for="(event, i) in entry.events" :key="i" class="history-event"><strong>{{ event.actor_name }} · {{ statusLabel(event.action) }}</strong><small>{{ eventTime(event.at) }}</small><p>{{ event.value.tags ? event.value.tags.join('、') || t('未添加标签') : personName(entry, event.value.child_id) }}<span v-if="event.value.remember"> · {{ t("已记住本次处理习惯") }}</span></p></div></details>
     </article>
     <p v-if="!busy && !entries.length">{{ t("当前没有待审核记录，可查看全部记录。") }}</p>

@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 class TagRule(BaseModel):
     target: str = Field(max_length=80)
-    mode: Literal["automatic", "manual", "skip"]
+    mode: Literal["automatic", "skip"]
 
 
 class SettingsIn(BaseModel):
@@ -227,16 +227,16 @@ def apply_automatic_tags(db, media, tags, description, model):
             continue
         added.append(label)
         evidence.append(dict(name=label, source_name=source_name, evidence=tag["evidence"], source=tag["source"],
-                             rule=rule["mode"] if rule else "default"))
+                             rule=rule["mode"] if rule else "automatic"))
     if not added:
         return
-    applied = [t["name"] for t in evidence if t["rule"] != "manual"][:max(0, 30-len(old))]
+    applied = added[:max(0, 30-len(old))]
     media.tags = list(dict.fromkeys([*old, *applied]))
-    status = "automatic" if len(applied) == len(added) and all(t["rule"] == "automatic" for t in evidence) else "pending"
+    status = "automatic"
     db.add(OrganizationReview(media_id=media.id, kind="tags", target_id=str(media.id), automatic=True, status=status,
-        before_value=dict(tags=old), proposed_value=dict(tags=added), current_value=dict(tags=applied, decisions={t: t for t in added}),
+        before_value=dict(tags=old), proposed_value=dict(tags=added), current_value=dict(tags=applied, decisions={t: t if t in applied else None for t in added}),
         evidence=dict(tags=evidence, description=description, model=model),
-        events=[review_event(db, "automatic" if status == "automatic" else "applied", dict(tags=applied))]))
+        events=[review_event(db, "automatic", dict(tags=applied))]))
     record_change(db, media, {"ai_tags": {"before": old, "after": media.tags}} if applied else {})
 
 
