@@ -175,7 +175,7 @@ struct NativeTimelineView: View {
                                            value: NativeTimelineLayout(height: geometry.size.height))
                 })
             }
-                .id(scrollRevision)
+                .id("\(scrollRevision)|\(store.anchorDay ?? "")")
                 .onPreferenceChange(NativeTimelineDayPositions.self) { layout in
                     viewport.days = layout.days
                     viewport.height = layout.height
@@ -195,18 +195,18 @@ struct NativeTimelineView: View {
                                 currentDay = day
                                 scrubDay = day
                                 collapsedMonths[String(day.prefix(7))] = false
-                                if dayFrames[day] != nil && store.items.contains(where: { store.groupDay($0) == day }) {
+                                if scrollLayoutReady && dayFrames[day] != nil && store.items.contains(where: { store.groupDay($0) == day }) {
                                     scrollToDay()
-                                } else if !store.loading { store.jump(to: day) }
+                                } else { store.jump(to: day) }
                             }) { day in
                                 currentDay = day
                                 scrubDay = day
                                 collapsedMonths[String(day.prefix(7))] = false
-                                if dayFrames[day] != nil && store.items.contains(where: { store.groupDay($0) == day }) {
+                                if scrollLayoutReady && dayFrames[day] != nil && store.items.contains(where: { store.groupDay($0) == day }) {
                                     scrollToDay()
                                 } else { store.jump(to: day) }
                             }
-                            .frame(height: geometry.size.height)
+                            .frame(height: max(0, geometry.size.height - NativeLiquidNavigation.height))
                         }.frame(width: 44).zIndex(1)
                     }
                 }
@@ -607,7 +607,8 @@ struct NativeTimelineView: View {
               positionBeforePrepend == nil, store.error.isEmpty,
               let scroll = timelineScroll,
               scroll.contentOffset.y >= -scroll.adjustedContentInset.top else { return }
-        if newerEndVisible && store.hasNewer && scrubDay == nil && pendingRailDay == nil {
+        if newerEndVisible && store.hasNewer && scrubDay == nil && pendingRailDay == nil &&
+            (store.anchorDay == nil || scroll.isDragging || scroll.isDecelerating) {
             prependNewer()
         } else if endVisible && store.cursor != nil {
             Task {

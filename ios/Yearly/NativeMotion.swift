@@ -7,6 +7,7 @@ enum NativeMotion {
 }
 
 struct NativeLiquidNavigation: View {
+    static let height: CGFloat = 60
     @Binding var selection: Int
     var showsMemoryReview = false
     let repeatTimeline: () -> Void
@@ -36,7 +37,7 @@ struct NativeLiquidNavigation: View {
                     }
                 }
             }
-        }.frame(height: 60).padding(.horizontal, 8).background(.bar)
+        }.frame(height: Self.height).padding(.horizontal, 8).background(.bar)
             .onAppear { firstEdge = CGFloat(selection); lastEdge = firstEdge; previous = selection }
             .onChange(of: selection) { next in
                 let forward = next > previous

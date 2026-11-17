@@ -111,20 +111,18 @@ struct NativeUploader: Decodable, Identifiable {
 }
 struct NativeMediaResource: Decodable { let url: String?; let status: String; let message: String? }
 
-// Calendar positions stay independent of pagination and the number of photos in each day.
+// Existing dates fill the rail, independent of calendar gaps and photos per day.
 struct NativeTimelineScale {
     let days: [String]
     private let positions: [Double]
     private let ratios: [String: Double]
 
     init(days: [String]) {
-        let datedDays = days.compactMap { day in
-            (try? Date.ISO8601FormatStyle().parse(day + "T00:00:00Z")).map { (day, $0.timeIntervalSinceReferenceDate) }
+        self.days = days.filter { day in
+            (try? Date.ISO8601FormatStyle().parse(day + "T00:00:00Z")) != nil
         }
-        self.days = datedDays.map { $0.0 }
-        let start = datedDays.first?.1 ?? 0
-        let span = (datedDays.last?.1 ?? start) - start
-        positions = datedDays.map { span == 0 ? 0 : ($0.1 - start) / span }
+        let span = max(1, self.days.count - 1)
+        positions = self.days.indices.map { Double($0) / Double(span) }
         ratios = Dictionary(zip(self.days, positions), uniquingKeysWith: { first, _ in first })
     }
 
@@ -146,18 +144,12 @@ struct NativeTimelineScale {
     }
 
     func markers(height: Double) -> [String] {
-        let count = min(days.count, max(2, Int(height / 44) + 1))
+        let step = max(1, Int(ceil(44 * Double(max(0, days.count - 1)) / max(1, height))))
+        let count = min(days.count, max(2, (days.count - 1) / step + 1))
         guard count > 1 else { return days }
-        let sampled = Set((0..<count).compactMap { nearest(to: Double($0) / Double(count - 1)) })
-        var markers = [days[0]]
-        for day in days.dropFirst().dropLast() where sampled.contains(day) {
-            let position = ratio(for: day)
-            if (position - ratio(for: markers.last!)) * height >= 44 && (1 - position) * height >= 44 {
-                markers.append(day)
-            }
+        return (0..<count).map { index in
+            days[Int((Double(index) * Double(days.count - 1) / Double(count - 1)).rounded())]
         }
-        markers.append(days.last!)
-        return markers
     }
 }
 
@@ -298,7 +290,7 @@ struct NativeTimelineScale {
     func load(more: Bool = false, refresh: Bool = false) async {
         if !more, let dateAnchor, dateAnchor.filters != filterKey { self.dateAnchor = nil }
         await loadPage(more ? .older : .first, refresh: refresh)
-        if !more && archiveExpanded && error.isEmpty { await loadNewer() }
+        if !more && archiveExpanded && anchorDay == nil && error.isEmpty { await loadNewer() }
     }
     func expandArchive() async {
         guard anchorMediaID != nil, !archiveExpanded, !loading, loadedQuery == queryKey else { return }
@@ -307,7 +299,7 @@ struct NativeTimelineScale {
         await loadNewer()
     }
     func jump(to day: String) {
-        guard !loading, railDays.contains(day) else { return }
+        guard railDays.contains(day) else { return }
         // Keep filters and the date index; only replace the loaded cursor window.
         dateAnchor = (day, filterKey)
         archiveExpanded = true

@@ -15,48 +15,65 @@ struct NativeTimelineRail: View {
     private var currentIndex: Int { days.firstIndex(of: current) ?? 0 }
 
     var body: some View {
-        if let first = days.first, let last = days.last {
-            VStack(spacing: 18) {
-                Text(first.prefix(7).replacingOccurrences(of: "-", with: "."))
+        if let first = days.first {
+            let ratio = dragRatio ?? scale.ratio(for: current)
+            let day = scale.nearest(to: ratio) ?? first
+            VStack(spacing: 12) {
+                Text(day.prefix(4))
+                    .font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(NativeTheme.accent)
+                    .frame(width: 44, height: 24)
+                    .background(NativeTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+                    .accessibilityIdentifier("timeline-rail-year")
                 GeometryReader { geometry in
-                    let ratio = dragRatio ?? scale.ratio(for: current)
-                    let day = scale.nearest(to: ratio) ?? first
+                    let trackHeight = max(0, geometry.size.height - 32)
+                    let currentY = 16 + ratio * trackHeight
                     ZStack(alignment: .topLeading) {
-                        Rectangle().fill(.secondary.opacity(0.25))
-                            .frame(width: 2, height: geometry.size.height)
-                            .position(x: 22, y: geometry.size.height / 2)
-                        ForEach(markers, id: \.self) { marker in
-                            Circle().fill(.tint).opacity(0.65).frame(width: 6, height: 6)
-                                .position(x: 22, y: scale.ratio(for: marker) * geometry.size.height)
+                        Rectangle().fill(Color.secondary.opacity(0.20))
+                            .frame(width: 1.5, height: trackHeight)
+                            .position(x: 39, y: geometry.size.height / 2)
+                        ForEach(Array(markers.enumerated()), id: \.element) { index, marker in
+                            let markerY = 16 + scale.ratio(for: marker) * trackHeight
+                            Circle().fill(NativeTheme.accent.opacity(0.55)).frame(width: 5, height: 5)
+                                .position(x: 39, y: markerY)
+                            if abs(markerY - currentY) > 26 {
+                                VStack(spacing: 2) {
+                                    if index == 0 || marker.prefix(4) != markers[index - 1].prefix(4) {
+                                        Text(marker.prefix(4)).font(.system(size: 9, weight: .semibold))
+                                            .foregroundStyle(Color.primary)
+                                    }
+                                    Text(marker.dropFirst(5).replacingOccurrences(of: "-", with: "."))
+                                        .font(.system(size: 9)).foregroundStyle(Color.secondary)
+                                }
+                                .monospacedDigit().frame(width: 32, alignment: .trailing)
+                                .position(x: 16, y: markerY)
+                            }
                         }
-                        Circle().fill(.tint).opacity(0.16).frame(width: 24, height: 24)
-                            .position(x: 22, y: ratio * geometry.size.height)
-                        Circle().fill(.tint).frame(width: 14, height: 14)
-                            .position(x: 22, y: ratio * geometry.size.height)
+                        Circle().fill(NativeTheme.accent.opacity(0.14)).frame(width: 18, height: 18)
+                            .position(x: 39, y: currentY)
+                        Circle().fill(NativeTheme.accent).frame(width: 9, height: 9)
+                            .position(x: 39, y: currentY)
+                        Text(day.dropFirst(5).replacingOccurrences(of: "-", with: "."))
+                            .font(.system(size: 9, weight: .semibold)).monospacedDigit()
+                            .foregroundStyle(NativeTheme.accent).frame(width: 34, height: 22)
+                            .background(NativeTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                            .position(x: 17, y: currentY)
                     }
                     .frame(width: 44, height: geometry.size.height)
                     .overlay(alignment: .topLeading) {
                         if dragRatio != nil {
                             let badgeHeight: CGFloat = 32
-                            let top = min(max(0, ratio * geometry.size.height - badgeHeight - 12),
+                            let top = min(max(0, currentY - badgeHeight - 12),
                                           max(0, geometry.size.height - badgeHeight))
                             Text(day.replacingOccurrences(of: "-", with: "."))
                                 .font(.system(size: 15, weight: .semibold)).monospacedDigit()
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(Color.primary)
                                 .padding(.horizontal, 12).frame(height: badgeHeight)
                                 .background(.regularMaterial, in: Capsule())
                                 .shadow(color: .black.opacity(0.16), radius: 3, y: 1)
                                 .fixedSize()
-                                .padding(.leading, geometry.size.width + 32)
+                                .padding(.leading, geometry.size.width + 16)
                                 .offset(y: top)
-                                .allowsHitTesting(false)
-                        } else {
-                            Text(day.dropFirst(5).replacingOccurrences(of: "-", with: "."))
-                                .font(.system(size: 10, weight: .semibold))
-                                .monospacedDigit().foregroundStyle(.tint)
-                                .frame(width: 40).padding(.vertical, 2)
-                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
-                                .position(x: 22, y: ratio * geometry.size.height)
                                 .allowsHitTesting(false)
                         }
                     }
@@ -64,14 +81,14 @@ struct NativeTimelineRail: View {
                     .gesture(DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             if dragRatio == nil { moved = false; hold(true) }
-                            let valueRatio = min(1, max(0, value.location.y / geometry.size.height))
+                            let valueRatio = min(1, max(0, (value.location.y - 16) / max(1, trackHeight)))
                             dragRatio = valueRatio
                             if abs(value.translation.height) > 6 { moved = true }
                             if moved, let day = scale.nearest(to: valueRatio) { scrub(day) }
                         }
                         .onEnded { value in
                             if !moved {
-                                let ratio = min(1, max(0, value.location.y / geometry.size.height))
+                                let ratio = min(1, max(0, (value.location.y - 16) / max(1, trackHeight)))
                                 if let nearest = markers.min(by: { abs(scale.ratio(for: $0) - ratio) < abs(scale.ratio(for: $1) - ratio) }) {
                                     select(nearest)
                                 }
@@ -83,28 +100,26 @@ struct NativeTimelineRail: View {
                     .allowsHitTesting(!disabled)
                     .onAppear {
                         scale = NativeTimelineScale(days: days)
-                        markers = scale.markers(height: geometry.size.height)
+                        markers = scale.markers(height: trackHeight)
                     }
                     .onChange(of: days) { days in
                         scale = NativeTimelineScale(days: days)
-                        markers = scale.markers(height: geometry.size.height)
+                        markers = scale.markers(height: trackHeight)
                     }
-                    .onChange(of: geometry.size.height) { height in markers = scale.markers(height: height) }
+                    .onChange(of: trackHeight) { height in markers = scale.markers(height: height) }
                 }
-                Text(last.prefix(7).replacingOccurrences(of: "-", with: "."))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("拖动时间轴定位日期")
+                .accessibilityValue(day)
+                .accessibilityHint("拖动连续浏览，点击跳到日期节点")
+                .accessibilityAdjustableAction { direction in
+                    guard !disabled else { return }
+                    let next = direction == .increment ? currentIndex + 1 : currentIndex - 1
+                    select(days[min(days.count - 1, max(0, next))])
+                }
             }
-            .font(.system(size: 9)).monospacedDigit().foregroundStyle(.secondary)
             .frame(width: 44).padding(.vertical, 8)
             .transaction { $0.animation = nil }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("拖动时间轴定位日期")
-            .accessibilityValue(days[currentIndex])
-            .accessibilityHint("拖动连续浏览，点击跳到日期节点")
-            .accessibilityAdjustableAction { direction in
-                guard !disabled else { return }
-                let next = direction == .increment ? currentIndex + 1 : currentIndex - 1
-                select(days[min(days.count - 1, max(0, next))])
-            }
         }
     }
 }

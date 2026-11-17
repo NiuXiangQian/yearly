@@ -186,18 +186,29 @@ private final class SessionHTTP: URLProtocol {
         let calendarScale = NativeTimelineScale(days: ["2026-11-09", "2026-11-08", "2026-10-10"])
         precondition(calendarScale.ratio(for: "2026-11-09") == 0)
         precondition(calendarScale.ratio(for: "2026-10-10") == 1)
-        precondition(abs(calendarScale.ratio(for: "2026-11-08") - 1.0 / 30) < 0.000001)
-        precondition(calendarScale.nearest(to: 0.5) == "2026-11-08", "calendar gaps keep their elapsed-time span")
+        precondition(calendarScale.ratio(for: "2026-11-08") == 0.5)
+        precondition(calendarScale.nearest(to: 0.5) == "2026-11-08", "existing dates share the rail evenly")
         precondition(calendarScale.nearest(to: -1) == "2026-11-09" && calendarScale.nearest(to: 2) == "2026-10-10")
-        precondition(calendarScale.markers(height: 440) == ["2026-11-09", "2026-10-10"], "nearby dates stay reachable without overlapping markers")
+        precondition(calendarScale.markers(height: 440) == calendarScale.days, "nearby calendar dates remain separate nodes")
         let ascendingScale = NativeTimelineScale(days: Array(calendarScale.days.reversed()))
         precondition(ascendingScale.ratio(for: "2026-10-10") == 0 && ascendingScale.ratio(for: "2026-11-09") == 1)
-        precondition(ascendingScale.nearest(to: 0.98) == "2026-11-08")
+        precondition(ascendingScale.nearest(to: 0.5) == "2026-11-08")
+        let crossYearScale = NativeTimelineScale(days: ["2026-11-09", "2026-02-08", "2025-12-30", "2020-01-01"])
+        precondition(crossYearScale.ratio(for: "2026-02-08") == 1.0 / 3)
+        precondition(crossYearScale.ratio(for: "2025-12-30") == 2.0 / 3, "multi-year gaps do not create blank track")
+        precondition(crossYearScale.markers(height: 440) == crossYearScale.days)
+        for day in crossYearScale.days {
+            precondition(crossYearScale.nearest(to: crossYearScale.ratio(for: day)) == day)
+        }
         let dailyDates = (1...30).map { String(format: "2026-10-%02d", $0) }
         let dailyScale = NativeTimelineScale(days: dailyDates)
         precondition(dailyScale.markers(height: 440).count <= 11)
         precondition(dailyScale.markers(height: 176).count < dailyScale.markers(height: 440).count)
         precondition(dailyScale.markers(height: 440).first == dailyDates.first && dailyScale.markers(height: 440).last == dailyDates.last)
+        let dailyMarkers = dailyScale.markers(height: 440)
+        for (previous, next) in zip(dailyMarkers, dailyMarkers.dropFirst()) {
+            precondition((dailyScale.ratio(for: next) - dailyScale.ratio(for: previous)) * 440 >= 44, "date labels keep a readable gap")
+        }
         precondition(dailyScale.nearest(to: dailyScale.ratio(for: "2026-10-15")) == "2026-10-15", "dragging reaches dates between visible markers")
         let oneDayScale = NativeTimelineScale(days: ["2026-11-09"])
         precondition(oneDayScale.markers(height: 440) == ["2026-11-09"] && oneDayScale.nearest(to: 1) == "2026-11-09")
@@ -306,15 +317,21 @@ private final class SessionHTTP: URLProtocol {
         timeline.mediaType = "photo"
         timeline.selected = [2]
         await timeline.loadIfNeeded()
+        timeline.loading = true
+        timeline.jump(to: "2026-11-07")
         timeline.jump(to: "2020-01-03")
+        precondition(timeline.anchorDay == "2020-01-03", "dragging during loading keeps the latest requested date")
+        timeline.loading = false
         await timeline.loadIfNeeded()
         precondition(timeline.anchorDay == "2020-01-03" && timeline.items.contains { $0.id == 5 })
-        precondition(timeline.cursor == "day+cursor/==" && !timeline.hasNewer)
+        precondition(timeline.items.map(\.id) == [5] && timeline.cursor == "day+cursor/==" && timeline.hasNewer, "show the requested day before prepending newer dates")
         let jumpParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(jumpParams.contains(URLQueryItem(name: "anchor_day", value: "2020-01-03")))
-        precondition(jumpParams.contains(URLQueryItem(name: "before", value: "true")))
+        precondition(!jumpParams.contains(URLQueryItem(name: "before", value: "true")))
         precondition(jumpParams.contains(URLQueryItem(name: "media_type", value: "photo")))
         precondition(jumpParams.contains(URLQueryItem(name: "child_id", value: "2")))
+        await timeline.loadNewer()
+        precondition(timeline.items.contains { $0.id == 6 } && !timeline.hasNewer)
         timeline.selected = [7]
         precondition(timeline.anchorDay == nil, "changing filters clears the date anchor")
         await timeline.loadIfNeeded()

@@ -99,6 +99,7 @@ struct NativeFamilyPhotoSearch: View {
     @State private var loading = true
     @State private var error = ""
     @State private var generation = 0
+    private var hasMore: Bool { page * 30 < total }
 
     var body: some View {
         NavigationStack {
@@ -117,27 +118,46 @@ struct NativeFamilyPhotoSearch: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.title.flatMap { $0.isEmpty ? nil : $0 } ?? item.primary?.original_filename ?? "照片")
                                     .lineLimit(1)
-                                Text(item.day).font(.caption).foregroundStyle(.secondary)
+                                if let remark = item.remark, !remark.isEmpty {
+                                    Text(remark).font(.caption).foregroundStyle(Color.secondary).lineLimit(2)
+                                }
+                                Text(item.day).font(.caption).foregroundStyle(Color.secondary)
                             }
                             Spacer()
                             if item.id == selectedID { Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint) }
-                        }.foregroundStyle(.primary)
+                        }.foregroundStyle(Color.primary)
                     }
                 }
                 if loading { ProgressView("正在查找照片…") }
                 else if !error.isEmpty {
                     Text(error).foregroundStyle(.red)
                     Button("重试") { Task { await load(more: page > 0) } }
-                } else if items.isEmpty {
+                } else if items.isEmpty && !hasMore {
                     Text("没有符合条件的照片。").foregroundStyle(.secondary)
-                } else if items.count < total {
+                }
+                if !loading && error.isEmpty && hasMore {
                     Button("加载更多") { Task { await load(more: true) } }
                 }
             }
             .navigationTitle("从时间线选头像")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
-            .searchable(text: $query, prompt: "搜索照片标题、批次或备注")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("搜索照片标题、批次或备注", text: $query)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .submitLabel(.search)
+                    if !query.isEmpty {
+                        Button { query = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }.accessibilityLabel("清空头像搜索")
+                    }
+                }
+                .padding(.horizontal, 14).frame(minHeight: 46)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal).padding(.vertical, 8).background(.bar)
+            }
             .task(id: query) { await load(debounce: true) }
         }
     }
@@ -156,7 +176,6 @@ struct NativeFamilyPhotoSearch: View {
             if debounce && !term.isEmpty { try await Task.sleep(nanoseconds: 250_000_000) }
             var query = URLComponents()
             query.queryItems = [
-                URLQueryItem(name: "media_type", value: "photo"),
                 URLQueryItem(name: "page", value: String(requestedPage)),
                 URLQueryItem(name: "page_size", value: "30"),
                 URLQueryItem(name: "q", value: term),
@@ -164,9 +183,9 @@ struct NativeFamilyPhotoSearch: View {
             let result: NativeTimelinePage = try await session.get("/media?" + (query.percentEncodedQuery ?? ""))
             guard generation == ticket, !Task.isCancelled else { return }
             let known = Set(items.map(\.id))
-            items += result.items.filter { !known.contains($0.id) }
+            items += result.items.filter { ($0.media_type == "photo" || $0.media_type == "live_photo") && !known.contains($0.id) }
             page = requestedPage
-            total = result.items.isEmpty ? items.count : result.total
+            total = result.total
             loadedQuery = term
         } catch {
             if generation == ticket, !Task.isCancelled { self.error = friendly(error) }
