@@ -22,7 +22,7 @@ Web、iOS 和 Android 时间线新增「智能找回忆」。输入「去年夏�
 AI_SEARCH_ENABLED=true
 AI_ANALYSIS_MODEL=gpt-6.1-sol
 OPENAI_API_KEY=在环境配置中填写
-AI_MONTHLY_BUDGET_USD=80
+AI_MONTHLY_BUDGET_USD=100
 ```
 
 默认关闭。启用意味着允许将压缩画面发送至 OpenAI 官方 API。照片只读已生成的展示预览；视频从已生成的压缩视频抽帧，不取冷归档原件。上传和预览任务不等待 AI，旧版 App 的请求与响应保持兼容。
