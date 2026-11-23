@@ -84,12 +84,6 @@ struct NativeUploadView: View {
     }
     private var uploadSize: Int64 { uploadItems.reduce(0) { $0 + $1.size } }
     private var sentBytes: Int64 { uploadItems.reduce(0) { $0 + bytesSent($1) } }
-    private var transfer: UploadQueue.Transfer? {
-        guard let transfer = queue.transfer,
-              uploadItems.contains(where: { $0.id == transfer.itemID && $0.phase == .uploading }) else { return nil }
-        return transfer
-    }
-
     private func bytesSent(_ item: UploadItem) -> Int64 {
         let inFlight = item.phase == .uploading && queue.transfer?.itemID == item.id ? queue.transfer?.inFlightBytes ?? 0 : 0
         return min(item.size, item.uploadedBytes + inFlight)
@@ -164,6 +158,7 @@ struct NativeUploadView: View {
 
     @ViewBuilder private var uploadSummary: some View {
         if uploadSize > 0 && batchResult == nil {
+            let active = uploadItems.filter { $0.phase == .queued || $0.phase == .uploading }
             let blocked = uploadItems.contains { [.paused, .failed].contains($0.phase) }
             let progress = ByteProgress(processed: sentBytes, total: uploadSize)
             let fraction = progress.fraction ?? 0
@@ -172,18 +167,17 @@ struct NativeUploadView: View {
             } currentValueLabel: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("已上传 \(progressLabel(progress))")
-                    if blocked { Text("有任务暂停或失败，继续后估算剩余时间") }
-                    else if fraction == 1 && uploadItems.contains(where: { $0.phase == .uploading }) {
-                        Text("已传完，正在校验")
-                    } else if let transfer, let seconds = progress.remainingTime(bytesPerSecond: transfer.bytesPerSecond) {
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            if context.date.timeIntervalSince(transfer.sampledAt) < 5 {
-                                let rate = bytesLabel(Int64(transfer.bytesPerSecond))
-                                Text("\(rate)/秒 · 预计剩余 \(eta(seconds))")
-                            } else { Text("等待传输 · 预计剩余时间估算中…") }
-                        }
+                    if active.isEmpty && blocked { Text("上传已中断，继续后显示剩余时间") }
+                    else if !active.isEmpty && active.allSatisfy({ bytesSent($0) == $0.size }) {
+                        Text(blocked ? "进行中任务已传完，正在校验" : "已传完，正在校验")
+                    } else if let rate = queue.uploadRate,
+                              let seconds = ByteProgress(processed: active.reduce(0) { $0 + bytesSent($1) },
+                                                         total: active.reduce(0) { $0 + $1.size }).remainingTime(bytesPerSecond: rate) {
+                        let remaining = blocked ? "进行中任务预计剩余" : "预计剩余"
+                        Text("\(bytesLabel(Int64(rate)))/秒 · \(remaining) \(eta(seconds))")
+                            .monospacedDigit()
                     } else {
-                        Text("等待传输 · 网速和剩余时间估算中…")
+                        Text("收到上传进度后显示剩余时间")
                     }
                 }
             }

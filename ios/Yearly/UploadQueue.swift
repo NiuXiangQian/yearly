@@ -1,12 +1,13 @@
 import SwiftUI
 import Photos
+#if YEARLY_HOST_APP
+import BackgroundTasks
+#endif
 
 @MainActor final class UploadQueue: ObservableObject {
     struct Transfer {
         let itemID: UUID
         let inFlightBytes: Int64
-        let bytesPerSecond: Double
-        let sampledAt: Date
     }
     struct Preparation {
         let itemID: UUID
@@ -21,6 +22,7 @@ import Photos
     private var duplicateNames: [String] = []
     @Published private(set) var running = false
     @Published private(set) var transfer: Transfer?
+    @Published private(set) var uploadRate: Double?
     @Published private(set) var preparation: Preparation?
     @Published private(set) var uploadGroup: Set<UUID> = []
     private var store: UploadStore?
@@ -28,6 +30,12 @@ import Photos
     private var activeID: UUID?
     private var suspended = true
     private var backgroundResume: Set<UUID> = []
+    #if YEARLY_HOST_APP
+    private var backgroundTime: UIBackgroundTaskIdentifier = .invalid
+    private var continuedTask: BGTask?
+    private var continuedID: String?
+    private var uploadTaskPrefix: String { (Bundle.main.bundleIdentifier ?? "") + ".upload." }
+    #endif
     private var pendingResumes: Set<UUID> = []
     private var site: SiteOrigin?
     private weak var session: NativeSession?
@@ -48,6 +56,7 @@ import Photos
         if self.session !== session || configuredOwnerID != session.account?.id {
             pauseAll()
             uploadGroup = []
+            uploadRate = nil
             duplicateNotice = ""; duplicateNames = []
         }
         configuredOwnerID = session.account?.id
@@ -144,10 +153,16 @@ import Photos
             items[index].phase = .queued
             items[index].message = ""
         }
-        do { try persist(); for id in skipped { try store?.removeFiles(id) }; suspended = false; start() } catch { }
+        do {
+            try persist()
+            for id in skipped { try store?.removeFiles(id) }
+            suspended = false
+            requestBackgroundUpload()
+            start()
+        } catch { }
     }
     func resume(_ id: UUID) {
-        resume(phases: [.paused, .failed], id: id)
+        resume(phases: [.paused, .failed], ids: [id])
     }
 
     func resumeAll() {
@@ -158,12 +173,12 @@ import Photos
         resume(phases: [.failed])
     }
 
-    private func resume(phases: Set<UploadPhase>, id: UUID? = nil) {
+    private func resume(phases: Set<UploadPhase>, ids: Set<UUID>? = nil) {
         guard let site, let session, session.canEdit, let ownerID = session.account?.id else { return }
         let matches = items.indices.filter { index in
             let item = items[index]
             return item.site == site.url.absoluteString && item.ownerID == ownerID &&
-                phases.contains(item.phase) && (id == nil || item.id == id)
+                phases.contains(item.phase) && (ids?.contains(item.id) ?? true)
         }
         guard !matches.isEmpty else { return }
         let uploads = matches.filter { items[$0].confirmed }.map { items[$0].id }
@@ -178,7 +193,12 @@ import Photos
             }
             requeue(at: i)
         }
-        do { try persist(); suspended = false; start() } catch { }
+        do {
+            try persist()
+            suspended = false
+            if !uploads.isEmpty { requestBackgroundUpload() }
+            start()
+        } catch { }
     }
 
     private func requeue(at index: Int) {
@@ -189,16 +209,19 @@ import Photos
     private func beginBatchIfNeeded() {
         if !items.contains(where: { uploadGroup.contains($0.id) && ($0.phase.canPause || $0.phase == .paused) }) {
             uploadGroup = []
+            uploadRate = nil
         }
     }
     func pause(_ id: UUID) {
+        backgroundResume.remove(id)
         pendingResumes.remove(id)
         guard let i = items.firstIndex(where: { $0.id == id }), !items[i].isTerminal else { return }
         items[i].phase = .paused
         if activeID == id { worker?.cancel() }
         do { try persist() } catch { }
     }
-    func pauseAll() {
+    func pauseAll(resumingOnForeground: Set<UUID> = []) {
+        backgroundResume = resumingOnForeground
         pendingResumes.removeAll()
         suspended = true
         worker?.cancel()
@@ -206,8 +229,10 @@ import Photos
         preparation = nil
         for i in items.indices where items[i].phase.canPause { items[i].phase = .paused }
         if store != nil { do { try persist() } catch { } }
+        finishBackgroundUpload(success: false)
     }
     func cancel(_ id: UUID) {
+        backgroundResume.remove(id)
         pendingResumes.remove(id)
         guard let i = items.firstIndex(where: { $0.id == id }), !items[i].isTerminal else { return }
         items[i].phase = .cancelled
@@ -219,14 +244,96 @@ import Photos
         } catch { self.error = error.localizedDescription }
     }
     func enteredBackground() {
-        backgroundResume = Set(items.filter { $0.phase.canPause }.map(\.id))
-        pauseAll()
+        #if YEARLY_HOST_APP
+        guard running, continuedTask == nil, backgroundTime == .invalid else { return }
+        // Bridge the transition while the system grants the continued task, or use
+        // the standard short grace period on systems without continued processing.
+        backgroundTime = UIApplication.shared.beginBackgroundTask(withName: "Yearly Upload") { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let ids = Set(self.items.filter { $0.phase.canPause }.map(\.id))
+                self.pauseAll(resumingOnForeground: ids)
+            }
+        }
+        #endif
     }
     func enteredForeground() {
+        #if YEARLY_HOST_APP
+        endBackgroundTime()
+        #endif
         guard !backgroundResume.isEmpty else { return }
         let ids = backgroundResume
         backgroundResume = []
-        for id in ids { resume(id) }
+        resume(phases: [.paused], ids: ids)
+    }
+
+    private func requestBackgroundUpload() {
+        #if YEARLY_HOST_APP
+        guard #available(iOS 26.0, *), continuedID == nil,
+              items.contains(where: { uploadGroup.contains($0.id) && [.queued, .uploading, .paused, .failed].contains($0.phase) }) else { return }
+        let scheduler = BGTaskScheduler.shared
+        let identifier = uploadTaskPrefix + UUID().uuidString
+        let registered = scheduler.register(forTaskWithIdentifier: identifier, using: .main) { [weak self] task in
+            MainActor.assumeIsolated {
+                guard let self, self.continuedID == identifier else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                self.continuedTask = task
+                task.expirationHandler = { [weak self] in
+                    Task { @MainActor in
+                        guard let self, self.continuedID == identifier else { return }
+                        self.pauseAll()
+                    }
+                }
+                self.reportBackgroundProgress()
+                self.endBackgroundTime()
+            }
+        }
+        guard registered else { return }
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: "上传照片与视频", subtitle: "完成后可在时间线查看")
+        do {
+            try scheduler.submit(request)
+            continuedID = identifier
+        } catch {
+            // Uploads can still run in the foreground when the scheduler denies a request.
+        }
+        #endif
+    }
+
+    private func reportBackgroundProgress() {
+        #if YEARLY_HOST_APP
+        guard #available(iOS 26.0, *), let task = continuedTask as? BGContinuedProcessingTask else { return }
+        let active = items.filter { uploadGroup.contains($0.id) && $0.phase != .cancelled }
+        let total = active.reduce(Int64(0)) { $0 + $1.size }
+        let uploaded = active.reduce(Int64(0)) { $0 + ($1.duplicate ? $1.size : $1.uploadedBytes) }
+        task.progress.totalUnitCount = max(1, total)
+        task.progress.completedUnitCount = min(total, uploaded + (transfer?.inFlightBytes ?? 0))
+        #endif
+    }
+
+    #if YEARLY_HOST_APP
+    private func endBackgroundTime() {
+        guard backgroundTime != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTime)
+        backgroundTime = .invalid
+    }
+    #endif
+
+    private func finishBackgroundUpload(success: Bool) {
+        #if YEARLY_HOST_APP
+        if let identifier = continuedID {
+            continuedID = nil
+            if let task = continuedTask {
+                continuedTask = nil
+                task.expirationHandler = nil
+                task.setTaskCompleted(success: success)
+            } else {
+                BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+            }
+        }
+        endBackgroundTime()
+        #endif
     }
     private func start() {
         guard worker == nil, !suspended, let site, let session, session.canEdit, store != nil else { return }
@@ -238,7 +345,11 @@ import Photos
             worker = nil
             running = false
             // A per-item cancellation must not discard the other items in this batch.
-            if !suspended && items.contains(where: { $0.site == self.site?.url.absoluteString && $0.ownerID == self.session?.account?.id && [.selected, .queued].contains($0.phase) }) { start() }
+            if !suspended && items.contains(where: { $0.site == self.site?.url.absoluteString && $0.ownerID == self.session?.account?.id && [.selected, .queued].contains($0.phase) }) {
+                start()
+            } else {
+                finishBackgroundUpload(success: items.filter { uploadGroup.contains($0.id) }.allSatisfy { $0.phase == .complete || $0.phase == .skipped })
+            }
         }
     }
     private func run(site: SiteOrigin, session: NativeSession) async {
@@ -275,13 +386,11 @@ import Photos
                     let service = session.uploadAPI(ownerID: items[index].ownerID)
                     service.onPartProgress = { [weak self] bytes, rate in
                         guard let self, self.activeID == id, self.items[index].phase == .uploading else { return }
-                        if rate == 0 {
-                            self.transfer = nil
-                            return
+                        if rate > 0 {
+                            self.uploadRate = self.uploadRate.map { $0 * 0.75 + rate * 0.25 } ?? rate
                         }
-                        let now = Date()
-                        if let previous = self.transfer, now.timeIntervalSince(previous.sampledAt) < 0.25 { return }
-                        self.transfer = Transfer(itemID: id, inFlightBytes: bytes, bytesPerSecond: rate, sampledAt: now)
+                        self.transfer = rate > 0 ? Transfer(itemID: id, inFlightBytes: bytes) : nil
+                        self.reportBackgroundProgress()
                     }
                     items[index].phase = .uploading
                     items[index].message = "正在核对原件与上传任务…"
@@ -327,9 +436,8 @@ import Photos
                             try await MultipartUploader.upload(resource, file: store.file(resource, itemID: id), service: service) { bytes, complete in
                                 self.items[index].resources[r].uploadedBytes = bytes
                                 self.items[index].resources[r].complete = complete
-                                if let previous = self.transfer {
-                                    self.transfer = Transfer(itemID: id, inFlightBytes: 0, bytesPerSecond: previous.bytesPerSecond, sampledAt: previous.sampledAt)
-                                }
+                                self.transfer = nil
+                                self.reportBackgroundProgress()
                                 if bytes == resource.size && !complete { self.items[index].message = "分片已传完，等待服务端完整性校验…" }
                                 try self.persist()
                             }
@@ -372,6 +480,7 @@ import Photos
             activeID = nil
             preparation = nil
             transfer = nil
+            reportBackgroundProgress()
         }
     }
 }

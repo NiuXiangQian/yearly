@@ -188,17 +188,18 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         activePart = part
         let started = Date()
         let partSize = Int64(data.count)
+        var lastProgress = started
         var succeeded = false
         defer {
             activePart = nil
             if !succeeded { onPartProgress?(0, 0) }
         }
         let delegate = onPartProgress == nil ? nil : UploadRedirectPolicy { [weak self] bytes in
-            let elapsed = Date().timeIntervalSince(started)
-            guard elapsed >= 0.25 else { return }
+            let sampledAt = Date()
             Task { @MainActor in
-                guard let self, self.activePart == part else { return }
-                self.onPartProgress?(min(bytes, partSize), Double(bytes) / elapsed)
+                guard let self, self.activePart == part, sampledAt.timeIntervalSince(lastProgress) >= 0.25 else { return }
+                lastProgress = sampledAt
+                self.onPartProgress?(min(bytes, partSize), Double(bytes) / sampledAt.timeIntervalSince(started))
             }
         }
         let (_, response) = try await session.upload(for: request, from: data, delegate: delegate)
