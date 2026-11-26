@@ -69,7 +69,7 @@ struct NativeAppShell: View {
                 NativeLoginView(session: session, editSite: editSite)
             } else {
                 TabView(selection: $tab) {
-                    NativeTimelineView(store: timeline, topRequest: timelineTopRequest) { day in
+                    NativeTimelineView(store: timeline, isActive: tab == 0, topRequest: timelineTopRequest) { day in
                         uploadDay = NativeDay.date(day)
                         tab = 1
                     }
@@ -82,12 +82,10 @@ struct NativeAppShell: View {
                                 switch destination {
                                 case .timeline:
                                     timeline.focusOnUploads([])
-                                    Task { await timeline.load() }
                                 case .batch(let mediaIDs):
                                     timeline.focusOnUploads(mediaIDs)
                                 case .recentUploads:
                                     timeline.showRecentUploads()
-                                    Task { await timeline.load() }
                                 }
                                 tab = 0
                             }
@@ -204,7 +202,7 @@ struct NativeAppShell: View {
 struct NativeLoginView: View {
     @ObservedObject var session: NativeSession
     let editSite: () -> Void
-    @State private var username = ""
+    @State private var username: String
     @State private var password = ""
     @State private var answer = ""
     @State private var captcha: LoginCaptcha?
@@ -212,6 +210,13 @@ struct NativeLoginView: View {
     @State private var loadingCaptcha = false
     @State private var message = ""
     @State private var captchaError = ""
+
+    init(session: NativeSession, editSite: @escaping () -> Void) {
+        self.session = session
+        self.editSite = editSite
+        _username = State(initialValue: session.rememberedUsername)
+    }
+
     var body: some View {
         NavigationStack {
             Form {

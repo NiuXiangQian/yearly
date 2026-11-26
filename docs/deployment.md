@@ -29,6 +29,8 @@ chmod 600 .env.production
 
 `.env.production` 必须使用 `APP_ENV=production`、`COOKIE_SECURE=true`，`ALLOWED_ORIGIN` 精确匹配页面 HTTPS origin，不带末尾 `/`。本地测试环境使用 APP_ENV=test 和独立 .env.test 关闭 Secure Cookie。应用在生产启动时验证该约束。数据库密码中的特殊字符需 URL 编码，禁止将 .env.production 提交到版本控制。
 
+新登录的会话默认有效 30 天。升级时将现有部署配置中的 `SESSION_HOURS` 更新为 `720` 并重启 API。已有会话沿用签发时的到期时间，下次登录会获得新的有效期。
+
 ## 2. 已有 MySQL 实例创建应用库
 
 由数据库管理员在新实例首次初始化时执行。已完成初始化的部署可以跳过此步骤。两套密码应独立生成。

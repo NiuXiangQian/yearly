@@ -1,4 +1,5 @@
 from datetime import timedelta
+from app.config import Settings, settings
 from app.models import Captcha, UserSession
 from app.db import now
 from app.security import digest
@@ -37,6 +38,29 @@ def test_login_session_captcha_single_use_and_logout(context):
     client.headers["X-CSRF-Token"] = csrf
     assert client.post("/api/auth/logout", json={}).status_code == 200
     assert client.get("/api/media").status_code == 401
+
+
+def test_new_login_expires_after_30_days(context, monkeypatch):
+    monkeypatch.delenv("SESSION_HOURS", raising=False)
+    config = settings()
+    default = Settings(_env_file=None, database_url=config.database_url)
+    assert default.session_hours == 720
+    monkeypatch.setattr(config, "session_hours", default.session_hours)
+
+    client = context.client
+    client.cookies.clear()
+    payload = challenge(context)
+    login_started = now()
+    response = client.post("/api/auth/login", json=payload)
+    assert response.status_code == 200
+    assert "Max-Age=2592000" in response.headers["set-cookie"]
+    with context.db() as db:
+        session = db.get(UserSession, digest(response.cookies["yearly_session"]))
+        duration = timedelta(days=30)
+        assert login_started + duration <= session.expires_at <= now() + duration
+        session.expires_at = now() - timedelta(seconds=1)
+        db.commit()
+    assert client.get("/api/auth/me").status_code == 401
 
 
 def test_private_routes_and_roles(context):
@@ -141,7 +165,6 @@ def test_arbitrary_file_signing_denied(context):
 
 
 def test_graphical_captcha_and_secure_cookie(context, monkeypatch):
-    from app.config import settings
 
     result = context.client.get("/api/auth/captcha")
     assert result.status_code == 200
@@ -155,7 +178,6 @@ def test_graphical_captcha_and_secure_cookie(context, monkeypatch):
 
 def test_prefixed_session_is_secure_and_removed_on_logout(context, monkeypatch):
     from fastapi.testclient import TestClient
-    from app.config import settings
     from app.main import app
 
     monkeypatch.setattr(settings(), "app_base_path", "/yearly")

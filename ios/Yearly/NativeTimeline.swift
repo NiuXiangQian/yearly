@@ -123,6 +123,7 @@ struct NativeMediaImage: View {
 
 struct NativeTimelineView: View {
     @ObservedObject var store: NativeTimelineStore
+    let isActive: Bool
     var topRequest = 0
     let appendToDay: (String) -> Void
     @State private var showingFilter = false
@@ -152,6 +153,7 @@ struct NativeTimelineView: View {
     @State private var collapsingDay: String?
     @State private var viewport = NativeTimelineViewport()
     @State private var refreshing = false
+    @State private var uploadRefreshRequest = 0
     @State private var scrollRevision = 0
     private var timelineScroll: UIScrollView? { viewport.scroll }
     private var dayFrames: [String: CGRect] { viewport.days }
@@ -287,9 +289,10 @@ struct NativeTimelineView: View {
             }
             if !store.error.isEmpty {
                 Label(store.error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(.red)
-                Button("重新加载") { Task { await store.load() } }.buttonStyle(NativeActionStyle())
+                Button("重新加载") { Task { await refreshTimeline() } }
+                    .buttonStyle(NativeActionStyle()).disabled(refreshing)
             }
-            if store.items.isEmpty && !store.loading && store.error.isEmpty {
+            if store.items.isEmpty && (!store.loading || refreshing) && store.error.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: store.hasFilters ? "line.3.horizontal.decrease.circle" : "photo.on.rectangle.angled")
                         .font(.system(size: 40, weight: .light)).foregroundStyle(NativeTheme.accent)
@@ -340,7 +343,7 @@ struct NativeTimelineView: View {
                     .onAppear { collapsedEndVisible = true; loadMoreIfNeeded() }
                     .onDisappear { collapsedEndVisible = false }
             }
-            if store.loading { ProgressView().frame(maxWidth: .infinity) }
+            if store.loading && !refreshing { ProgressView().frame(maxWidth: .infinity) }
         }.padding().id("timeline-start")
     }
 
@@ -520,7 +523,12 @@ struct NativeTimelineView: View {
     }
 
     private func refreshTimeline() async {
+        guard !refreshing else { return }
         refreshing = true
+        defer {
+            refreshing = false
+            if !Task.isCancelled { finishLoading() }
+        }
         scrubDay = nil
         pendingRailDay = nil
         positionBeforePrepend = nil
@@ -529,15 +537,15 @@ struct NativeTimelineView: View {
         async let uploaders: Void = store.loadUploaders(refresh: true)
         await store.load(refresh: true)
         _ = await (profiles, uploaders)
-        if store.error.isEmpty {
-            // Recreate the scroll layout after replacing a paged window. This
-            // discards LazyVStack's old height estimates and pull-down offset.
+        if !Task.isCancelled && store.error.isEmpty {
+            // Reset the lazy layout estimate when replacing the paged window.
             viewport.days = [:]
             viewport.height = 0
             currentDay = store.items.first.map(store.groupDay) ?? ""
+            pendingRailDay = store.anchorDay
             scrollRevision += 1
+            if store.needsLoad { uploadRefreshRequest += 1 }
         }
-        refreshing = false
     }
 
     private var scrollLayoutReady: Bool {
@@ -745,6 +753,8 @@ struct NativeTimelineView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                         Menu {
+                            Button("刷新时间线", systemImage: "arrow.clockwise") { Task { await refreshTimeline() } }
+                                .disabled(refreshing)
                             if store.session.canEdit {
                                 Button("创建分享", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest() }
                                 Button("回收站", systemImage: "trash") { showingTrash = true }
@@ -766,12 +776,20 @@ struct NativeTimelineView: View {
                 }
             }
             .task { await store.loadProfiles(); await store.loadUploaders() }
-            .task(id: store.queryKey) {
+            .onReceive(store.session.uploadsChanged) { _ in
+                guard isActive, !refreshing, !selecting, !store.isFocused, store.anchorDay == nil, !railHeld else { return }
+                if let scroll = timelineScroll,
+                   scroll.isTracking || scroll.isDecelerating || scroll.contentOffset.y + scroll.adjustedContentInset.top > 24 { return }
+                uploadRefreshRequest += 1
+            }
+            .task(id: isActive ? "\(store.queryKey)|\(uploadRefreshRequest)" : nil) {
+                guard isActive, store.needsLoad else { return }
                 pendingRailDay = store.anchorDay
-                if store.isFocused || store.anchorDay != nil { await store.loadIfNeeded() }
-                else {
-                    do { try await Task.sleep(nanoseconds: 300_000_000); try Task.checkCancellation(); await store.loadIfNeeded() } catch { }
+                if !store.isFocused && store.anchorDay == nil {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
                 }
+                guard !Task.isCancelled else { return }
+                await store.loadIfNeeded()
                 if !Task.isCancelled {
                     if store.anchorDay == nil { currentDay = store.railDays.first ?? "" }
                     finishLoading()

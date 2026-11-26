@@ -71,18 +71,26 @@ struct LoginCaptcha: Decodable {
     @Published private(set) var restoring = true
     @Published var error = ""
     private let store: SessionCredentialStore
+    private let defaults: UserDefaults
     private let transport: URLSession
     private var credential: SessionCredential?
     private var generation = 0
     private(set) var cacheRevision = 0
+    let uploadsChanged = PassthroughSubject<Void, Never>()
     let localCache: NativeLocalCache
     var cacheScope: String? { account.map { "\(site.url.absoluteString)|\($0.id)" } }
     var isAdmin: Bool { account?.role == "admin" }
     var canEdit: Bool { ["admin", "member"].contains(account?.role ?? "") }
+    private var usernameKey: String { "yearly.login.username.\(site.url.absoluteString)" }
+    var rememberedUsername: String {
+        get { defaults.string(forKey: usernameKey) ?? "" }
+        set { defaults.set(newValue, forKey: usernameKey) }
+    }
 
-    init(site: SiteOrigin, store: SessionCredentialStore = KeychainSessionStore(), transport: URLSession? = nil, cacheDirectory: URL? = nil) {
+    init(site: SiteOrigin, store: SessionCredentialStore = KeychainSessionStore(), transport: URLSession? = nil, cacheDirectory: URL? = nil, defaults: UserDefaults = .standard) {
         self.site = site
         self.store = store
+        self.defaults = defaults
         self.localCache = NativeLocalCache(directory: cacheDirectory)
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil
@@ -145,7 +153,9 @@ struct LoginCaptcha: Decodable {
             if credential.expires <= Date() { try store.write(nil, site: site.url.absoluteString); self.credential = nil; return }
             let (data, _) = try await send("/auth/me")
             guard current == generation else { return }
-            account = try JSONDecoder().decode(UploadAccount.self, from: data)
+            let restored = try JSONDecoder().decode(UploadAccount.self, from: data)
+            if let username = restored.username { rememberedUsername = username }
+            account = restored
             error = ""
         } catch { if current == generation { self.error = friendly(error) } }
     }
@@ -171,6 +181,7 @@ struct LoginCaptcha: Decodable {
         let account = try JSONDecoder().decode(UploadAccount.self, from: data)
         let saved = SessionCredential(value: cookie.value, expires: expires)
         try store.write(saved, site: site.url.absoluteString)
+        if let username = account.username { rememberedUsername = username }
         credential = saved; self.account = account; error = ""
     }
     func logout() async throws {
@@ -217,6 +228,10 @@ struct LoginCaptcha: Decodable {
     func invalidateCachedLists() {
         cacheRevision += 1
         if let cacheScope { localCache.clear(scope: cacheScope, category: "lists") }
+    }
+    func uploadCompleted() {
+        invalidateCachedLists()
+        uploadsChanged.send()
     }
     func write(_ path: String, method: String = "PUT", json: [String: Any]) async throws {
         guard canEdit else { throw NativeAPIError(status: 403, message: "此账号为只读账号。") }

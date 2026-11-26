@@ -185,11 +185,19 @@ struct NativeTimelineScrollReader: UIViewRepresentable {
         }
     }
     func makeCoordinator() -> Coordinator { Coordinator(refresh: refresh, resolve: resolve, didScroll: didScroll) }
-    func makeUIView(context: Context) -> UIView { Probe() }
+    func makeUIView(context: Context) -> UIView {
+        let probe = Probe()
+        probe.isUserInteractionEnabled = false
+        return probe
+    }
     static func dismantleUIView(_ view: UIView, coordinator: Coordinator) {
         (view as? Probe)?.attach = nil
         coordinator.refreshTask?.cancel()
-        coordinator.scroll?.refreshControl = nil
+        if coordinator.scroll?.refreshControl === coordinator.refreshControl {
+            coordinator.scroll?.refreshControl = nil
+        }
+        coordinator.layoutObservation = nil
+        coordinator.scrollObservation = nil
     }
     func updateUIView(_ view: UIView, context: Context) {
         let coordinator = context.coordinator
@@ -197,14 +205,17 @@ struct NativeTimelineScrollReader: UIViewRepresentable {
         coordinator.resolve = resolve
         coordinator.didScroll = didScroll
         let attach: (UIView) -> Void = { view in
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak view] in
+                guard let view = view as? Probe, view.attach != nil else { return }
                 var ancestor = view.superview
                 while let parent = ancestor {
                     if let scroll = parent as? UIScrollView {
+                        if scroll.refreshControl !== coordinator.refreshControl {
+                            scroll.refreshControl = coordinator.refreshControl
+                        }
                         guard coordinator.scroll !== scroll else { return }
                         coordinator.scroll = scroll
                         scroll.alwaysBounceVertical = true
-                        scroll.refreshControl = coordinator.refreshControl
                         coordinator.layoutObservation = scroll.observe(\.contentSize, options: [.new]) { [weak coordinator] scroll, _ in
                             DispatchQueue.main.async { coordinator?.resolve(scroll) }
                         }

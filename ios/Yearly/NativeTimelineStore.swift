@@ -221,6 +221,7 @@ struct NativeTimelineScale {
     private var previousCursor: String?
     private var generation = 0
     private var loadedQuery = ""
+    private var loadedCacheRevision = -1
     let session: NativeSession
     init(session: NativeSession) { self.session = session }
     func focusOnUploads(_ ids: [Int]) {
@@ -283,9 +284,10 @@ struct NativeTimelineScale {
         byUpload = false
         resetFilters()
     }
+    var needsLoad: Bool { loadedQuery != queryKey || loadedCacheRevision != session.cacheRevision }
     func loadIfNeeded() async {
-        guard loadedQuery != queryKey else { return }
-        await load()
+        guard needsLoad else { return }
+        await load(refresh: loadedQuery == queryKey)
     }
     func load(more: Bool = false, refresh: Bool = false) async {
         if !more, let dateAnchor, dateAnchor.filters != filterKey { self.dateAnchor = nil }
@@ -352,6 +354,7 @@ struct NativeTimelineScale {
         generation += 1
         let ticket = generation
         let requestedQuery = queryKey
+        let requestedRevision = session.cacheRevision
         defer { if ticket == generation { loading = false } }
         loading = true; error = ""
         if showingUploads {
@@ -360,15 +363,16 @@ struct NativeTimelineScale {
                 for id in uploadedMediaIDs {
                     try Task.checkCancellation()
                     do {
-                        var item: NativeTimelineItem = try await session.get("/media/\(id)")
+                        var item: NativeTimelineItem = try await session.get("/media/\(id)", refresh: refresh)
                         item.kind = "media"
                         uploads.append(item)
                     } catch let error as NativeAPIError where error.status == 404 {
                         continue
                     }
                 }
-                guard ticket == generation, !Task.isCancelled else { return }
+                guard ticket == generation, requestedQuery == queryKey, !Task.isCancelled else { return }
                 items = uploads; total = uploads.count; loadedQuery = requestedQuery
+                loadedCacheRevision = requestedRevision
             } catch { if ticket == generation && !Task.isCancelled { self.error = friendly(error) } }
             return
         }
@@ -397,6 +401,8 @@ struct NativeTimelineScale {
             switch direction {
             case .first:
                 items = page.items
+                loadedQuery = requestedQuery
+                loadedCacheRevision = requestedRevision
                 dates = page.dates ?? []
                 cursor = page.next_cursor
                 previousCursor = nil
@@ -411,7 +417,6 @@ struct NativeTimelineScale {
                 hasNewer = previousCursor != nil
             }
             total = page.total
-            loadedQuery = requestedQuery
         } catch { if ticket == generation && !Task.isCancelled { self.error = friendly(error) } }
     }
 

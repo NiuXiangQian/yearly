@@ -56,6 +56,7 @@ struct NativeCreatedUser: Decodable { let id: Int }
                 "nickname": nickname, "role": role, "active": active,
             ])
             if existing.id == session.account?.id && (existing.username != username || !password.isEmpty) {
+                session.rememberedUsername = username
                 session.requireLogin(message: "账户已更新，请重新登录。")
                 return
             }

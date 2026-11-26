@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     oss_archive_originals: bool = False
     upload_part_size: int = 16 * 1024 * 1024
     max_file_size: int = 50 * 1024**3
-    session_hours: int = 168
+    session_hours: int = 30 * 24
     ai_search_enabled: bool = False
     openai_api_key: str = Field(default="", repr=False)
     openai_proxy_url: str = Field(default="", repr=False)

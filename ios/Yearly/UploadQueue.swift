@@ -444,7 +444,7 @@ import BackgroundTasks
                         }
                         guard items[index].resources.allSatisfy(\.complete) else { throw UploadFailure(message: "仍有未通过完整性校验的资源。") }
                     }
-                    session.invalidateCachedLists()
+                    session.uploadCompleted()
                     // A successful server completion cannot be undone by cancelling the local UI.
                     if items[index].phase != .cancelled {
                         items[index].phase = items[index].duplicate ? .skipped : .complete

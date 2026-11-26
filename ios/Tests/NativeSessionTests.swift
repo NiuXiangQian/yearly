@@ -44,7 +44,7 @@ private final class SessionHTTP: URLProtocol {
         case "/yearly/api/auth/captcha": body = "{\"id\":\"synthetic-captcha\",\"image\":\"data:image/png;base64,aGVsbG8=\"}"
         case "/yearly/api/auth/login":
             body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"nickname\":\"\(Self.nickname)\",\"csrf_token\":\"test-csrf\"}"
-            headers["Set-Cookie"] = "yearly_session=test-native-session; Max-Age=3600; Path=/yearly/; HttpOnly; SameSite=Strict" + (Self.secureCookie ? "; Secure" : "")
+            headers["Set-Cookie"] = "yearly_session=test-native-session; Max-Age=2592000; Path=/yearly/; HttpOnly; SameSite=Strict" + (Self.secureCookie ? "; Secure" : "")
         case "/yearly/api/auth/me":
             status = Self.authorized ? 200 : 401
             body = "{\"id\":1,\"role\":\"\(Self.role)\",\"username\":\"synthetic\",\"nickname\":\"\(Self.nickname)\",\"csrf_token\":\"test-csrf\"}"
@@ -166,14 +166,22 @@ private final class SessionHTTP: URLProtocol {
         defer { transport.invalidateAndCancel() }
         let site = SiteOrigin("https://native.invalid/yearly/")!
         let store = MemoryCredentials()
-        let session = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory)
+        let defaultsName = "YearlyNativeSessionTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: defaultsName)!
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let session = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory, defaults: defaults)
         await session.restore()
-        precondition(!session.restoring && session.account == nil)
+        precondition(!session.restoring && session.account == nil && session.rememberedUsername.isEmpty)
         let captcha = try await session.captcha()
         precondition(captcha.png == Data("hello".utf8))
-        try await session.login(username: "synthetic", password: "not-saved-password", captcha: captcha, answer: "ABCDE")
+        let loginStarted = Date()
+        try await session.login(username: "SYNTHETIC", password: "not-saved-password", captcha: captcha, answer: "ABCDE")
         precondition(session.account?.id == 1 && session.canEdit)
+        precondition(session.rememberedUsername == "synthetic", "remember the canonical username returned by the server")
         precondition(store.values.count == 1 && store.values[site.url.absoluteString]?.value == "test-native-session")
+        let cookieExpiry = store.values[site.url.absoluteString]!.expires
+        precondition(cookieExpiry >= loginStarted.addingTimeInterval(2_591_999) && cookieExpiry <= Date().addingTimeInterval(2_592_000))
+        precondition(defaults.persistentDomain(forName: defaultsName)?.values.compactMap { $0 as? String } == ["synthetic"])
         precondition(session.cookies().first?.path == "/yearly/" && session.cookies().first?.isSecure == true)
         let login = SessionHTTP.requests.first { $0.url?.path.hasSuffix("/auth/login") == true }!
         precondition(login.value(forHTTPHeaderField: "Origin") == "https://native.invalid")
@@ -268,6 +276,10 @@ private final class SessionHTTP: URLProtocol {
         let loadedRequestCount = SessionHTTP.requests.count
         await timeline.loadIfNeeded()
         precondition(SessionHTTP.requests.count == loadedRequestCount, "tab switching reuses loaded timeline")
+        session.uploadCompleted()
+        precondition(timeline.needsLoad, "server-confirmed uploads invalidate the in-memory timeline")
+        await timeline.loadIfNeeded()
+        precondition(SessionHTTP.requests.count == loadedRequestCount + 1 && !timeline.needsLoad)
         let filterQuery = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(filterQuery.filter { $0.name == "child_id" }.compactMap(\.value) == ["1", "2"])
         precondition(filterQuery.contains(URLQueryItem(name: "media_positions", value: "true")))
@@ -362,6 +374,9 @@ private final class SessionHTTP: URLProtocol {
                      ["/yearly/api/media/42", "/yearly/api/media/43", "/yearly/api/media/44"])
         precondition(timeline.items.map(\.stableID) == ["media-42", "media-43"] && timeline.cursor == nil)
         precondition(timeline.items.map(\.day) == ["2018-01-03", "日期未知"])
+        let beforeUploadRefresh = SessionHTTP.requests.count
+        await timeline.load(refresh: true)
+        precondition(SessionHTTP.requests.count == beforeUploadRefresh + 3, "refresh the focused upload details from the server")
         timeline.focusOnUploads([])
         precondition(!timeline.showingUploads && timeline.mediaType == "video")
         timeline.showDay("2018-01-03")
@@ -546,16 +561,19 @@ private final class SessionHTTP: URLProtocol {
         let selfAccount = accounts.users[0]
         try await accounts.save(existing: selfAccount, username: "renamed-admin", password: "", role: "admin", active: true)
         precondition(session.account == nil && store.values.isEmpty, "editing current credentials requires login")
+        precondition(session.rememberedUsername == "renamed-admin")
         SessionHTTP.role = "member"
         try await session.login(username: "synthetic", password: "synthetic-new-password", captcha: captcha, answer: "ABCDE")
-        let restored = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory)
+        defaults.removePersistentDomain(forName: defaultsName)
+        let restored = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory, defaults: defaults)
         await restored.restore()
-        precondition(restored.account?.id == 1)
-        let otherSite = NativeSession(site: SiteOrigin("https://native.invalid/other/")!, store: store, transport: transport, cacheDirectory: cacheDirectory)
+        precondition(restored.account?.id == 1 && restored.rememberedUsername == "synthetic")
+        let otherSite = NativeSession(site: SiteOrigin("https://native.invalid/other/")!, store: store, transport: transport, cacheDirectory: cacheDirectory, defaults: defaults)
         await otherSite.restore()
-        precondition(otherSite.account == nil && otherSite.cookies().isEmpty)
+        precondition(otherSite.account == nil && otherSite.cookies().isEmpty && otherSite.rememberedUsername.isEmpty)
         try await restored.logout()
         precondition(restored.cookies().isEmpty && restored.account == nil && store.values.isEmpty)
+        precondition(NativeSession(site: site, defaults: defaults).rememberedUsername == "synthetic")
         let logout = SessionHTTP.requests.last!
         precondition(logout.value(forHTTPHeaderField: "Origin") == "https://native.invalid")
         precondition(logout.value(forHTTPHeaderField: "X-CSRF-Token") == "test-csrf")
@@ -588,12 +606,12 @@ private final class SessionHTTP: URLProtocol {
         await readOnlySharing.create(title: "Denied", start: startDate, end: endDate, hours: 24)
         precondition(SessionHTTP.requests.count == beforeShare && readOnlySharing.created == nil && !readOnlySharing.error.isEmpty)
         SessionHTTP.authorized = false
-        let expired = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory)
+        let expired = NativeSession(site: site, store: store, transport: transport, cacheDirectory: cacheDirectory, defaults: defaults)
         await expired.restore()
-        precondition(expired.account == nil && store.values.isEmpty)
+        precondition(expired.account == nil && store.values.isEmpty && expired.rememberedUsername == "synthetic")
         SessionHTTP.secureCookie = false
-        do { try await expired.login(username: "synthetic", password: "not-saved-password", captcha: captcha, answer: "ABCDE"); fatalError("insecure cookie accepted") }
-        catch { precondition(expired.account == nil && store.values.isEmpty) }
+        do { try await expired.login(username: "different", password: "not-saved-password", captcha: captcha, answer: "ABCDE"); fatalError("insecure cookie accepted") }
+        catch { precondition(expired.account == nil && store.values.isEmpty && expired.rememberedUsername == "synthetic") }
         print("Native session mocks passed: captcha, login, Keychain boundary, app-path isolation, CSRF, role, expiry, logout, native semantic search and timeline date/type/order, account management/session invalidation, ownership, audit values, uploader filter/cache, share create/revoke/scope/role/expiry, HTTPS Cookie requirements; no live network.")
     }
 }
