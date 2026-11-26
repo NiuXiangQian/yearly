@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeading from "../components/PageHeading.vue";
 import { computed, onBeforeUnmount, ref } from "vue";
 import { api, post } from "../lib/api";
 import { t } from "../lib/i18n";
@@ -79,15 +80,15 @@ void load();
 </script>
 
 <template>
-  <main class="curation-console">
-    <header><h1>{{ t("相册整理") }}</h1><p>{{ t("按影像整理，一次选择，批量归档。已有的人物与宠物关联会直接用于相册。") }}</p></header>
-    <nav class="tabs" aria-label="整理内容"><button class="button" @click="tab = 'media'">{{ t("影像归档") }}</button><button class="button" @click="tab = 'tags'">{{ t("标签与处理记录") }}</button></nav>
+  <div class="curation-console">
+    <PageHeading :title="t('相册整理')" :description="t('按影像整理，一次选择，批量归档。已有的人物与宠物关联会直接用于相册。')" />
+    <nav class="tabs" :aria-label="t('相册整理')"><button class="button" :class="{ pressed: tab === 'media' }" :aria-pressed="tab === 'media'" @click="tab = 'media'">{{ t("影像归档") }}</button><button class="button" :class="{ pressed: tab === 'tags' }" :aria-pressed="tab === 'tags'" @click="tab = 'tags'">{{ t("标签与处理记录") }}</button></nav>
     <OrganizationReview v-if="tab === 'tags'" />
     <template v-else>
       <p v-if="queue" class="summary">{{ t("{n} 份影像尚未归档", { n: queue.unfiled_media }) }} · {{ t("当前筛选共 {n} 组", { n: queue.group_count }) }}</p>
       <div class="tools"><label>{{ t("显示") }} <select v-model="scope" :disabled="busy || loading" @change="reset"><option value="unfiled">{{ t("尚未关联人物或宠物") }}</option><option value="all">{{ t("全部影像（含已归档）") }}</option><option value="handled">{{ t("已处理和已略过") }}</option></select></label><button class="button" :disabled="busy || loading" @click="load">{{ t("刷新") }}</button></div>
       <p class="muted">{{ t("未归档不影响浏览。完全重复的文件合并展示；拍摄时间接近的照片可展开检查，同组不表示同一个人物。") }}</p>
-      <div class="batch-tools">
+      <div v-if="pageIds.length" class="batch-tools">
         <button class="button" :disabled="busy || loading || !pageIds.length" @click="toggle(pageIds)">{{ t("选择／取消本页") }}</button>
         <strong>{{ t("已选 {n} 份", { n: selected.length }) }}</strong>
         <fieldset :disabled="busy || loading"><legend>{{ t("批量添加到人物／宠物相册") }}</legend><label v-for="person in yearly.children" :key="person.id"><input v-model="children" type="checkbox" :value="person.id" />{{ person.name }}</label></fieldset>
@@ -109,17 +110,19 @@ void load();
           </article></div>
         </section>
       </div>
-      <p v-if="queue && !queue.items.length && !loading">{{ t("这里没有需要处理的影像，可以继续浏览相册。") }}</p>
+      <p v-if="queue && !queue.items.length && !loading && !error" class="curation-empty">{{ t("这里没有需要处理的影像，可以继续浏览相册。") }}</p>
       <footer class="tools"><button class="button" :disabled="busy || loading || !history.length" @click="previous">{{ t("上一页") }}</button><button class="button" :disabled="busy || loading || !queue?.next_cursor" @click="next">{{ t("下一页") }}</button></footer>
     </template>
     <MotionDialog :model-value="!!previewing" :title="t('查看影像')" width="1000px" @update:model-value="(value: boolean) => { if (!value) previewing = undefined }"><MediaViewer v-if="previewing" :key="`${previewing.id}-${seconds}`" :media="previewing" :initial-seconds="seconds" /></MotionDialog>
-  </main>
+  </div>
 </template>
 
 <style scoped>
-.curation-console { max-width: 1200px; margin: auto; padding: 24px; display: grid; gap: 18px; }
+.curation-console { display: grid; gap: 16px; }
+.curation-console :deep(.page-heading) { margin-bottom: 0; }
+.curation-empty { padding-block: 28px; color: var(--muted); border-block: 1px solid var(--line); }
 h1, p { margin: 0; } header p, .muted, .quality { color: var(--muted); font-size: 13px; line-height: 1.6; } .tools, .tabs { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .batch-tools { padding: 16px; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 14px; } fieldset { display: flex; flex-wrap: wrap; gap: 12px; border: 0; padding: 0; } legend { margin-bottom: 8px; } label { display: inline-flex; align-items: center; gap: 7px; } select { max-width: 100%; padding: 8px; }
 .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 18px; } .group { border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; } .group > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; } .items { display: grid; gap: 18px; } .item { display: grid; gap: 10px; } .item-choice { overflow-wrap: anywhere; } .representative { background: none; color: inherit; border: 0; padding: 0; cursor: pointer; display: grid; gap: 5px; } .representative img { width: 100%; max-height: 300px; object-fit: contain; background: #111; border-radius: 8px; } input[type=checkbox] { min-width: 20px; min-height: 20px; }
-@media(max-width: 600px) { .curation-console { padding: 14px; } .tools .button { flex-grow: 1; } }
+@media(max-width: 600px) { .tools .button { flex-grow: 1; } }
 </style>

@@ -55,7 +55,9 @@ def test_person_metadata_and_avatar_follow_link_expiry_and_escape_titles(context
     base = "/api/public/shares/" + data["token"]
     page = context.client.get(base + "/page")
     assert page.status_code == 200
-    assert "小禾 &lt;script&gt; · 相册 &quot; &lt;测试&gt;" in page.text
+    assert '<h1>小禾 &lt;script&gt; · 相册 &quot; &lt;测试&gt;</h1>' in page.text
+    assert page.headers["cache-control"] == "no-store"
+    assert int(page.headers["content-length"]) == len(page.content)
     assert f'{base}/avatar' in page.text
     assert '/share-entry.js' in page.text
     assert '<script>' not in page.text
@@ -69,5 +71,8 @@ def test_person_metadata_and_avatar_follow_link_expiry_and_escape_titles(context
         else:
             record.expires_at = now() - timedelta(seconds=1)
         db.commit()
-    assert context.client.get(base + "/page").status_code == 404
+    unavailable_page = context.client.get(base + "/page")
+    assert unavailable_page.status_code == 404
+    assert "<h1>分享已失效或不存在</h1>" in unavailable_page.text
+    assert "小禾" not in unavailable_page.text
     assert context.client.get(base + "/avatar", follow_redirects=False).status_code == 404

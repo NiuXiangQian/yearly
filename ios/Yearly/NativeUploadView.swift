@@ -204,73 +204,96 @@ struct NativeUploadView: View {
             .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
         }
     }
+    private var intakeSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 14) {
+                NativeSettingsLabel(
+                    title: "选取原片",
+                    symbol: "photo.on.rectangle.angled",
+                    detail: "从系统相册选取照片、视频和实况照片。"
+                )
+                Button { Task { await choosePhotos() } } label: {
+                    Label("选择照片与视频", systemImage: "plus").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(NativeActionStyle(kind: .primary))
+                .disabled(account == nil || openingPicker || addingPhotos)
+            }
+            .padding(.vertical, 8)
+            if loadingAccount || openingPicker || addingPhotos { ProgressView(addingPhotos ? "正在加入所选原件…" : openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
+            if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited {
+                Text("当前为有限访问。若某项无法读取，请在系统照片权限中将它加入允许列表后重试。")
+                    .font(.caption).foregroundStyle(.orange)
+                Button("管理允许访问的照片") { presentLimitedPicker() }
+            }
+            if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.red) }
+            if !queue.error.isEmpty { Text(queue.error).font(.caption).foregroundStyle(.red) }
+            if account == nil { Button("刷新登录状态") { Task { await loadAccount() } } }
+        }
+        .listRowBackground(NativeTheme.surface)
+    }
+
+    private var batchSettings: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("批次名称").font(.subheadline)
+                TextField("可留空", text: $batchName).accessibilityLabel("批次名称")
+            }.padding(.vertical, 4)
+            if batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255 {
+                Text("批次名称最多 255 个字符，请缩短后上传。").font(.caption).foregroundStyle(.red)
+            }
+            Toggle("设置本批归档日期", isOn: $useArchiveDate)
+            if useArchiveDate {
+                DatePicker("归档日期", selection: $archiveDate, displayedComponents: .date)
+                    .accessibilityIdentifier("upload-archive-date")
+            }
+            Button { showingPeople = true } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Label("关联人物与宠物", systemImage: "person.2")
+                        Text(chosenNames).font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                }
+            }.disabled(!hasLoaded || account == nil)
+
+        } header: { Text("批次设置") }
+    }
+
+    private var transferStatus: some View {
+        Section("上传任务") {
+            if items.isEmpty {
+                Text("暂无上传任务").foregroundStyle(NativeTheme.secondaryText)
+            }
+            if !queue.duplicateNotice.isEmpty {
+                Label("发现重复文件", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(queue.duplicateNotice).font(.callout)
+                Button("查看重复提醒") { showingDuplicate = true }
+                    .alert("发现重复文件", isPresented: $showingDuplicate) {
+                        Button("知道了", role: .cancel) { }
+                    } message: { Text(queue.duplicateNotice) }
+            }
+            preparationSummary
+            uploadSummary
+            completionBanner
+            if failedCount > 0 {
+                Button {
+                    queue.retryFailed()
+                } label: {
+                    Label("全部重试（\(failedCount) 项失败）", systemImage: "arrow.clockwise")
+                }.disabled(account == nil)
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    if !queue.duplicateNotice.isEmpty {
-                        Label("发现重复文件", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                        Text(queue.duplicateNotice).font(.callout)
-                        Button("查看重复提醒") { showingDuplicate = true }
-                            .alert("发现重复文件", isPresented: $showingDuplicate) {
-                                Button("知道了", role: .cancel) { }
-                            } message: { Text(queue.duplicateNotice) }
-                    }
-                    VStack(alignment: .leading, spacing: 18) {
-                        Image(systemName: "photo.stack.fill").font(.system(size: 28))
-                            .foregroundStyle(NativeTheme.accent).frame(width: 60, height: 60)
-                            .background(NativeTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 18))
-                        Text("导入照片与视频").font(.title2.bold())
-                        Button { Task { await choosePhotos() } } label: {
-                            Label("选择照片与视频", systemImage: "plus").frame(maxWidth: .infinity)
-                        }.buttonStyle(NativeActionStyle(kind: .primary))
-                            .disabled(account == nil || openingPicker || addingPhotos)
-                    }.padding(.vertical, 10)
-                    if loadingAccount || openingPicker || addingPhotos { ProgressView(addingPhotos ? "正在加入所选原件…" : openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
-                    preparationSummary
-                    uploadSummary
-                    completionBanner
-                    if failedCount > 0 {
-                        Button {
-                            queue.retryFailed()
-                        } label: {
-                            Label("全部重试（\(failedCount) 项失败）", systemImage: "arrow.clockwise")
-                        }.disabled(account == nil)
-                    }
-                    if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited {
-                        Text("当前为有限访问。若某项无法读取，请在系统照片权限中将它加入允许列表后重试。")
-                            .font(.caption).foregroundStyle(.orange)
-                        Button("管理允许访问的照片") { presentLimitedPicker() }
-                    }
-                    if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.red) }
-                    if !queue.error.isEmpty { Text(queue.error).font(.caption).foregroundStyle(.red) }
-                    if account == nil { Button("刷新登录状态") { Task { await loadAccount() } } }
-                } header: { Text("原片导入") }
-                Section {
-                    TextField("这批回忆的名字（可留空）", text: $batchName)
-                    if batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255 {
-                        Text("批次名称最多 255 个字符，请缩短后上传。").font(.caption).foregroundStyle(.red)
-                    }
-                    Toggle("设置本批归档日期", isOn: $useArchiveDate)
-                    if useArchiveDate { DatePicker("归档日期", selection: $archiveDate, displayedComponents: .date) }
-                    Button { showingPeople = true } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Label("关联人物与宠物", systemImage: "person.2")
-                                Text(chosenNames).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.disabled(!hasLoaded || account == nil)
-
-                } header: { Text("本批整理") }
-                if items.isEmpty {
-                    Section("上传任务") {
-                        Text("暂无上传任务")
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
+                intakeSection
+                batchSettings
+                transferStatus
+                if !items.isEmpty {
                     Section {
                         Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .skipped }.count) 重复已跳过 · \(failedCount) 失败 · \(items.count) 项")
                         Text("照片 \(items.filter { $0.mediaType == "photo" }.count) · Live Photo \(items.filter { $0.mediaType == "live_photo" }.count) · 视频 \(items.filter { $0.mediaType == "video" }.count)")
@@ -286,9 +309,9 @@ struct NativeUploadView: View {
                             Button(showAllPending ? "收起任务列表" : "展开全部 \(pending.count) 项任务") { showAllPending.toggle() }
                         }
                         if !finished.isEmpty { Toggle("显示已结束记录（\(finished.count) 项）", isOn: $showFinished) }
-                        Text("进入后台会暂停上传，返回后继续；强制退出后请点“继续”。")
+                        Text("系统允许时可在后台继续上传；暂停后可从已完成的分片继续。")
                             .font(.caption).foregroundStyle(.secondary)
-                    } header: { Text("上传任务") }
+                    } header: { Text("任务列表") }
                 }
                 ForEach(visibleItems) { item in
                     Section {
@@ -340,7 +363,8 @@ struct NativeUploadView: View {
                     Button("查看家庭时间线") { onTimeline(.timeline) }
                 }
             }
-            .navigationTitle("上传")
+            .navigationTitle("上传照片与视频")
+            .navigationBarTitleDisplayMode(.inline)
             .scrollContentBackground(.hidden).background(NativeTheme.background)
             .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom) {

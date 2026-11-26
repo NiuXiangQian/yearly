@@ -64,7 +64,7 @@ struct NativeSharingView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("分享家庭时光") {
+                Section("分享范围") {
                     Picker("分享人物", selection: $profileID) {
                         Text("全部家庭成员").tag(nil as Int?)
                         ForEach(profiles) { profile in Text(profile.label).tag(Optional(profile.id)) }
@@ -110,25 +110,28 @@ struct NativeSharingView: View {
                             Text("请选择 1 至 200 项影像。").font(.caption).foregroundStyle(.red)
                         }
                     }
+                    Text(selectionMode ? "链接仅包含下方确认的影像，选定人物时进一步按此人物筛选。Live Photo 作为一项完整分享。" : profileID != nil ? "链接包含所选日期内关联此人物且允许分享的回忆。普通成员仅能分享自己添加的内容。" : store.session.isAdmin ? "链接包含所选日期内允许分享的全部家庭回忆，不受上传人、搜索和类型筛选影响。" : "链接仅包含所选日期内自己添加且允许分享的回忆，该日期内以后新增的本人内容也会出现。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("链接有效期") {
                     LabeledContent("有效期（小时）") {
                         TextField("1 至 168", text: $hoursText)
                             .keyboardType(.numberPad).multilineTextAlignment(.trailing)
                     }
-                    HStack {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
                         ForEach([1, 24, 72, 168], id: \.self) { value in
                             Button(value < 24 ? "1 小时" : "\(value / 24) 天") { hoursText = String(value) }
                                 .buttonStyle(NativeActionStyle(kind: hours == value ? .primary : .secondary, compact: true))
+                                .accessibilityAddTraits(hours == value ? .isSelected : [])
                         }
                     }.buttonStyle(.borderless)
                     if !(1...168).contains(hours) {
                         Text("有效期须为 1 至 168 的整数小时。").font(.footnote).foregroundStyle(.red)
                     }
-                    Text(selectionMode ? "链接仅包含下方确认的影像，选定人物时进一步按此人物筛选。Live Photo 作为一项完整分享。" : profileID != nil ? "链接包含所选日期内关联此人物且允许分享的回忆。普通成员仅能分享自己添加的内容。" : store.session.isAdmin ? "链接包含所选日期内允许分享的全部家庭回忆，不受上传人、搜索和类型筛选影响。" : "链接仅包含所选日期内自己添加且允许分享的回忆，该日期内以后新增的本人内容也会出现。")
-                        .font(.footnote).foregroundStyle(.secondary)
                     Text("链接无需登录，仅可查看预览，不能下载原件或编辑。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Button { confirming = true } label: {
-                        Label("创建限时分享链接", systemImage: "link")
+                        Label("创建限时分享链接", systemImage: "link").frame(maxWidth: .infinity)
                     }.buttonStyle(NativeActionStyle(kind: .primary)).disabled(!valid)
                 }
                 if let selectedItems {

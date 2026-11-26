@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeading from "../components/PageHeading.vue";
 import { ref } from "vue";
 import { useRoute } from "vue-router";
 import AuditHistory from "../components/AuditHistory.vue";
@@ -9,19 +10,12 @@ const yearly = useYearly(),
 const resource = ref(String(route.query.type || ""));
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <span class="eyebrow">CHANGE HISTORY</span>
-      <h1>{{ t("修改日志") }}</h1>
-      <p>
-        {{
-          yearly.isAdmin
-            ? t("查看所有账户对文件、文件夹和设置的修改记录。")
-            : t("查看自己内容的修改记录及当前账户的操作记录。")
-        }}
-      </p>
-    </div>
-  </div>
+  <PageHeading
+    :title="t('修改日志')"
+    :description="yearly.isAdmin
+      ? t('查看所有账户对文件、文件夹和设置的修改记录。')
+      : t('查看自己内容的修改记录及当前账户的操作记录。')"
+  />
   <section class="panel">
     <label
       >{{ t("内容类型")

@@ -3,6 +3,7 @@ import SwiftUI
 struct NativeTimelineFilters: View {
     @ObservedObject var store: NativeTimelineStore
     @NativeDismiss private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var uploaderID: Int?
     @State private var selected: Set<Int>
     @State private var mediaType: String
@@ -23,47 +24,58 @@ struct NativeTimelineFilters: View {
 
     var body: some View {
         NavigationStack {
-            NativeSegmentPages(titles: ["影像", "人物与宠物", "日期"], pages: [
-                AnyView(Form {
-                Section("影像类型") {
-                    Picker("影像类型", selection: $mediaType) {
-                        Text("全部").tag("")
-                        Text("照片").tag("photo")
-                        Text("实况").tag("live_photo")
-                        Text("视频").tag("video")
-                    }.pickerStyle(.segmented).frame(minHeight: 44)
-                        .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
-                }
-                Section {
-                    NativeFilterOption(title: "全部上传人", selected: uploaderID == nil) { uploaderID = nil }
-                    if store.uploaders.count > 8 {
-                        TextField("搜索上传人", text: $uploaderSearch).autocorrectionDisabled()
+            Form {
+                Section("影像") {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        mediaPicker.pickerStyle(.menu)
+                    } else {
+                        mediaPicker.pickerStyle(.segmented).frame(minHeight: 44)
                     }
-                    ForEach(store.uploaders.filter { uploaderSearch.isEmpty || ($0.displayName.localizedCaseInsensitiveContains(uploaderSearch) || $0.username.localizedCaseInsensitiveContains(uploaderSearch)) }) { uploader in
-                        NativeFilterOption(title: uploader.displayName + (uploader.id == store.session.account?.id ? "（我）" : ""), selected: uploaderID == uploader.id) { uploaderID = uploader.id }
+                    DisclosureGroup {
+                        NativeFilterOption(title: "全部上传人", selected: uploaderID == nil) { uploaderID = nil }
+                        if store.uploaders.count > 8 {
+                            TextField("搜索上传人", text: $uploaderSearch).autocorrectionDisabled()
+                        }
+                        ForEach(store.uploaders.filter {
+                            uploaderSearch.isEmpty || $0.displayName.localizedCaseInsensitiveContains(uploaderSearch)
+                                || $0.username.localizedCaseInsensitiveContains(uploaderSearch)
+                        }) { uploader in
+                            NativeFilterOption(
+                                title: uploader.displayName + (uploader.id == store.session.account?.id ? "（我）" : ""),
+                                selected: uploaderID == uploader.id
+                            ) { uploaderID = uploader.id }
+                        }
+                    } label: {
+                        LabeledContent("上传人", value: store.uploaders.first { $0.id == uploaderID }?.displayName ?? "全部")
                     }
                     if store.uploadersLoading { ProgressView("正在读取上传人…") }
                     if !store.uploadersError.isEmpty {
                         Text(store.uploadersError).font(.footnote).foregroundStyle(.red)
                         Button("重新读取上传人") { Task { await store.loadUploaders(refresh: true) } }
-                            .buttonStyle(NativeActionStyle())
                     }
-                } header: { Text("谁上传的") }
-                }.scrollContentBackground(.hidden)),
-                AnyView(Form {
-                if !store.profiles.isEmpty {
-                    Section {
-                        NativeFilterOption(title: "全部家人与宠物", selected: selected.isEmpty) { selected = [] }
-                        ForEach(store.profiles) { profile in
-                            NativeFilterOption(title: profile.label, selected: selected.contains(profile.id)) {
-                                if selected.contains(profile.id) { selected.remove(profile.id) }
-                                else { selected.insert(profile.id) }
-                            }
-                        }
-                    } header: { Text("影像中的家人 · 可多选") }
                 }
-                }.scrollContentBackground(.hidden)),
-                AnyView(Form {
+                Section("人物与宠物") {
+                    if store.profiles.isEmpty {
+                        if store.profilesLoading { ProgressView("正在读取档案…") }
+                        else if store.profilesError.isEmpty { Text("暂无档案").foregroundStyle(NativeTheme.secondaryText) }
+                    } else {
+                        DisclosureGroup {
+                            NativeFilterOption(title: "全部家人与宠物", selected: selected.isEmpty) { selected = [] }
+                            ForEach(store.profiles) { profile in
+                                NativeFilterOption(title: profile.label, selected: selected.contains(profile.id)) {
+                                    if selected.contains(profile.id) { selected.remove(profile.id) }
+                                    else { selected.insert(profile.id) }
+                                }
+                            }
+                        } label: {
+                            LabeledContent("影像中的家人", value: selected.isEmpty ? "全部" : "已选 \(selected.count) 位")
+                        }
+                    }
+                    if !store.profilesError.isEmpty {
+                        Text(store.profilesError).font(.footnote).foregroundStyle(.red)
+                        Button("重新读取档案") { Task { await store.loadProfiles(refresh: true) } }
+                    }
+                }
                 Section {
                     Toggle("指定日期范围", isOn: $useDateRange)
                     if useDateRange {
@@ -74,10 +86,9 @@ struct NativeTimelineFilters: View {
                         }
                     }
                 } header: { Text(store.usesUploadOrder ? "上传日期" : "归档日期") } footer: {
-                    Text("包含开始和结束当天。日期未知的影像不参与日期范围筛选。")
+                    if useDateRange { Text("包含开始和结束当天。日期未知的影像不参与日期范围筛选。") }
                 }
-                }.scrollContentBackground(.hidden))
-            ])
+            }
             .scrollContentBackground(.hidden).background(NativeTheme.background)
             .navigationTitle("筛选影像").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
@@ -100,4 +111,14 @@ struct NativeTimelineFilters: View {
             }
         }
     }
+    private var mediaPicker: some View {
+        Picker("影像类型", selection: $mediaType) {
+            Text("全部").tag("")
+            Text("照片").tag("photo")
+            Text("实况").tag("live_photo")
+            Text("视频").tag("video")
+        }
+        .accessibilityIdentifier("media-type-filter")
+    }
+
 }

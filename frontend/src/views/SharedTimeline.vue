@@ -91,6 +91,7 @@ const monthList = ref<{ reveal(date: string): void }>();
 const reading = ref<HTMLElement>();
 const loading = ref(false),
   error = ref(""),
+  unavailable = ref(false),
   folder = ref<any>(null),
   selected = ref<any>(null);
 const dayErrors = ref<Record<string, string>>({}),
@@ -110,8 +111,11 @@ const video = computed(
 watch(loading, value => { if (!value && scrubTarget) void applyScrub(); });
 let expiryTimer: ReturnType<typeof setTimeout>;
 const clock = ref(Date.now());
+const remainingSeconds = computed(() =>
+  Math.max(0, Math.ceil((new Date(share.value?.expires_at).getTime() - clock.value) / 1000)),
+);
 const countdown = computed(() => {
-  const seconds = Math.max(0, Math.ceil((new Date(share.value?.expires_at).getTime() - clock.value) / 1000));
+  const seconds = remainingSeconds.value;
   const days = Math.floor(seconds / 86400);
   const time = `${String(Math.floor(seconds / 3600) % 24).padStart(2, "0")}:${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
   return days ? t("{p0} 天 {p1}", { p0: days, p1: time }) : time;
@@ -124,6 +128,7 @@ let visitRecorded = false;
 function expire() {
   void clearCachedScope(cacheScope(base)!);
   releaseMediaResource(preview.value);
+  unavailable.value = true;
   error.value = t("分享已失效或不存在");
   share.value = null;
   days.value = [];
@@ -141,6 +146,7 @@ async function load(direction: "replace" | "next" | "previous" = "replace", anch
   const order = timelineOrder.value;
   loading.value = true;
   error.value = "";
+  unavailable.value = false;
   if (direction === "previous") previousError.value = "";
   else {
     pageError.value = "";
@@ -196,7 +202,11 @@ async function load(direction: "replace" | "next" | "previous" = "replace", anch
       if (direction === "previous") previousError.value = e instanceof Error ? e.message : t("请求失败");
       else if (more) pageError.value = e instanceof Error ? e.message : t("请求失败");
       else if (anchor) notify(e);
-      else error.value = e instanceof Error ? e.message : t("请求失败");
+      else {
+        error.value = e instanceof Error ? e.message : t("请求失败");
+        unavailable.value = error.value === t("分享已失效或不存在") ||
+          (e instanceof Error && "status" in e && (e.status === 403 || e.status === 404 || e.status === 410));
+      }
     }
   } finally {
     if (generation === loadGeneration) loading.value = false;
@@ -343,24 +353,24 @@ onBeforeUnmount(() => {
     <div v-if="error" class="shared-empty" role="alert">
       <ShieldCheck :size="40" />
       <h1>{{ error }}</h1>
-      <p>{{ t("请联系分享者获取新的链接") }}</p>
+      <p v-if="unavailable">{{ t("请联系分享者获取新的链接") }}</p>
+      <button v-else type="button" class="button" @click="load()">{{ t("重新加载") }}</button>
     </div>
     <template v-else-if="share">
       <section class="shared-intro">
-        <img v-if="avatar" :src="avatar" :alt="share.profile_name" class="shared-avatar" />
-        <span class="eyebrow">{{ t("与你分享的时光") }}</span>
-        <h1>{{ share.card_title || share.title || t("一起长大的日子") }}</h1>
-        <p v-if="share.scope === 'selection'">{{ t("指定影像分享") }}</p>
-        <p v-else>{{ share.start_date }} — {{ share.end_date }}</p>
-        <small
-          ><ShieldCheck :size="13" />{{ t("只读分享") }} ·
-          {{
-            t("有效至 {p0}", {
-              p0: new Date(share.expires_at).toLocaleString(locale),
-            })
-          }}</small
-        >
-        <p class="share-countdown">{{ t("链接剩余有效时间") }} <time>{{ countdown }}</time></p>
+        <div class="shared-title">
+          <img v-if="avatar" :src="avatar" :alt="share.profile_name" class="shared-avatar" />
+          <div>
+            <h1>{{ share.card_title || share.title || t("一起长大的日子") }}</h1>
+            <p v-if="share.scope === 'selection'">{{ t("指定影像分享") }}</p>
+            <p v-else><time :datetime="share.start_date">{{ share.start_date }}</time> — <time :datetime="share.end_date">{{ share.end_date }}</time></p>
+          </div>
+        </div>
+        <div class="share-access">
+          <span><ShieldCheck :size="15" aria-hidden="true" />{{ t("只读分享") }}</span>
+          <p>{{ t("有效至 {p0}", { p0: new Date(share.expires_at).toLocaleString(locale) }) }}</p>
+          <p class="share-countdown">{{ t("链接剩余有效时间") }} <time :datetime="`PT${remainingSeconds}S`">{{ countdown }}</time></p>
+        </div>
       </section>
       <div v-if="share.scope !== 'selection'" class="shared-sort">
         <TimelineOrder
@@ -469,7 +479,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </template>
-    <div v-else-if="loading" class="shared-empty">{{ t("正在加载…") }}</div>
+    <div v-else-if="loading" class="shared-empty" role="status">{{ t("正在加载…") }}</div>
     <MotionDialog
       :model-value="!!folder"
       :title="folder?.name"
@@ -583,24 +593,47 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-family: Georgia, serif;
-  font-size: 23px;
+  font-family: var(--serif);
+  font-size: 27px;
   color: var(--sage);
 }
 .shared-brand img {
   border-radius: 5px;
 }
 .shared-intro {
-  text-align: center;
-  padding: 52px 0 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px 32px;
+  padding: 12px 0 20px;
+  margin: 22px 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+.shared-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
 }
 .shared-avatar {
   display: block;
-  width: 72px;
-  height: 72px;
-  margin: 0 auto 16px;
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
   border-radius: 50%;
   object-fit: cover;
+}
+.share-access {
+  border-inline-start: 1px solid var(--line);
+  padding-inline-start: 20px;
+  font-size: 12px;
+}
+.share-access > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--sage);
+  margin-bottom: 3px;
 }
 .share-countdown time {
   font-variant-numeric: tabular-nums;
@@ -608,21 +641,16 @@ onBeforeUnmount(() => {
   color: var(--sage);
 }
 .shared-intro h1 {
-  font-size: 34px;
-  margin: 16px 0;
-  font-weight: var(--weight-medium);
+  font-size: clamp(26px, 4vw, 42px);
+  line-height: 1.27;
+  margin-bottom: 7px;
   overflow-wrap: anywhere;
 }
 .shared-intro p {
   color: var(--muted);
 }
-.shared-intro small {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--muted);
+.shared-title p {
+  font-variant-numeric: tabular-nums;
 }
 .shared-reader.has-rail {
   display: grid;
@@ -659,7 +687,7 @@ onBeforeUnmount(() => {
   vertical-align: middle;
 }
 .shared-day h2 {
-  font-family: Georgia, serif;
+  font-family: var(--serif);
   font-size: 22px;
   font-weight: var(--weight-medium);
 }
@@ -800,14 +828,15 @@ onBeforeUnmount(() => {
     padding: 18px 0;
   }
   .shared-intro {
-    padding: 32px 0;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px 0;
+    gap: 12px;
+    margin: 14px 0;
   }
-  .shared-intro h1 {
-    font-size: 27px;
-  }
-  .shared-intro small {
-    font-size: 10px;
-    flex-wrap: wrap;
+  .share-access {
+    border-inline-start: 0;
+    border-top: 1px solid var(--line);
+    padding: 9px 0 0;
   }
   .shared-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

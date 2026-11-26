@@ -10,7 +10,10 @@ struct NativeAccountsView: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("家庭成员与权限").font(.headline)
+                    Label("家庭成员与权限", systemImage: "checkmark.shield")
+                        .font(.headline)
+                        .foregroundStyle(NativeTheme.accent)
+                        .accessibilityAddTraits(.isHeader)
                     Text("普通账号编辑自己的内容，管理员管理全部内容与账号。")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }.padding(.vertical, 8)
@@ -48,15 +51,18 @@ struct NativeAccountsView: View {
         }
         .scrollContentBackground(.hidden).background(NativeTheme.background)
         .navigationTitle("账号管理")
-        .safeAreaInset(edge: .bottom) {
-            Button { creating = true } label: {
-                Label("创建账号", systemImage: "person.badge.plus").frame(maxWidth: .infinity)
-            }.buttonStyle(NativeActionStyle(kind: .primary)).padding(16).background(.bar)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { creating = true } label: {
+                    Label("创建账号", systemImage: "person.badge.plus")
+                }
+            }
         }
         .task { await store.load() }
         .refreshable { await store.load() }
-        .nativeSheet(item: $editing) { user in NativeAccountEditor(store: store, existing: user) }
-        .nativeSheet(isPresented: $creating) { NativeAccountEditor(store: store, existing: nil) }
+        .sheet(item: $editing) { user in NativeAccountEditor(store: store, existing: user).tint(NativeTheme.accent) }
+        .sheet(isPresented: $creating) { NativeAccountEditor(store: store, existing: nil).tint(NativeTheme.accent) }
     }
 }
 

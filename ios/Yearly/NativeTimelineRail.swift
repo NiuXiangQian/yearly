@@ -8,7 +8,7 @@ struct NativeTimelineRail: View {
     let scrub: (String) -> Void
     let select: (String) -> Void
     @State private var dragRatio: CGFloat?
-    @State private var moved = false
+    @GestureState private var dragging = false
     @State private var scale = NativeTimelineScale(days: [])
     @State private var markers: [String] = []
 
@@ -43,7 +43,7 @@ struct NativeTimelineRail: View {
                                             .foregroundStyle(Color.primary)
                                     }
                                     Text(marker.dropFirst(5).replacingOccurrences(of: "-", with: "."))
-                                        .font(.system(size: 9)).foregroundStyle(Color.secondary)
+                                        .font(.system(size: 9)).foregroundStyle(NativeTheme.secondaryText)
                                 }
                                 .monospacedDigit().frame(width: 32, alignment: .trailing)
                                 .position(x: 16, y: markerY)
@@ -78,25 +78,27 @@ struct NativeTimelineRail: View {
                         }
                     }
                     .contentShape(Rectangle())
-                    .gesture(DragGesture(minimumDistance: 0)
+                    .gesture(DragGesture(minimumDistance: 6)
+                        .updating($dragging) { _, dragging, _ in dragging = true }
                         .onChanged { value in
-                            if dragRatio == nil { moved = false; hold(true) }
+                            if dragRatio == nil { hold(true) }
                             let valueRatio = min(1, max(0, (value.location.y - 16) / max(1, trackHeight)))
                             dragRatio = valueRatio
-                            if abs(value.translation.height) > 6 { moved = true }
-                            if moved, let day = scale.nearest(to: valueRatio) { scrub(day) }
+                            if let day = scale.nearest(to: valueRatio) { scrub(day) }
                         }
-                        .onEnded { value in
-                            if !moved {
+                        .exclusively(before: SpatialTapGesture()
+                            .onEnded { value in
                                 let ratio = min(1, max(0, (value.location.y - 16) / max(1, trackHeight)))
                                 if let nearest = markers.min(by: { abs(scale.ratio(for: $0) - ratio) < abs(scale.ratio(for: $1) - ratio) }) {
                                     select(nearest)
                                 }
-                            }
-                            hold(false)
+                            }))
+                    .onChange(of: dragging) { active in
+                        if !active {
                             dragRatio = nil
-                            moved = false
-                        })
+                            hold(false)
+                        }
+                    }
                     .allowsHitTesting(!disabled)
                     .onAppear {
                         scale = NativeTimelineScale(days: days)
@@ -199,7 +201,7 @@ struct NativeTimelineScrollReader: UIViewRepresentable {
                 var ancestor = view.superview
                 while let parent = ancestor {
                     if let scroll = parent as? UIScrollView {
-                        guard coordinator.scroll !== scroll else { coordinator.resolve(scroll); return }
+                        guard coordinator.scroll !== scroll else { return }
                         coordinator.scroll = scroll
                         scroll.alwaysBounceVertical = true
                         scroll.refreshControl = coordinator.refreshControl

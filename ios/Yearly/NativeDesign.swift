@@ -2,13 +2,19 @@ import SwiftUI
 
 enum NativeTheme {
     static let accent = Color(UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0.64, green: 0.79, blue: 0.69, alpha: 1)
-        : UIColor(red: 0.20, green: 0.36, blue: 0.29, alpha: 1) })
+        ? UIColor(red: 0.65, green: 0.80, blue: 0.94, alpha: 1)
+        : UIColor(red: 0.18, green: 0.34, blue: 0.49, alpha: 1) })
     static let onAccent = Color(UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0.08, green: 0.16, blue: 0.12, alpha: 1) : .white })
+        ? UIColor(red: 0.08, green: 0.15, blue: 0.23, alpha: 1) : .white })
     static let background = Color(UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0.07, green: 0.08, blue: 0.08, alpha: 1)
-        : UIColor(red: 0.96, green: 0.96, blue: 0.94, alpha: 1) })
+        ? UIColor(red: 0.08, green: 0.12, blue: 0.17, alpha: 1)
+        : UIColor(red: 0.95, green: 0.96, blue: 0.97, alpha: 1) })
+    static let surface = Color(UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0.12, green: 0.18, blue: 0.25, alpha: 1) : .white })
+    static let secondaryText = Color(UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0.71, green: 0.77, blue: 0.84, alpha: 1)
+        : UIColor(red: 0.32, green: 0.39, blue: 0.47, alpha: 1) })
+    static let display = Font.system(.largeTitle, design: .serif).weight(.semibold)
     static let line = Color(UIColor.separator).opacity(0.35)
 }
 
@@ -36,18 +42,20 @@ struct NativeActionStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: compact ? 14 : 16, weight: .semibold))
+            .font((compact ? Font.subheadline : .body).weight(.semibold))
+            .multilineTextAlignment(.center)
             .foregroundStyle(configuration.role == .destructive ? Color.red : foreground)
-            .padding(.horizontal, compact ? 14 : 18)
-            .frame(minHeight: compact ? 40 : 48)
-            .background(configuration.role == .destructive ? Color.red.opacity(0.08) : background, in: RoundedRectangle(cornerRadius: compact ? 20 : 14, style: .continuous))
+            .padding(.horizontal, compact ? 12 : 18)
+            .padding(.vertical, 6)
+            .frame(minHeight: compact ? 44 : 48)
+            .background(configuration.role == .destructive ? Color.red.opacity(0.08) : background, in: RoundedRectangle(cornerRadius: 11))
             .overlay {
                 if kind == .secondary {
-                    RoundedRectangle(cornerRadius: compact ? 20 : 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 11)
                         .strokeBorder(NativeTheme.accent.opacity(0.13), lineWidth: 1)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: compact ? 20 : 14))
+            .contentShape(Rectangle())
             .opacity(!enabled ? 0.4 : configuration.isPressed ? 0.65 : 1)
     }
 }
@@ -64,7 +72,10 @@ struct NativeSettingsLabel: View {
                 .background(NativeTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 11))
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.body.weight(.medium)).foregroundStyle(.primary)
-                if let detail { Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                if let detail {
+                    Text(detail).font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
         }.padding(.vertical, 5)
@@ -83,7 +94,7 @@ struct NativeFilterOption: View {
                 Spacer(minLength: 12)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 22)).foregroundStyle(selected ? NativeTheme.accent : Color.secondary.opacity(0.4))
-            }.frame(minHeight: 32).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+            }.frame(minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(.borderless).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

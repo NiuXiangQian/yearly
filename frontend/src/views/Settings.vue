@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeading from "../components/PageHeading.vue";
 import LanguageSwitch from "../components/LanguageSwitch.vue";
 import { t } from "../lib/i18n";
 import { ref, onMounted } from "vue";
@@ -10,6 +11,8 @@ import {
   Trash2,
   Users,
   ArrowUpRight,
+  ScanFace,
+  LogOut,
 } from "lucide-vue-next";
 import { api, post, notify, bytes } from "../lib/api";
 import { useYearly } from "../stores/yearly";
@@ -18,7 +21,10 @@ const yearly = useYearly(),
   router = useRouter(),
   config = ref<any>(),
   password = ref({ old_password: "", new_password: "" }),
-  busy = ref(false);
+  busy = ref(false),
+  passwordError = ref(""),
+  logoutError = ref(""),
+  loggingOut = ref(false);
 async function load() {
   if (!yearly.isAdmin) return;
   try {
@@ -29,25 +35,35 @@ async function load() {
 }
 onMounted(load);
 async function changePassword() {
+  if (busy.value) return;
+  passwordError.value = "";
   busy.value = true;
   try {
     await post("/auth/password", password.value);
     yearly.user = null;
     router.push("/login");
   } catch (e) {
-    notify(e);
+    passwordError.value = e instanceof Error ? e.message : t("操作失败");
   } finally {
     busy.value = false;
   }
 }
+async function logout() {
+  if (loggingOut.value) return;
+  logoutError.value = "";
+  loggingOut.value = true;
+  try {
+    await yearly.logout();
+    await router.push("/login");
+  } catch (error) {
+    logoutError.value = error instanceof Error ? error.message : t("操作失败");
+  } finally {
+    loggingOut.value = false;
+  }
+}
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <span class="eyebrow">A SAFE PLACE FOR OUR FAMILY</span>
-      <h1>{{ t("照顾好这个小小的家。") }}</h1>
-    </div>
-  </div>
+  <PageHeading :title="t('家庭与设置')" />
   <div class="settings-layout">
     <section class="panel">
       <div class="section-heading">
@@ -78,6 +94,11 @@ async function changePassword() {
         <span> {{ t("原文件存储") }} </span
         ><b>{{ bytes(yearly.stats.bytes) }}</b>
       </div>
+    </section>
+    <section class="panel settings-links">
+      <h2>{{ t("管理与记录") }}</h2>
+      <RouterLink v-if="yearly.isAdmin" to="/face-review" class="setting-link"
+        ><ScanFace :size="17" aria-hidden="true" />{{ t("相册整理") }}<ArrowUpRight :size="16" aria-hidden="true" /></RouterLink>
       <RouterLink v-if="yearly.isAdmin" to="/accounts" class="setting-link"
         ><Users :size="17" />{{ t("账户管理")
         }}<ArrowUpRight :size="16" /></RouterLink
@@ -97,7 +118,7 @@ async function changePassword() {
     <section class="panel">
       <h2><KeyRound :size="20" /> {{ t("账户密码") }}</h2>
       <p class="muted">{{ t("修改后会注销此账户的所有登录会话。") }}</p>
-      <form @submit.prevent="changePassword">
+      <form @submit.prevent="changePassword" @keydown.enter="$event.isComposing && $event.preventDefault()">
         <label>
           {{ t("当前密码") }}
           <input
@@ -114,8 +135,9 @@ async function changePassword() {
             minlength="12"
             maxlength="256"
             required
-            :placeholder="t('至少 12 个字符')" /></label
-        ><button class="button" :disabled="busy">
+            :placeholder="t('至少 12 个字符')" /></label>
+        <p v-if="passwordError" class="notice" role="alert">{{ passwordError }}</p>
+        <button type="submit" class="button" :disabled="busy">
           {{ t("更新密码并重新登录") }}
         </button>
       </form>
@@ -152,6 +174,12 @@ async function changePassword() {
           )
         }}
       </p>
+    </section>
+    <section class="panel settings-signout">
+      <p v-if="logoutError" class="notice" role="alert">{{ logoutError }}</p>
+      <button type="button" class="button danger" :disabled="loggingOut" @click="logout">
+        <LogOut :size="17" aria-hidden="true" /> {{ t("退出登录") }}
+      </button>
     </section>
   </div>
 </template>

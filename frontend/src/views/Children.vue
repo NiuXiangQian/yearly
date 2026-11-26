@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeading from "../components/PageHeading.vue";
 import MotionDialog from "../components/MotionDialog.vue";
 import { t } from "../lib/i18n";
 import {
@@ -59,6 +60,11 @@ const avatarInput = ref<HTMLInputElement>(),
   avatarPreview = ref(""),
   avatarPreparing = ref(false),
   avatarProgress = ref<number | null>(null);
+const profileGroups = computed(() => [
+  { key: "people", title: t("人物"), items: visibleProfiles.value.filter((profile) => profile.profile_type !== "pet") },
+  { key: "pets", title: t("宠物"), items: visibleProfiles.value.filter((profile) => profile.profile_type === "pet") },
+].filter((group) => group.items.length));
+
 function clearAvatarDraft() {
   avatarFile.value = null;
   if (avatarPreview.value) URL.revokeObjectURL(avatarPreview.value);
@@ -233,11 +239,7 @@ function browse(id: number) {
 }
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <span class="eyebrow">LITTLE LIVES, SHARED STORIES</span>
-      <h1>{{ t("每一位家人，都在时光里。") }}</h1>
-    </div>
+  <PageHeading :title="t('人物与宠物')">
     <div v-if="yearly.canEdit" class="profile-create-actions">
       <button class="button" @click="edit(undefined, 'pet')">
         <PawPrint :size="17" /> {{ t("添加宠物") }}
@@ -246,7 +248,7 @@ function browse(id: number) {
         <Plus :size="17" /> {{ t("添加人物") }}
       </button>
     </div>
-  </div>
+  </PageHeading>
   <div v-if="yearly.children.length" class="profile-list-filters">
     <input
       v-model="search"
@@ -260,63 +262,51 @@ function browse(id: number) {
       </option>
     </select>
   </div>
-  <p v-if="yearly.children.length && !visibleProfiles.length" class="muted">
-    {{ t("没有匹配的档案") }}
-  </p>
-  <div v-if="yearly.children.length" class="children-grid">
-    <article
-      v-for="c in visibleProfiles"
-      :key="c.id"
-      class="child-profile-card"
-      :style="{ '--child-color': c.theme_color }"
-    >
-      <div class="child-card-top">
-        <ChildAvatar class="big-child-avatar" :child="c" /><span class="chip">{{
-          c.status === "archived"
-            ? t("已归档")
-            : c.profile_type === "pet"
-              ? t("宠物")
-              : t(
-                  c.relationship ||
-                    (c.profile_type === "child" ? "孩子" : "人物"),
-                )
-        }}</span>
+  <div v-if="yearly.children.length">
+    <div v-if="!visibleProfiles.length" class="profile-no-results" role="status">
+      <p>{{ t("没有匹配的档案") }}</p>
+      <button type="button" class="text-button" @click="(search = ''), (category = '')">{{ t("清除筛选") }}</button>
+    </div>
+    <section v-for="group in profileGroups" :key="group.key" class="profile-directory" :aria-labelledby="`profile-${group.key}`">
+      <h2 :id="`profile-${group.key}`">{{ group.title }} <small>{{ group.items.length }}</small></h2>
+      <div class="profile-grid">
+        <article v-for="c in group.items" :key="c.id" class="profile-row" :style="{ '--child-color': c.theme_color }">
+          <ChildAvatar class="big-child-avatar" :child="c" />
+          <div class="profile-info">
+            <div class="profile-identity">
+              <h3>{{ c.nickname || c.name }}</h3>
+              <small v-if="c.nickname && c.nickname !== c.name">{{ c.name }}</small>
+              <span class="chip">{{
+                c.status === "archived" ? t("已归档") :
+                  c.profile_type === "pet" ? t("宠物") :
+                  t(c.relationship || (c.profile_type === "child" ? "孩子" : "人物"))
+              }}</span>
+            </div>
+            <p class="profile-meta">
+              <span><CalendarDays :size="15" aria-hidden="true" /> {{ c.birthday ? localDate(c.birthday) : t("生日待补充") }}<template v-if="c.birth_time"> {{ c.birth_time }}</template></span>
+              <span v-if="c.profile_type === 'pet' && (c.species || c.breed)">
+                <PawPrint :size="15" aria-hidden="true" /> {{ [c.species, c.breed].filter(Boolean).join(" · ") }}
+              </span>
+            </p>
+            <p v-if="c.description" class="profile-description">{{ c.description }}</p>
+            <div class="profile-actions">
+              <button type="button" class="text-button" @click="browse(c.id)">
+                {{ t(hasGrowthTimeline(c) ? "翻开成长时间线" : "查看相关影像") }}
+                <ArrowUpRight :size="15" aria-hidden="true" />
+              </button>
+              <button
+                v-if="yearly.canEdit && c.can_edit !== false"
+                type="button"
+                class="icon-button"
+                :title="t(c.profile_type === 'pet' ? '编辑宠物档案' : '编辑人物档案')"
+                :aria-label="t(c.profile_type === 'pet' ? '编辑宠物档案' : '编辑人物档案')"
+                @click="edit(c)"
+              ><Pencil :size="16" aria-hidden="true" /></button>
+            </div>
+          </div>
+        </article>
       </div>
-      <h2>
-        {{ c.nickname || c.name }}<small v-if="c.nickname">{{ c.name }}</small>
-      </h2>
-      <p>
-        <CalendarDays :size="15" />{{
-          c.birthday ? localDate(c.birthday) : t("生日待补充")
-        }}<span v-if="c.birth_time">{{ c.birth_time }}</span>
-      </p>
-      <p
-        v-if="c.profile_type === 'pet' && (c.species || c.breed)"
-        class="pet-details"
-      >
-        <PawPrint :size="15" />{{
-          [c.species, c.breed].filter(Boolean).join(" · ")
-        }}
-      </p>
-      <p class="child-description">
-        {{ c.description || t("每一份陪伴，都值得珍藏。") }}
-      </p>
-      <div class="child-card-actions">
-        <button class="text-button" @click="browse(c.id)">
-          {{ t(hasGrowthTimeline(c) ? "翻开成长时间线" : "查看相关影像") }}
-          <ArrowUpRight :size="16" /></button
-        ><button
-          v-if="yearly.canEdit && c.can_edit !== false"
-          class="icon-button"
-          :aria-label="
-            t(c.profile_type === 'pet' ? '编辑宠物档案' : '编辑人物档案')
-          "
-          @click="edit(c)"
-        >
-          <Pencil :size="16" />
-        </button>
-      </div>
-    </article>
+    </section>
   </div>
   <EmptyState
     v-else
@@ -339,7 +329,7 @@ function browse(id: number) {
     :close-on-click-modal="!busy && !avatarPreparing"
     :close-on-press-escape="!busy && !avatarPreparing"
     :show-close="!busy && !avatarPreparing"
-    ><form @submit.prevent="save">
+    ><form @submit.prevent="save" @keydown.enter="$event.isComposing && $event.preventDefault()">
       <div class="avatar-editor">
         <span v-if="avatarPreview" class="child-avatar big-child-avatar"
           ><img :src="avatarPreview" :alt="t('新头像预览')"
@@ -590,20 +580,6 @@ function browse(id: number) {
   flex: 1;
   min-width: 180px;
   max-width: 360px;
-}
-
-.child-profile-card {
-  display: flex;
-  flex-direction: column;
-}
-.child-profile-card .child-description {
-  flex: 1;
-}
-.form-row {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.form-row > label {
-  min-width: 0;
 }
 
 .profile-create-actions {

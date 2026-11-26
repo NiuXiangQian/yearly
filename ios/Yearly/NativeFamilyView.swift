@@ -44,44 +44,13 @@ struct NativeFamilyView: View {
                 if store.profiles.isEmpty && !store.profilesLoading && store.profilesError.isEmpty {
                     Text("还没有家人或宠物资料。").foregroundStyle(.secondary)
                 }
-                ForEach(store.profiles) { profile in
-                    VStack(alignment: .leading, spacing: 14) {
-                        Button { showTimeline(profile) } label: {
-                            HStack(spacing: 14) {
-                                NativeFamilyAvatar(session: store.session, mediaID: profile.avatar_media_id,
-                                                   name: profile.nickname.isEmpty ? profile.name : profile.nickname,
-                                                   pet: profile.profile_type == "pet", color: ProfileColor.color(profile.theme_color))
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(profile.nickname.isEmpty ? profile.name : profile.nickname)
-                                        .font(.headline).foregroundStyle(.primary)
-                                    Text(summary(for: profile)).font(.caption).foregroundStyle(.secondary)
-                                    if let birthday = profile.birthday {
-                                        Text("出生日期 \(birthday)").font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer(minLength: 8)
-                                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }.buttonStyle(.plain).accessibilityHint("查看此成员的时间线")
-                        Text(profile.description.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-                             ?? "每一份陪伴，都值得珍藏。")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        HStack(spacing: 8) {
-                            if profile.editable(by: store.session.account) {
-                                Button { saved = false; editing = profile } label: {
-                                    Label("编辑资料", systemImage: "square.and.pencil")
-                                }
-                                .buttonStyle(NativeActionStyle(compact: true))
-                                .accessibilityLabel("编辑\(profile.name)的资料")
-                            }
-                            Button { auditing = profile } label: {
-                                Label("修改记录", systemImage: "clock.arrow.circlepath")
-                            }.buttonStyle(NativeActionStyle(compact: true))
-                                .accessibilityLabel("查看\(profile.name)的修改日志")
-                        }
-                    }.padding(.vertical, 10)
+                let people = store.profiles.filter { $0.profile_type != "pet" }
+                let pets = store.profiles.filter { $0.profile_type == "pet" }
+                if !people.isEmpty {
+                    Section("人物") { ForEach(people) { profileRow($0) } }
+                }
+                if !pets.isEmpty {
+                    Section("宠物") { ForEach(pets) { profileRow($0) } }
                 }
             }
             .scrollContentBackground(.hidden).background(NativeTheme.background)
@@ -105,6 +74,45 @@ struct NativeFamilyView: View {
                 }
             }
         }
+    }
+
+    private func profileRow(_ profile: UploadProfile) -> some View {
+        let name = profile.nickname.isEmpty ? profile.name : profile.nickname
+        return HStack(alignment: .top, spacing: 10) {
+            Button { showTimeline(profile) } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    NativeFamilyAvatar(session: store.session, mediaID: profile.avatar_media_id,
+                                       name: name, pet: profile.profile_type == "pet",
+                                       color: ProfileColor.color(profile.theme_color))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(name).font(.headline).foregroundStyle(.primary)
+                        Text(summary(for: profile)).font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                        if let birthday = profile.birthday {
+                            Text("出生日期 \(birthday)").font(.caption).foregroundStyle(NativeTheme.secondaryText)
+                        }
+                        if let description = profile.description, !description.isEmpty {
+                            Text(description).font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                        }
+                    }.fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        .foregroundStyle(NativeTheme.accent).padding(.top, 4).accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityHint("查看此档案关联的时间线")
+            Menu {
+                if profile.editable(by: store.session.account) {
+                    Button("编辑资料", systemImage: "square.and.pencil") { saved = false; editing = profile }
+                }
+                Button("修改记录", systemImage: "clock.arrow.circlepath") { auditing = profile }
+            } label: {
+                Image(systemName: "ellipsis").frame(width: 44, height: 44)
+            }.accessibilityLabel("\(name)的档案操作")
+        }.padding(.vertical, 6)
     }
 
     private func summary(for profile: UploadProfile) -> String {

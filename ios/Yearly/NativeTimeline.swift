@@ -167,6 +167,11 @@ struct NativeTimelineView: View {
                     if scrubDay != nil { scrollToDay() }
                     loadMoreIfNeeded()
                 }, didScroll: { value in
+                    if value.isDragging && (scrubDay != nil || pendingRailDay != nil) {
+                        railHeld = false
+                        scrubDay = nil
+                        pendingRailDay = nil
+                    }
                     updateReadingDay(value)
                     loadMoreIfNeeded()
                 }))
@@ -192,20 +197,8 @@ struct NativeTimelineView: View {
                                 if !held { scrollToDay(); loadMoreIfNeeded() }
                             }, scrub: { day in
                                 guard scrubDay != day && currentDay != day else { return }
-                                currentDay = day
-                                scrubDay = day
-                                collapsedMonths[String(day.prefix(7))] = false
-                                if scrollLayoutReady && dayFrames[day] != nil && store.items.contains(where: { store.groupDay($0) == day }) {
-                                    scrollToDay()
-                                } else { store.jump(to: day) }
-                            }) { day in
-                                currentDay = day
-                                scrubDay = day
-                                collapsedMonths[String(day.prefix(7))] = false
-                                if scrollLayoutReady && dayFrames[day] != nil && store.items.contains(where: { store.groupDay($0) == day }) {
-                                    scrollToDay()
-                                } else { store.jump(to: day) }
-                            }
+                                seekRailDay(day)
+                            }, select: seekRailDay)
                             .frame(height: max(0, geometry.size.height - NativeLiquidNavigation.height))
                         }.frame(width: 44).zIndex(1)
                     }
@@ -251,7 +244,7 @@ struct NativeTimelineView: View {
         let groups = store.groupedItems
         let days = store.orderedDays(groups.keys)
         let months = Dictionary(grouping: days) { String($0.prefix(7)) }
-        return LazyVStack(alignment: .leading, spacing: 22) {
+        return LazyVStack(alignment: .leading, spacing: 14) {
             if store.showingUploads {
                 HStack {
                     Text("按归档日期查看刚上传的影像").font(.subheadline).foregroundStyle(.secondary)
@@ -270,10 +263,11 @@ struct NativeTimelineView: View {
                     }
                 }
             } else {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(store.usesUploadOrder ? "上传记录" : "所有回忆").font(.title2.bold())
-                    Spacer()
-                    Text("\(store.total) 项").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+                if !store.loading || !store.items.isEmpty {
+                    LabeledContent(store.usesUploadOrder ? "上传记录" : "所有回忆", value: "\(store.total) 项")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(NativeTheme.secondaryText)
+                        .monospacedDigit()
                 }
                 if store.hasFilters {
                     HStack(alignment: .top, spacing: 10) {
@@ -320,15 +314,20 @@ struct NativeTimelineView: View {
                     if !store.showingUploads {
                         Button { collapsedMonths[month] = !closed } label: {
                             HStack(spacing: 10) {
-                                Image(systemName: closed ? "chevron.right" : "chevron.down").font(.caption)
+                                Image(systemName: closed ? "chevron.right" : "chevron.down")
+                                    .font(.caption.weight(.semibold)).foregroundStyle(NativeTheme.accent)
                                 Text(NativeDay.date(month + "-01").map {
                                     $0.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN")))
                                 } ?? "拍摄时间未知").font(.headline)
                                 Spacer(minLength: 4)
-                                Text("\(monthDays.count) 天").font(.caption).foregroundStyle(.secondary)
+                                Text("\(monthDays.count) 天").font(.caption).foregroundStyle(NativeTheme.secondaryText)
                             }
-                            .foregroundStyle(.primary).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
-                            .overlay(alignment: .bottom) { Rectangle().fill(NativeTheme.line).frame(height: 1) }
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .overlay(alignment: .bottom) {
+                                Rectangle().fill(NativeTheme.line).frame(height: 1).allowsHitTesting(false)
+                            }
                         }
                         .buttonStyle(.plain).disabled(selecting)
                         .accessibilityValue(closed ? "已收起" : "已展开")
@@ -349,6 +348,17 @@ struct NativeTimelineView: View {
         !store.showingUploads && !selecting && (collapsedMonths[month] ?? collapseAllMonths)
     }
 
+    private func seekRailDay(_ day: String) {
+        currentDay = day
+        scrubDay = day
+        collapsedMonths[String(day.prefix(7))] = false
+        if scrollLayoutReady, dayFrames[day] != nil, store.groupedItems[day] != nil {
+            scrollToDay()
+        } else if store.anchorDay != day {
+            store.jump(to: day)
+        }
+    }
+
     private func daySection(_ day: String, items dayItems: [NativeTimelineItem]) -> some View {
         let expanded = selecting || store.isFocused || (expandedDays[day] ?? expandAllDays)
         let visibleItems = expanded ? dayItems : Array(dayItems.prefix(8))
@@ -356,9 +366,11 @@ struct NativeTimelineView: View {
             HStack {
                 Circle().fill(.tint).frame(width: 7, height: 7)
                 Text(day.replacingOccurrences(of: "-", with: "."))
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(.headline, design: .serif))
+                    .monospacedDigit()
+                    .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 4)
-                Text("\(dayItems.count) 项").font(.caption).foregroundStyle(.secondary)
+                Text("\(dayItems.count) 项").font(.caption).foregroundStyle(NativeTheme.secondaryText)
                 if store.showingUploads && NativeDay.date(day) != nil {
                     Button("查看当天全部") { store.showDay(day) }.font(.caption)
                 } else if !store.usesUploadOrder && store.session.canEdit {
@@ -375,7 +387,7 @@ struct NativeTimelineView: View {
                 }
             }
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 240), spacing: 10)], spacing: 12) {
                 ForEach(visibleItems, id: \.stableID) { item in
                     VStack(alignment: .leading, spacing: 5) {
                         Button {
@@ -430,6 +442,7 @@ struct NativeTimelineView: View {
                             }
                         }.buttonStyle(.plain)
                         .accessibilityLabel(item.label)
+                        .accessibilityAddTraits(selecting && item.kind == "media" && chosen.contains { $0.id == item.id } ? .isSelected : [])
                         .disabled(selecting && item.kind != "media")
                         .overlay(alignment: .topTrailing) {
                             if selecting && item.kind == "media" && item.editable(by: store.session.account) {
@@ -454,7 +467,7 @@ struct NativeTimelineView: View {
                         }
                         if item.kind == "media" {
                             Label("上传人 · " + (item.owner_name ?? "未记录"), systemImage: "person.crop.circle")
-                                .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+                                .font(.caption2.weight(.medium)).foregroundStyle(NativeTheme.secondaryText).lineLimit(2)
                                 .accessibilityLabel("上传人，" + (item.owner_name ?? "未记录"))
                         }
                         if store.usesUploadOrder && !selecting {
@@ -551,7 +564,8 @@ struct NativeTimelineView: View {
 
     private func scrollToDay() {
         guard !refreshing, let scroll = timelineScroll else { return }
-        if !railHeld && (scroll.isTracking || scroll.isDecelerating) {
+        if scroll.isDragging {
+            railHeld = false
             scrubDay = nil
             pendingRailDay = nil
             return
@@ -647,34 +661,58 @@ struct NativeTimelineView: View {
         return labels.joined(separator: " · ")
     }
     private var filtersBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
-                Button { showingFilter = true } label: {
-                    Label(filterCount == 0 ? "筛选" : "筛选 \(filterCount)", systemImage: "slider.horizontal.3")
-                }.buttonStyle(NativeActionStyle(kind: filterCount == 0 ? .secondary : .primary, compact: true))
-                if store.uploaders.count > 1 || store.uploaderID != nil {
-                    Menu {
-                        Picker("上传人", selection: $store.uploaderID) {
-                            Text("全部上传人").tag(nil as Int?)
-                            ForEach(store.uploaders) { Text($0.displayName).tag(Optional($0.id)) }
-                        }
-                    } label: {
-                        Label(store.uploaders.first { $0.id == store.uploaderID }?.displayName ?? "上传人", systemImage: "person.crop.circle")
-                            .lineLimit(1)
-                    }.buttonStyle(NativeActionStyle(compact: true)).accessibilityLabel("按上传人筛选")
+                searchButton
+                filterButton
+                sortMenu
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                searchButton
+                HStack(spacing: 8) {
+                    filterButton
+                    sortMenu
                 }
-                Menu {
-                    Picker("日期依据", selection: Binding(get: { store.byUpload }, set: store.setUploadOrder)) {
-                        Text("按归档日期").tag(false); Text("按上传时间").tag(true)
-                    }
-                    Picker("时间顺序", selection: $store.ascending) {
-                        Text("从新到旧").tag(false); Text("从旧到新").tag(true)
-                    }
-                } label: {
-                    Label(store.byUpload ? "上传时间" : "归档日期", systemImage: store.ascending ? "arrow.up" : "arrow.down")
-                }.buttonStyle(NativeActionStyle(compact: true))
-            }.padding(.horizontal, 16).padding(.vertical, 10)
-        }.background(NativeTheme.background)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(NativeTheme.background)
+    }
+
+    private var searchButton: some View {
+        Button { showingAISearch = true } label: {
+            Label("搜索影像", systemImage: "magnifyingglass")
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(NativeActionStyle(compact: true))
+        .accessibilityLabel("搜索照片和视频")
+        .accessibilityHint("用一句话描述想找的画面")
+    }
+
+    private var filterButton: some View {
+        Button { showingFilter = true } label: {
+            Label(filterCount == 0 ? "筛选" : "筛选 \(filterCount)", systemImage: "slider.horizontal.3")
+        }
+        .buttonStyle(NativeActionStyle(kind: filterCount == 0 ? .secondary : .primary, compact: true))
+        .accessibilityIdentifier("timeline-filters")
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("日期依据", selection: Binding(get: { store.byUpload }, set: store.setUploadOrder)) {
+                Text("按归档日期").tag(false)
+                Text("按上传时间").tag(true)
+            }
+            Picker("时间顺序", selection: $store.ascending) {
+                Text("从新到旧").tag(false)
+                Text("从旧到新").tag(true)
+            }
+        } label: {
+            Label(store.byUpload ? "上传" : "归档", systemImage: store.ascending ? "arrow.up" : "arrow.down")
+        }
+        .buttonStyle(NativeActionStyle(compact: true))
+        .accessibilityLabel("排序")
+        .accessibilityValue((store.byUpload ? "上传日期，" : "归档日期，") + (store.ascending ? "从旧到新" : "从新到旧"))
     }
 
     var body: some View {
@@ -683,7 +721,7 @@ struct NativeTimelineView: View {
                 if store.isFocused { timelineList.id(store.queryKey) }
                 else { timelineList }
             }
-            .navigationTitle(store.showingUploads ? "刚上传的回忆" : "家庭时光")
+            .navigationTitle(store.showingUploads ? "刚上传的回忆" : "成长时间线")
             .navigationBarTitleDisplayMode(.inline)
             .background(NativeTheme.background)
             .toolbarBackground(NativeTheme.background, for: .navigationBar)
@@ -699,13 +737,6 @@ struct NativeTimelineView: View {
                 positionBeforePrepend = nil
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    if store.session.isAdmin {
-                        NavigationLink { NativeOrganizationHomeView(session: store.session, onUpdated: { Task { await store.load(refresh: true) } }) } label: {
-                            Label("照片助手", systemImage: "sparkles").font(.subheadline.weight(.semibold))
-                        }
-                    }
-                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if store.session.canEdit {
                         Button(selecting ? "取消" : "选择") { selecting.toggle(); chosen = [] }
@@ -747,23 +778,7 @@ struct NativeTimelineView: View {
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if !store.isFocused {
-                    VStack(spacing: 0) {
-                        Button { showingAISearch = true } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: "magnifyingglass")
-                                Text("搜索照片和视频，试着描述画面")
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .font(.subheadline).foregroundStyle(.secondary)
-                            .padding(.horizontal, 14).frame(minHeight: 46)
-                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-                        }
-                        .buttonStyle(.plain).accessibilityLabel("搜索照片和视频")
-                        .padding(.horizontal, 16).padding(.top, 8)
-                        filtersBar
-                    }.background(NativeTheme.background)
-                }
+                if !store.isFocused { filtersBar }
             }
             .safeAreaInset(edge: .bottom) {
                 if selecting {

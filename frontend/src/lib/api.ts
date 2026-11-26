@@ -56,7 +56,7 @@ export async function api<T = any>(
       !path.startsWith("/public/")
     )
       location.assign(sitePath("/login"));
-    throw new Error(t(message));
+    throw Object.assign(new Error(t(message)), { status: response.status });
   }
   const value = await response.json();
   if ((path === "/auth/me" || path === "/auth/login") && value.id) setCacheAccount(value.id, value.role);

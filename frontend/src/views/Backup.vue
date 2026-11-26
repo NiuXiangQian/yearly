@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import PageHeading from "../components/PageHeading.vue";
 import { t } from "../lib/i18n";
-import { ref } from "vue";
 import {
   Download,
   ShieldCheck,
@@ -16,12 +16,7 @@ import { bytes, sitePath } from "../lib/api";
 const yearly = useYearly();
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <span class="eyebrow">MEMORIES THAT BELONG TO YOU</span>
-      <h1>{{ t("让回忆，走得更远。") }}</h1>
-    </div>
-  </div>
+  <PageHeading :title="t('备份与导出')" />
   <div v-if="!yearly.isAdmin" class="notice">
     {{ t("备份与导出由家庭管理员管理。请联系管理员获取家庭数据。") }}
   </div>
@@ -31,7 +26,7 @@ const yearly = useYearly();
         <FolderArchive :size="42" stroke-width="1.4" />
       </div>
       <div>
-        <h2>{{ t("数据、关系、原件，一起保存。") }}</h2>
+        <h2>{{ t("备份范围") }}</h2>
         <p>
           {{ t("当前已珍藏") }} {{ yearly.stats.media }} {{ t("份影像，") }}
           {{ yearly.stats.events }} {{ t("篇成长日记，原文件共") }}
@@ -63,7 +58,6 @@ const yearly = useYearly();
       ></a>
     </div>
     <section class="panel backup-guide">
-      <span class="eyebrow">A RECOVERABLE COPY, EVERY TIME</span>
       <h2>{{ t("完整备份与恢复") }}</h2>
       <p class="muted">
         {{

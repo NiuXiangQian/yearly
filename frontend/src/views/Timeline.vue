@@ -2,7 +2,7 @@
 import MotionDialog from "../components/MotionDialog.vue";
 import { hasGrowthTimeline } from "../lib/profiles";
 import { t, ageLabel } from "../lib/i18n";
-import MotionHeader from "../components/MotionHeader.vue";
+import PageHeading from "../components/PageHeading.vue";
 import MotionPager from "../components/MotionPager.vue";
 import AISearch from "../components/AISearch.vue";
 import ShareDialog from "../components/ShareDialog.vue";
@@ -18,17 +18,17 @@ import {
   Plus,
   Upload,
   CalendarDays,
-  LayoutGrid,
   CheckSquare,
   Search,
+  Sparkles,
+  Ellipsis,
+  Link2,
   SlidersHorizontal,
   BookHeart,
   X,
-  Users,
   RotateCcw,
   ChevronDown,
   MousePointer2,
-  Leaf,
   GripVertical,
   ArrowLeft,
   ArrowRight,
@@ -52,6 +52,7 @@ const yearly = useYearly(),
   router = useRouter();
 const shareOpen = ref(false);
 const aiSearchOpen = ref(false);
+const filtersOpen = ref(false);
 const locatingSearchResult = ref(false);
 const timelineMonths = ref<{ reveal(date: string): void }>();
 const timelineOrder = ref(
@@ -175,6 +176,10 @@ const dateValue = computed({
     month.value = dateMode.value === "month" && value ? value.slice(5, 7) : "";
   },
 });
+const filterCount = computed(() =>
+  Number(yearly.selected.length > 0) + Number(Boolean(dateValue.value) || view.value === "age") +
+    Number(Boolean(type.value)) + Number(Boolean(uploader.value)),
+);
 function dateString(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -247,6 +252,31 @@ watch(
   },
   { flush: "sync" },
 );
+const heading = computed(() => {
+  if (trash.value) return t("回收站");
+  if (!activeChild.value) return t("成长时间线");
+  return t(growthChild.value ? "{p0}的成长时光" : "与{p0}有关的回忆", {
+    p0: activeChild.value.nickname || activeChild.value.name,
+  });
+});
+const filterSummary = computed(() => [
+  ...yearly.children.filter((profile) => yearly.selected.includes(profile.id))
+    .map((profile) => profile.nickname || profile.name),
+  uploaders.value.filter((person) => String(person.id) === uploader.value).map(accountName).join(""),
+  type.value && ({ photo: t("照片"), video: t("视频"), live_photo: "Live Photo" }[type.value]),
+  view.value === "age" ? t(stages.value[stage.value]?.label || "全部年龄") : dateValue.value,
+].filter(Boolean));
+
+function clearFilters() {
+  q.value = "";
+  yearly.selected = [];
+  uploader.value = "";
+  type.value = "";
+  match.value = "any";
+  view.value = "calendar";
+  stage.value = -1;
+  dateValue.value = "";
+}
 const expandedDays = ref<Record<string, boolean>>({});
 async function toggleDay(date: string) {
   expandedDays.value[date] = !expandedDays.value[date];
@@ -358,6 +388,11 @@ async function next() {
   if (loading.value || !nextCursor.value) return;
   await load(false);
 }
+watch(q, () => {
+  clearTimeout(searchTimer);
+  if (locatingSearchResult.value) return;
+  searchTimer = setTimeout(() => load(), q.value ? 350 : 0);
+});
 watch(
   [
     () => yearly.selected,
@@ -374,6 +409,7 @@ watch(
   ],
   () => {
     if (locatingSearchResult.value) return;
+    clearTimeout(searchTimer);
     selected.value = [];
     sortDate.value = "";
     load();
@@ -381,11 +417,6 @@ watch(
   },
   { deep: true },
 );
-watch(q, () => {
-  clearTimeout(searchTimer);
-  if (locatingSearchResult.value) return;
-  searchTimer = setTimeout(() => load(), 350);
-});
 async function locateSearchResult(item: { id: number; timeline_day: string; folder_id?: number }) {
   aiSearchOpen.value = false;
   locatingSearchResult.value = true;
@@ -828,81 +859,78 @@ function saveStages() {
 </script>
 <template>
   <div class="timeline-page">
-    <MotionHeader>
-      <template #image><EventCover :media-id="items.find((item) => item.kind === 'media' && item.media_type !== 'video')?.id ?? null" /></template>
-      <div class="page-heading">
-      <div>
-        <span class="eyebrow">OUR FAMILY, FRAME BY FRAME</span>
-        <h1>
-          {{
-            trash
-              ? t("留一点反悔的余地")
-              : activeChild
-                ? t(
-                    hasGrowthTimeline(activeChild)
-                      ? "{p0}的成长时光"
-                      : "与{p0}有关的回忆",
-                    {
-                      p0: activeChild.nickname || activeChild.name,
-                    },
-                  )
-                : t("把日子，慢慢收藏。")
-          }}<span class="heading-leaf"><Leaf :size="24" /></span>
-        </h1>
-        <p>
-          {{
-            trash
-              ? t("这里的回忆可以恢复，原文件会继续安全保存。")
-              : activeChild && !growthChild
-                ? t("按人物标记查看共同回忆，保留每一份陪伴。")
-                : t("每一个平凡的瞬间，都是长大后最珍贵的礼物。")
-          }}
-        </p>
-      </div>
-      <div v-if="yearly.canEdit && !trash" class="timeline-heading-actions">
-        <button class="button" @click="shareOpen = true">
-          {{ t("分享时间线") }}
+    <PageHeading
+      :title="heading"
+      :description="trash ? t('这里的回忆可以恢复，原文件会继续安全保存。') : undefined"
+    >
+      <template v-if="!trash" #summary>
+        <ul class="memory-summary">
+          <li><b>{{ yearly.stats.media }}</b> {{ t("珍藏的瞬间") }}</li>
+          <li><b>{{ yearly.stats.events }}</b> {{ t("写下的成长故事") }}</li>
+          <li>
+            <b>{{ (yearly.stats.people ?? yearly.stats.children) + (yearly.stats.pets || 0) }}</b>
+            {{ t("人物与宠物档案") }}
+          </li>
+        </ul>
+      </template>
+      <template v-if="yearly.canEdit && !trash" #default>
+        <button type="button" class="button" @click="shareOpen = true">
+          <Link2 :size="16" aria-hidden="true" /> {{ t("分享时间线") }}
         </button>
-        <button class="button" @click="dateDialog = true">
-          <CalendarDays :size="16" /> {{ t("添加日期") }}
+        <button type="button" class="button" @click="dateDialog = true">
+          <CalendarDays :size="16" aria-hidden="true" /> {{ t("添加日期") }}
         </button>
-        <RouterLink to="/upload" class="button primary"
-          ><Plus :size="18" /> {{ t("珍藏新回忆") }}
-        </RouterLink>
-      </div>
-    </div>
-    </MotionHeader>
-    <div v-if="!trash" class="memory-summary">
-      <div>
-        <span class="summary-icon sage"><LayoutGrid :size="21" /></span
-        ><span
-          ><b>{{ yearly.stats.media }}</b
-          ><small> {{ t("珍藏的瞬间") }} </small></span
-        >
-      </div>
-      <div>
-        <span class="summary-icon peach"><BookHeart :size="21" /></span
-        ><span
-          ><b>{{ yearly.stats.events }}</b
-          ><small> {{ t("写下的成长故事") }} </small></span
-        >
-      </div>
-      <div>
-        <span class="summary-icon sand"><Users :size="21" /></span
-        ><span
-          ><b>{{
-            (yearly.stats.people ?? yearly.stats.children) +
-            (yearly.stats.pets || 0)
-          }}</b
-          ><small> {{ t("人物与宠物档案") }} </small></span
-        >
-      </div>
-      <p>
-        {{ t("时光会走远") }} <br /><em> {{ t("回忆会留下。") }} </em>
-      </p>
-    </div>
+      </template>
+    </PageHeading>
     <div class="timeline-controls">
-      <div class="child-filter">
+      <div class="timeline-search">
+        <div class="search-box">
+          <Search :size="17" aria-hidden="true" />
+          <input
+            v-model="q"
+            type="search"
+            :placeholder="t('搜索批次、标题、地点')"
+            :aria-label="t('搜索回忆')"
+          />
+        </div>
+        <button v-if="!trash" type="button" class="button" @click="aiSearchOpen = true">
+          <Sparkles :size="16" aria-hidden="true" /> {{ t("智能找回忆") }}
+        </button>
+        <button
+          type="button"
+          class="button"
+          :class="{ pressed: filtersOpen || filterCount }"
+          :aria-expanded="filtersOpen"
+          aria-controls="timeline-filters"
+          @click="filtersOpen = !filtersOpen"
+        >
+          <SlidersHorizontal :size="16" aria-hidden="true" /> {{ t("筛选") }}
+          <span v-if="filterCount" class="filter-count">{{ filterCount }}</span>
+        </button>
+      </div>
+      <div v-show="filtersOpen" id="timeline-filters" class="timeline-filter-panel">
+        <div class="timeline-filter-fields">
+          <label>
+            {{ t("上传人") }}
+            <select v-model="uploader" :aria-label="t('上传人')">
+              <option value="">{{ t("全部上传人") }}</option>
+              <option v-for="person in uploaders" :key="person.id" :value="String(person.id)">{{ accountName(person) }}</option>
+            </select>
+          </label>
+          <label>
+            {{ t("媒体类型") }}
+            <select v-model="type">
+              <option value="">{{ t("全部类型") }}</option>
+              <option value="photo">{{ t("照片") }}</option>
+              <option value="video">{{ t("视频") }}</option>
+              <option value="live_photo">Live Photo</option>
+            </select>
+          </label>
+        </div>
+        <p v-if="uploadersError" class="notice" role="alert">
+          {{ uploadersError }} <button type="button" class="text-button" @click="loadUploaders">{{ t("重试") }}</button>
+        </p>
+        <div class="child-filter">
         <ChildPicker v-model="yearly.selected" all
           ><RouterLink
             v-if="yearly.canEdit"
@@ -920,45 +948,6 @@ function saveStages() {
           <option value="all">{{ t("同时包含全部所选档案") }}</option>
         </select>
       </div>
-      <div class="view-bar">
-        <div class="filter-tools">
-          <TimelineOrder v-model="timelineOrder" />
-          <button v-if="!trash" class="button small" @click="aiSearchOpen = true"><Search :size="16" />{{ t("智能找回忆") }}</button>
-          <div class="search-box">
-            <Search :size="16" /><input
-              v-model="q"
-              :placeholder="t('搜索批次、标题、地点')"
-              :aria-label="t('搜索回忆')"
-            />
-          </div>
-          <select v-model="uploader" class="compact-select" :aria-label="t('上传人')">
-            <option value="">{{ t("全部上传人") }}</option>
-            <option v-for="person in uploaders" :key="person.id" :value="String(person.id)">{{ accountName(person) }}</option>
-          </select>
-          <span v-if="uploadersError" role="alert">{{ uploadersError }} <button class="text-button" @click="loadUploaders">{{ t("重试") }}</button></span>
-          <select
-            v-model="type"
-            class="compact-select"
-            :aria-label="t('媒体类型')"
-          >
-            <option value="">{{ t("全部类型") }}</option>
-            <option value="photo">{{ t("照片") }}</option>
-            <option value="video">{{ t("视频") }}</option>
-            <option value="live_photo">Live Photo</option></select
-          ><button
-            v-if="yearly.canEdit && !trash"
-            class="button small"
-            :class="{ pressed: selection }"
-            @click="
-              selection = !selection;
-              selected = [];
-              dragEnabled = false;
-            "
-          >
-            <CheckSquare :size="15" /> {{ t("多选") }}
-          </button>
-        </div>
-      </div>
       <MotionPager v-model="view" :tabs="[
         { value: 'calendar', label: t('按日历') },
         ...(!activeChild || growthChild ? [{ value: 'age', label: t('按年龄'), disabled: !growthChild?.birthday }] : []),
@@ -969,6 +958,7 @@ function saveStages() {
             v-for="mode in dateModes"
             :key="mode.value"
             :class="{ active: dateMode === mode.value }"
+            :aria-pressed="dateMode === mode.value"
             @click="changeDateMode(mode.value)"
           >
             {{ t(mode.label) }}
@@ -1019,9 +1009,6 @@ function saveStages() {
             {{ t("出生当天") }}
           </button>
         </div>
-        <span class="result-count"
-          >{{ total }} {{ t("条记录 · 按天归档") }}
-        </span>
       </div>
       </template><template #age><div class="age-stage-list">
         <button
@@ -1042,7 +1029,34 @@ function saveStages() {
           {{ t("设置阶段") }}
         </button>
       </div></template>
-      </MotionPager>
+        </MotionPager>
+      </div>
+      <div v-if="filterCount || q" class="timeline-filter-summary">
+        <ul v-if="filterSummary.length" :aria-label="t('已选筛选条件')">
+          <li v-for="(label, index) in filterSummary" :key="index" class="chip">{{ label }}</li>
+        </ul>
+        <button type="button" class="text-button" @click="clearFilters">{{ t("清除筛选") }}</button>
+      </div>
+      <div class="timeline-result-bar">
+        <p class="result-count" role="status">
+          {{ loading ? t("正在加载…") : t("{p0} 条记录", { p0: total }) }}
+        </p>
+        <TimelineOrder v-model="timelineOrder" />
+        <button
+          v-if="yearly.canEdit && !trash"
+          type="button"
+          class="button small"
+          :class="{ pressed: selection }"
+          :aria-pressed="selection"
+          @click="
+            selection = !selection;
+            selected = [];
+            dragEnabled = false;
+          "
+        >
+          <CheckSquare :size="15" aria-hidden="true" /> {{ t("多选") }}
+        </button>
+      </div>
     </div>
     <div v-if="growthChild && markers.length && !trash" class="milestone-bar">
       <span> {{ t("成长足迹") }} </span
@@ -1122,7 +1136,7 @@ function saveStages() {
         <X :size="17" />
       </button>
     </div>
-    <div v-if="error" class="error-panel">
+    <div v-if="error" class="error-panel" role="alert">
       <h3>{{ t("暂时没能翻开回忆") }}</h3>
       <p>{{ error }}</p>
       <button class="button" @click="load(!failedMore)">{{ t("重新加载") }}</button>
@@ -1153,8 +1167,12 @@ function saveStages() {
               }}
             </h2>
             <span>{{ group.media.length }} {{ t("条记录") }} </span>
-            <div class="date-rule"></div>
-            <div v-if="yearly.canEdit && !trash" class="day-actions">
+            <details v-if="yearly.canEdit && !trash" class="daily-tools">
+              <summary>
+                <Ellipsis :size="18" aria-hidden="true" />
+                {{ t("当日操作") }}
+              </summary>
+              <div class="day-actions">
               <label
                 v-if="yearly.isAdmin && group.date !== 'unknown' && view === 'calendar'"
                 class="checkbox-label day-share-option"
@@ -1219,7 +1237,8 @@ function saveStages() {
                   </button></template
                 ></ElPopconfirm
               >
-            </div>
+              </div>
+            </details>
           </div>
           <p v-if="sortDate === group.date" class="sort-instructions">
             {{
@@ -1452,11 +1471,14 @@ function saveStages() {
                 : undefined
         "
         ><RouterLink
-          v-if="yearly.canEdit && !trash"
+          v-if="yearly.canEdit && !trash && !q && !filterCount"
           to="/upload"
           class="button primary"
           ><Upload :size="16" /> {{ t("上传第一份回忆") }} </RouterLink
-        ><span v-if="!trash" class="empty-footnote">
+        ><button v-else-if="q || filterCount" type="button" class="button" @click="clearFilters">
+          {{ t("清除筛选") }}
+        </button
+        ><span v-if="!trash && !q && !filterCount" class="empty-footnote">
           {{ t("照片、视频、Live Photo · 原文件无损珍藏") }}
         </span></EmptyState
       >
@@ -1748,27 +1770,141 @@ function saveStages() {
   background: var(--surface-hover);
 }
 
-.timeline-heading-actions,
-.day-actions {
+.timeline-search {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto auto;
+  gap: 8px;
+}
+.timeline-search .search-box {
+  min-height: 44px;
+  padding-inline: 14px;
+}
+.timeline-search .search-box input {
+  width: 100%;
+  font-size: 14px;
+}
+.timeline-search .button {
+  min-height: 44px;
+}
+.filter-count {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 4px;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--sage);
+  color: var(--on-sage);
+  font-variant-numeric: tabular-nums;
+}
+.timeline-filter-panel {
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.timeline-filter-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+}
+.timeline-filter-fields label {
+  margin: 0;
+  flex: 0 1 200px;
+  min-width: 0;
+}
+.timeline-filter-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+}
+.timeline-filter-summary ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.timeline-filter-summary li {
+  overflow-wrap: anywhere;
+}
+.timeline-filter-summary .text-button {
+  min-height: 36px;
+}
+.timeline-result-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 8px;
+  padding-top: 12px;
+}
+.timeline-result-bar .result-count {
+  margin: 0 auto 0 0;
+}
+.date-heading {
+  position: relative;
+  min-height: 44px;
+}
+.daily-tools {
+  margin-inline-start: auto;
+}
+.daily-tools summary {
+  list-style: none;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
+  min-height: 40px;
+  padding-inline: 10px;
+  border-radius: 6px;
+  color: var(--sage);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
 }
-.day-actions {
+.daily-tools summary::-webkit-details-marker {
+  display: none;
+}
+.daily-tools[open] summary,
+.daily-tools summary:hover {
+  background: var(--sage-light);
+}
+.date-heading:has(.daily-tools[open]) {
+  padding-bottom: 2px;
   flex-wrap: wrap;
 }
+.daily-tools[open] {
+  display: contents;
+}
+.daily-tools[open] summary {
+  margin-inline-start: auto;
+}
+.day-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 13px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
 .day-share-option {
+  min-height: 40px;
   margin: 0;
   white-space: nowrap;
-  font-size: 12px;
 }
 .day-share-option input {
   width: 16px;
 }
 .day-actions .text-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  min-height: 40px;
   white-space: nowrap;
 }
 .selection-toolbar {
@@ -1844,13 +1980,29 @@ function saveStages() {
   box-shadow: 4px 0 0 var(--sage);
 }
 @media (max-width: 700px) {
-  .timeline-heading-actions {
-    flex-wrap: wrap;
-    gap: 8px;
+  .timeline-search {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
-  .timeline-heading-actions .button {
-    padding: 9px 12px;
-    font-size: 13px;
+  .timeline-search .search-box {
+    grid-column: 1 / -1;
+  }
+  .timeline-search .search-box input {
+    font-size: 16px;
+  }
+  .timeline-search .button {
+    justify-self: start;
+  }
+  .timeline-search .button:last-child {
+    justify-self: end;
+  }
+  .timeline-filter-fields label {
+    flex: 1 1 120px;
+  }
+  .daily-tools summary,
+  .day-actions .button,
+  .day-actions .text-button,
+  .day-share-option {
+    min-height: 44px;
   }
   .media-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1859,19 +2011,6 @@ function saveStages() {
   .date-heading {
     flex-wrap: wrap;
     gap: 8px;
-  }
-  .date-rule {
-    display: none;
-  }
-  .day-actions {
-    margin-left: auto;
-    gap: 10px;
-  }
-  .day-actions .button {
-    padding: 5px 8px;
-  }
-  .day-actions .text-button {
-    font-size: 10px;
   }
   .sort-entry-tools {
     padding: 7px 5px;

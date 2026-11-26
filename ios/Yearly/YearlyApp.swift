@@ -108,11 +108,13 @@ struct NativeAppShell: View {
                             Section {
                                 HStack(spacing: 18) {
                                     Text(String((session.account?.displayName ?? "家").prefix(1)))
-                                        .font(.system(size: 27, weight: .semibold))
+                                        .font(.system(.title, design: .serif).weight(.semibold))
                                         .foregroundStyle(NativeTheme.accent).frame(width: 64, height: 64)
-                                        .background(NativeTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 22))
+                                        .background(NativeTheme.background, in: RoundedRectangle(cornerRadius: 16))
                                     VStack(alignment: .leading, spacing: 7) {
-                                        Text(session.account?.displayName ?? "家庭成员").font(.title2.bold())
+                                        Text(session.account?.displayName ?? "家庭成员")
+                                            .font(.system(.title2, design: .serif).weight(.semibold))
+                                            .accessibilityAddTraits(.isHeader)
                                         HStack(spacing: 8) {
                                             Text(session.account?.roleLabel ?? "只读访客")
                                                 .font(.caption.weight(.semibold)).foregroundStyle(NativeTheme.accent)
@@ -166,6 +168,7 @@ struct NativeAppShell: View {
                             if !message.isEmpty { Text(message).foregroundStyle(.red) }
                         }.scrollContentBackground(.hidden).background(NativeTheme.background)
                             .navigationTitle("账号")
+                            .navigationBarTitleDisplayMode(.inline)
                             .confirmationDialog("退出后上传将安全暂停", isPresented: $loggingOut, titleVisibility: .visible) {
                                 Button("退出登录", role: .destructive) {
                                     queue.pauseAll()
@@ -206,31 +209,53 @@ struct NativeLoginView: View {
     @State private var answer = ""
     @State private var captcha: LoginCaptcha?
     @State private var loading = false
+    @State private var loadingCaptcha = false
     @State private var message = ""
+    @State private var captchaError = ""
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Image(systemName: "leaf.fill").font(.largeTitle).foregroundStyle(.tint)
-                        Text("让成长有迹可循").font(.title2.bold())
+                    VStack(alignment: .leading, spacing: 10) {
+                        Image(decorative: "FamilyAlbumCover")
+                            .resizable()
+                            .scaledToFill()
+                            .frame(height: 132)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        Text("欢迎回家")
+                            .font(NativeTheme.display)
+                            .accessibilityAddTraits(.isHeader)
                         Text("登录自己的家庭站点，珍藏原片与实况影像。")
                             .foregroundStyle(.secondary)
-                    }.padding(.vertical)
+                    }
+                    .padding(.bottom, 6)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                 }
                 Section("登录家庭账号") {
-                    TextField("用户名", text: $username).textContentType(.username).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    SecureField("密码", text: $password).textContentType(.password)
-                    HStack {
-                        TextField("图片验证码", text: $answer).textInputAutocapitalization(.characters).autocorrectionDisabled()
-                        Button { Task { await refreshCaptcha() } } label: {
-                            if let data = captcha?.png, let image = UIImage(data: data) {
-                                Image(uiImage: image).resizable().scaledToFit().frame(width: 150, height: 48)
-                            } else { Label("加载验证码", systemImage: "arrow.clockwise").font(.caption) }
-                        }.buttonStyle(.borderless).accessibilityLabel("刷新图片验证码").disabled(loading)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("用户名").font(.subheadline)
+                        TextField("家庭账户", text: $username).textContentType(.username)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityLabel("用户名")
+                    }.padding(.vertical, 4)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("密码").font(.subheadline)
+                        SecureField("输入密码", text: $password).textContentType(.password)
+                            .accessibilityLabel("密码")
+                    }.padding(.vertical, 4)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("图片验证码").font(.subheadline)
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 12) { captchaField; captchaControl }
+                            VStack(alignment: .leading, spacing: 8) { captchaField; captchaControl }
+                        }
+                        if !captchaError.isEmpty { Text(captchaError).font(.footnote).foregroundStyle(.red) }
                     }
+                    .padding(.vertical, 4)
                     Button {
-                        guard let captcha else { return }
+                        guard let captcha, !loading, !loadingCaptcha else { return }
                         loading = true; message = ""
                         Task {
                             do {
@@ -238,16 +263,17 @@ struct NativeLoginView: View {
                                 password = ""; answer = ""
                             } catch {
                                 message = friendly(error)
-                                password = ""
                                 await refreshCaptcha()
                             }
                             loading = false
                         }
                     } label: {
-                        HStack { Text("登录"); if loading { ProgressView() } }
+                        HStack {
+                            Text(loading ? "正在登录…" : "登录")
+                            if loading { ProgressView().tint(NativeTheme.onAccent) }
+                        }.frame(maxWidth: .infinity)
                     }.buttonStyle(NativeActionStyle(kind: .primary))
-                    .frame(maxWidth: .infinity)
-                    .disabled(loading || captcha == nil || username.isEmpty || password.isEmpty || answer.isEmpty)
+                    .disabled(loading || loadingCaptcha || captcha == nil || username.isEmpty || password.isEmpty || answer.isEmpty)
                     if !message.isEmpty { Text(message).foregroundStyle(.red).font(.caption) }
                     if !session.error.isEmpty { Text(session.error).foregroundStyle(.secondary).font(.caption) }
                 }
@@ -255,14 +281,38 @@ struct NativeLoginView: View {
                     Text(session.site.url.absoluteString).font(.caption)
                     Button("修改家庭站点地址", action: editSite)
                 }
-            }.navigationTitle("Yearly")
+            }
+                .scrollContentBackground(.hidden)
+                .background(NativeTheme.background)
+                .navigationTitle("yearly")
+                .navigationBarTitleDisplayMode(.inline)
                 .task { await refreshCaptcha() }
         }
     }
+    private var captchaField: some View {
+        TextField("输入验证码", text: $answer)
+            .textInputAutocapitalization(.characters).autocorrectionDisabled()
+            .accessibilityLabel("图片验证码")
+    }
+    private var captchaControl: some View {
+        Button { Task { await refreshCaptcha() } } label: {
+            if loadingCaptcha { ProgressView().frame(minHeight: 44) }
+            else if let data = captcha?.png, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFit().frame(width: 126, height: 44)
+            } else {
+                Label("获取验证码", systemImage: "arrow.clockwise").frame(minHeight: 44)
+            }
+        }.buttonStyle(.borderless).accessibilityLabel("刷新图片验证码").disabled(loading || loadingCaptcha)
+    }
     private func refreshCaptcha() async {
-        answer = ""; captcha = nil
+        guard !loadingCaptcha else { return }
+        loadingCaptcha = true
+        captchaError = ""
+        answer = ""
+        captcha = nil
+        defer { loadingCaptcha = false }
         do { captcha = try await session.captcha() }
-        catch { message = friendly(error) }
+        catch { captchaError = friendly(error) }
     }
 }
 

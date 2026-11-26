@@ -39,48 +39,58 @@ const yearly = useYearly(),
   form = ref<any>({}),
   media = ref<any[]>([]),
   busy = ref(false),
+  loading = ref(false),
+  loadError = ref(""),
+  saveError = ref(""),
   previewId = ref<number | null>(null);
 const editable = computed(() => yearly.canEdit && (!props.eventId || form.value.can_edit !== false));
-watch(
-  () => props.open,
-  async (open) => {
-    if (!open) return;
-    busy.value = true;
-    try {
-      if (props.eventId) {
-        const data = await api(`/events/${props.eventId}`);
-        form.value = { ...data };
-        media.value = data.media;
-      } else {
-        media.value = await Promise.all(
-          (props.mediaIds || []).map((id) => api(`/media/${id}`)),
-        );
-        const dates = media.value
-          .map((m) => m.taken_at_local)
-          .filter(Boolean)
-          .sort();
-        form.value = {
-          title: "",
-          share_allowed: true,
-          content: "",
-          child_ids: [...yearly.selected],
-          media_ids: [...(props.mediaIds || [])],
-          cover_media_id: props.mediaIds?.[0] || null,
-          start_at: props.initialDate || dates[0] || null,
-          end_at: dates.at(-1) || props.initialDate || null,
-        };
-      }
-      form.value.start_at = form.value.start_at?.slice(0, 16) || null;
-      form.value.end_at = form.value.end_at?.slice(0, 16) || null;
-    } catch (e) {
-      notify(e);
-    } finally {
-      busy.value = false;
+let generation = 0;
+async function load() {
+  const ticket = ++generation;
+  loading.value = true;
+  loadError.value = "";
+  saveError.value = "";
+  try {
+    let draft;
+    let attachments: any[];
+    if (props.eventId) {
+      draft = await api(`/events/${props.eventId}`);
+      attachments = draft.media;
+    } else {
+      attachments = await Promise.all((props.mediaIds || []).map((id) => api(`/media/${id}`)));
+      const dates = attachments.map((item) => item.taken_at_local).filter(Boolean).sort();
+      draft = {
+        title: "",
+        share_allowed: true,
+        content: "",
+        child_ids: [...yearly.selected],
+        media_ids: [...(props.mediaIds || [])],
+        cover_media_id: props.mediaIds?.[0] || null,
+        start_at: props.initialDate || dates[0] || null,
+        end_at: dates.at(-1) || props.initialDate || null,
+      };
     }
-  },
-);
+    if (ticket !== generation) return;
+    form.value = {
+      ...draft,
+      start_at: draft.start_at?.slice(0, 16) || null,
+      end_at: draft.end_at?.slice(0, 16) || null,
+    };
+    media.value = attachments;
+  } catch (error) {
+    if (ticket === generation) loadError.value = error instanceof Error ? error.message : t("加载失败");
+  } finally {
+    if (ticket === generation) loading.value = false;
+  }
+}
+watch(() => props.open, (open) => {
+  if (open) void load();
+  else generation++;
+});
 async function save() {
+  if (busy.value || !editable.value) return;
   busy.value = true;
+  saveError.value = "";
   try {
     const data = {
       title: form.value.title,
@@ -95,11 +105,11 @@ async function save() {
     props.eventId
       ? await put(`/events/${props.eventId}`, data)
       : await post("/events", data);
-    await yearly.load();
     emit("saved");
     emit("close");
+    await yearly.load().catch(notify);
   } catch (e) {
-    notify(e);
+    saveError.value = e instanceof Error ? e.message : t("操作失败");
   } finally {
     busy.value = false;
   }
@@ -129,10 +139,22 @@ async function trash() {
     :model-value="open"
     :title="eventId ? t('成长日记') : t('写一篇成长日记')"
     width="760px"
+    :close-on-click-modal="false"
+    :close-on-press-escape="!busy"
+    :show-close="!busy"
     @close="emit('close')"
-    ><form v-if="form.child_ids" @submit.prevent="save" class="event-form">
-      <span class="eyebrow">LITTLE MOMENTS, BIG MEMORIES</span
-      ><label>
+  >
+    <p v-if="loading" role="status">{{ t("正在加载…") }}</p>
+    <p v-else-if="loadError" class="notice" role="alert">
+      {{ loadError }} <button type="button" class="text-button" @click="load">{{ t("重试") }}</button>
+    </p>
+    <form
+      v-else-if="form.child_ids"
+      class="event-form"
+      @submit.prevent="save"
+      @keydown.enter="$event.isComposing && $event.preventDefault()"
+    >
+      <label>
         {{ t("日记标题") }}
         <input
           v-model="form.title"
@@ -246,6 +268,7 @@ async function trash() {
           </option>
         </select></label
       >
+      <p v-if="saveError" class="notice" role="alert">{{ saveError }}</p>
       <div class="dialog-actions">
         <ElPopconfirm
           v-if="eventId && editable"
@@ -256,7 +279,7 @@ async function trash() {
               {{ t("删除日记") }}
             </button></template
           ></ElPopconfirm
-        ><button type="button" class="button" @click="emit('close')">
+        ><button type="button" class="button" :disabled="busy" @click="emit('close')">
           {{ editable ? t("取消") : t("关闭") }}</button
         ><button v-if="editable" class="button primary" :disabled="busy">
           <BookHeart :size="16" />{{

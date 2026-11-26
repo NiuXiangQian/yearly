@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import PageHeading from "../components/PageHeading.vue";
 import { t, ageLabel } from "../lib/i18n";
 import { ref, watch, onMounted } from "vue";
 import { Plus, BookHeart, ArrowUpRight, CalendarDays } from "lucide-vue-next";
-import { api, notify, localDate } from "../lib/api";
+import { api, localDate } from "../lib/api";
 import { useYearly } from "../stores/yearly";
 import ChildPicker from "../components/ChildPicker.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -15,21 +16,27 @@ const yearly = useYearly(),
   open = ref(false),
   eventId = ref<number | null>(null),
   loading = ref(false),
+  error = ref(""),
+  failedMore = ref(false),
   match = ref("any");
 async function load(reset = true) {
   loading.value = true;
-  if (reset) page.value = 1;
+  error.value = "";
+  failedMore.value = false;
+  const targetPage = reset ? 1 : page.value + 1;
   try {
     const params = new URLSearchParams({
-      page: String(page.value),
+      page: String(targetPage),
       match: match.value,
     });
     yearly.selected.forEach((id) => params.append("child_id", String(id)));
     const data = await api("/events?" + params);
     events.value = reset ? data.items : [...events.value, ...data.items];
     total.value = data.total;
+    page.value = targetPage;
   } catch (e) {
-    notify(e);
+    error.value = e instanceof Error ? e.message : t("加载失败");
+    failedMore.value = !reset;
   } finally {
     loading.value = false;
   }
@@ -38,11 +45,7 @@ watch([() => yearly.selected, match], () => load(), { deep: true });
 onMounted(() => load());
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <span class="eyebrow">THE STORIES BEHIND THE PICTURES</span>
-      <h1>{{ t("有些成长，值得多写几句。") }}</h1>
-    </div>
+  <PageHeading :title="t('成长日记')">
     <button
       v-if="yearly.canEdit"
       class="button primary"
@@ -53,33 +56,26 @@ onMounted(() => load());
     >
       <Plus :size="17" /> {{ t("写成长日记") }}
     </button>
-  </div>
+  </PageHeading>
   <div class="panel event-filter">
     <ChildPicker v-model="yearly.selected" all /><select
       v-if="yearly.selected.length > 1"
       v-model="match"
       class="compact-select"
+      :aria-label="t('档案匹配方式')"
     >
       <option value="any">{{ t("任意所选档案") }}</option>
       <option value="all">{{ t("全部人物与宠物") }}</option>
     </select>
   </div>
+  <p v-if="error" class="notice" role="alert">
+    {{ error }} <button type="button" class="text-button" @click="load(!failedMore)">{{ t("重试") }}</button>
+  </p>
+  <p v-if="loading" class="muted" role="status">{{ t("正在加载…") }}</p>
   <div v-if="events.length" class="events-grid">
-    <article
-      v-for="(e, i) in events"
-      :key="e.id"
-      class="event-card"
-      @click="
-        eventId = e.id;
-        open = true;
-      "
-    >
-      <div class="event-cover">
+    <article v-for="e in events" :key="e.id" class="event-card">
+      <div v-if="e.cover_media_id" class="event-cover">
         <EventCover :media-id="e.cover_media_id" />
-        <span class="event-number">{{ String(i + 1).padStart(2, "0") }}</span
-        ><BookHeart :size="42" stroke-width="1" /><span class="eyebrow"
-          >A CHAPTER OF GROWING UP</span
-        >
       </div>
       <div class="event-card-body">
         <span class="event-date"
@@ -93,7 +89,7 @@ onMounted(() => load());
           ></span
         >
         <h2>{{ e.title }}</h2>
-        <p>{{ e.content || t("那些藏在照片里的小故事。") }}</p>
+        <p v-if="e.content">{{ e.content }}</p>
         <div class="age-labels">
           <span v-for="c in e.children" :key="c.id"
             >{{ c.nickname || c.name
@@ -106,14 +102,19 @@ onMounted(() => load());
           >
         </div>
         <div class="event-card-footer">
-          <span>{{ e.media_ids.length }} {{ t("份回忆 · 全部事件媒体") }} </span
-          ><ArrowUpRight :size="19" />
+          <span>{{ e.media_ids.length }} {{ t("份回忆 · 全部事件媒体") }}</span>
+          <button
+            type="button"
+            class="icon-button event-card-open"
+            :aria-label="e.title"
+            @click="(eventId = e.id), (open = true)"
+          ><ArrowUpRight :size="19" aria-hidden="true" /></button>
         </div>
       </div>
     </article>
   </div>
   <EmptyState
-    v-else-if="!loading"
+    v-else-if="!loading && !error"
     :title="t('让照片连成故事')"
     :description="
       t('在时间线选中一组照片，或从一段文字开始，记录一家人的共同成长。')
@@ -134,10 +135,7 @@ onMounted(() => load());
       v-if="events.length < total"
       class="button"
       :disabled="loading"
-      @click="
-        page++;
-        load(false);
-      "
+      @click="load(false)"
     >
       {{ t("加载更多日记") }}
     </button>

@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import PageHeading from "../components/PageHeading.vue";
 import MotionDialog from "../components/MotionDialog.vue";
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { UserPlus, Pencil, ShieldCheck, Users } from "lucide-vue-next";
+import { UserPlus, Pencil, Users } from "lucide-vue-next";
 import { api, post, put } from "../lib/api";
 import { accountName } from "../lib/accounts";
 import { t } from "../lib/i18n";
@@ -68,34 +69,20 @@ async function save() {
 onMounted(load);
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <span class="eyebrow">ACCOUNTS & ACCESS</span>
-      <h1>{{ t("账户管理") }}</h1>
-    </div>
+  <PageHeading
+    :title="t('账户管理')"
+    :description="t('普通账户仅编辑自己的内容；管理员可管理全部内容与账户。')"
+  >
     <button class="button primary" @click="edit()">
       <UserPlus :size="18" />{{ t("创建账户") }}
     </button>
-  </div>
-  <section class="panel account-policy">
-    <ShieldCheck :size="22" />
-    <div>
-      <h2>{{ t("每份内容都有归属") }}</h2>
-      <p class="muted">
-        {{
-          t(
-            "普通账户仅编辑自己的内容；管理员可管理全部内容与账户。",
-          )
-        }}
-      </p>
-    </div>
-  </section>
+  </PageHeading>
   <p v-if="error" role="alert" class="notice">
     {{ error }}
     <button class="text-button" @click="load">{{ t("重试") }}</button>
   </p>
   <p v-if="loading" role="status">{{ t("正在加载…") }}</p>
-  <section v-else class="panel">
+  <section v-else-if="!error || users.length" class="panel">
     <div class="section-heading">
       <h2>
         <Users :size="19" />{{ t("家庭账户") }}
@@ -205,28 +192,6 @@ onMounted(load);
   </MotionDialog>
 </template>
 <style scoped>
-.account-policy {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  margin-bottom: 24px;
-}
-.account-policy h2 {
-  margin-top: 0;
-}
-.account-policy p {
-  margin-bottom: 0;
-}
-.account-identity {
-  min-width: 0;
-  flex: 1;
-  overflow-wrap: anywhere;
-}
-.account-identity small {
-  display: block;
-  margin-top: 6px;
-  color: var(--muted);
-}
 .account-row {
   gap: 12px;
   flex-wrap: wrap;

@@ -240,23 +240,58 @@ def share_page(token: str, response: Response, db=Depends(get_db)):
             "card_description": "请联系分享者获取新的链接",
             "has_avatar": False,
         }
-    base = settings().allowed_origin.rstrip("/") + settings().app_base_path
+    config = settings()
+    base = config.allowed_origin.rstrip("/") + config.app_base_path
     image = f"{base}/api/public/shares/{token}/avatar" if info["has_avatar"] else f"{base}/share-logo.png"
     title, description, image = (
         escape(value, quote=True)
         for value in (info["card_title"], info["card_description"], image)
     )
-    entry = settings().app_base_path + "/share-entry.js"
+    entry = config.app_base_path + "/share-entry.js"
+    logo = config.app_base_path + "/share-logo.png"
     return HTMLResponse(f'''<!doctype html>
-<html lang="zh-CN"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex, nofollow, noarchive"><meta name="referrer" content="no-referrer">
-<title>{title}</title><meta name="description" content="{description}">
-<meta property="og:type" content="website"><meta property="og:site_name" content="yearly">
-<meta property="og:title" content="{title}"><meta property="og:description" content="{description}">
-<meta property="og:image" content="{image}"><link rel="image_src" href="{image}">
-<link rel="icon" href="{image}"><meta name="theme-color" content="#f7f6f2">
-</head><body><div id="app"></div><script type="module" src="{entry}"></script></body></html>''', status_code=status)
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#f3f5f7">
+  <title>{title}</title>
+  <meta name="description" content="{description}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="yearly">
+  <meta property="og:title" content="{title}">
+  <meta property="og:description" content="{description}">
+  <meta property="og:image" content="{image}">
+  <link rel="image_src" href="{image}">
+  <link rel="icon" href="{image}">
+  <style>
+    body:has(.share-cover) {{ margin: 0; background: #f3f5f7; color: #202d3c; }}
+    .share-cover {{ box-sizing: border-box; max-width: 1040px; margin: auto; padding: 0 28px; font: 14px/1.7 system-ui, sans-serif; }}
+    .share-cover header {{ display: flex; align-items: center; gap: 9px; padding: 24px 0; border-bottom: 1px solid #d6dfe8; font: 27px Georgia, serif; color: #2e567e; }}
+    .share-cover section {{ margin: 22px 0; padding: clamp(17px, 4vw, 30px); border-radius: 12px; background: #e9eff5; }}
+    .share-cover h1 {{ margin: 0 0 7px; font: 600 clamp(26px, 4vw, 42px)/1.27 "Songti SC", Georgia, serif; overflow-wrap: anywhere; }}
+    .share-cover p {{ margin: 0; color: #526478; }}
+    @media (max-width: 700px) {{ .share-cover {{ padding: 0 16px; }} }}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <main class="share-cover">
+      <header><img src="{logo}" alt="" width="22" height="22"> yearly</header>
+      <section>
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="{entry}"></script>
+</body>
+</html>''', status_code=status, headers={
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": response.headers["X-Robots-Tag"],
+    })
 
 
 @router.get("/public/shares/{token}/avatar")

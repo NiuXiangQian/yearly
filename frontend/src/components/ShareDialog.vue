@@ -38,7 +38,8 @@ const start = ref(""),
 const busy = ref(false),
   history = ref<any[]>([]),
   link = ref(""),
-  activeLinkID = ref<number>();
+  activeLinkID = ref<number>(),
+  creatingError = ref("");
 function showLink(id: number, token: string) {
   link.value = location.origin + sitePath(`/share/${token}`);
   activeLinkID.value = id;
@@ -60,6 +61,7 @@ watch(
       activeLinkID.value = undefined;
       return;
     }
+    creatingError.value = "";
     startMode.value = props.initialDate ? "custom" : "earliest";
     start.value = props.initialDate || "";
     end.value = props.initialDate || dateString(new Date());
@@ -81,6 +83,7 @@ watch(
 async function create() {
   if (!valid.value || busy.value) return;
   busy.value = true;
+  creatingError.value = "";
   try {
     const data = await post("/shares", {
       start_date: start.value,
@@ -92,7 +95,7 @@ async function create() {
     history.value.unshift(data);
     ElMessage.success(t("分享链接已创建"));
   } catch (e) {
-    notify(e);
+    creatingError.value = e instanceof Error ? e.message : t("操作失败");
   } finally {
     busy.value = false;
   }
@@ -145,10 +148,15 @@ async function copyRecord(item: any) {
     :title="t('分享时间线')"
     width="620px"
     class="share-dialog"
+    :close-on-click-modal="false"
+    :close-on-press-escape="!busy"
+    :show-close="!busy"
     @close="emit('close')"
   >
     <p class="muted">{{ t("选择时间线范围，自动分享其中允许分享的内容。") }}</p>
-    <form @submit.prevent="create">
+    <form @submit.prevent="create" @keydown.enter="$event.isComposing && $event.preventDefault()">
+      <fieldset class="share-form-section" :disabled="busy">
+        <legend>{{ t("分享范围") }}</legend>
       <label>{{ t("分享人物") }}<select v-model="profileID">
         <option :value="null">{{ t("全部家庭成员") }}</option>
         <option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profile.nickname || profile.name }}</option>
@@ -188,6 +196,12 @@ async function copyRecord(item: any) {
           </button></label
         >
       </div>
+      <p v-if="start && end && start > end" role="alert">
+        {{ t("结束日期不能早于开始日期") }}
+      </p>
+      </fieldset>
+      <fieldset class="share-form-section" :disabled="busy">
+        <legend>{{ t("链接有效期") }}</legend>
       <label
         >{{ t("有效时长（小时）")
         }}<input
@@ -199,9 +213,7 @@ async function copyRecord(item: any) {
           required
         /><small>{{ t("1 小时至 7 天") }}</small></label
       >
-      <p v-if="start && end && start > end" role="alert">
-        {{ t("结束日期不能早于开始日期") }}
-      </p>
+      </fieldset>
       <div class="share-help">
         <p>
           {{
@@ -218,8 +230,9 @@ async function copyRecord(item: any) {
           }}
         </p>
       </div>
+      <p v-if="creatingError" role="alert" class="notice">{{ creatingError }}</p>
       <div class="dialog-actions">
-        <button class="button primary" :disabled="busy || !valid">
+        <button type="submit" class="button primary" :disabled="busy || !valid">
           <Link :size="16" />{{ busy ? t("正在创建…") : t("创建分享链接") }}
         </button>
       </div>
@@ -278,6 +291,20 @@ async function copyRecord(item: any) {
   </MotionDialog>
 </template>
 <style scoped>
+.share-form-section {
+  margin-top: 16px;
+  padding: 0 12px 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.share-form-section > legend {
+  padding-inline: 5px;
+  font-weight: var(--weight-heading);
+}
+.share-form-section label {
+  margin-block: 10px;
+}
+
 .share-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;

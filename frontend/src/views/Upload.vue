@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PageHeading from "../components/PageHeading.vue";
+import UploadIntake from "../components/UploadIntake.vue";
 import MotionDialog from "../components/MotionDialog.vue";
 import { t } from "../lib/i18n";
 import DateField from "../components/DateField.vue";
@@ -12,15 +14,13 @@ import {
   Link2,
   X,
   RefreshCw,
-  ArrowRight,
+  ArrowLeft,
   Film,
-  Plus,
   GripVertical,
   Settings2,
   ChevronUp,
   ChevronDown,
   Trash2,
-  FolderOpen,
   ClipboardPaste,
 } from "lucide-vue-next";
 import { useYearly } from "../stores/yearly";
@@ -39,7 +39,6 @@ const yearly = useYearly(),
   hashProgress = ref(0),
   parsingName = ref(""),
   resumable = ref<any[]>([]),
-  dragging = ref(false),
   metadataItem = ref<any>(null),
   resumeTarget = ref<any>(null),
   resumeInput = ref<HTMLInputElement>();
@@ -532,20 +531,44 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <div class="upload-page">
-    <div class="page-heading">
-      <div>
-        <span class="eyebrow">KEEP TODAY FOR TOMORROW</span>
-        <h1>{{ t("把一段时光，一起收藏。") }}</h1>
-      </div>
-      <RouterLink to="/" class="button"
-        ><ArrowRight :size="16" /> {{ t("返回时间线") }}
+    <PageHeading :title="t('上传照片与视频')">
+      <RouterLink to="/" class="button">
+        <ArrowLeft :size="16" aria-hidden="true" /> {{ t("返回时间线") }}
       </RouterLink>
-    </div>
+    </PageHeading>
     <div v-if="!yearly.canEdit" class="notice">
       {{ t("当前账户为只读访客，请联系家庭管理员获得编辑权限。") }}
     </div>
     <template v-else>
-      <section class="panel batch-settings">
+      <UploadIntake
+        :accept="accepted"
+        :has-files="queue.length > 0"
+        :native-picker="nativePicker"
+        :busy="busy"
+        :parsing="parsing"
+        :progress="hashProgress"
+        :filename="parsingName"
+        :index="readingIndex"
+        :total="readingTotal"
+        @files="addFiles"
+        @live-photo="importIOSLivePhoto"
+      />
+      <div v-if="duplicateNames.length" class="duplicate-notice notice" role="alert">
+        <strong>{{ t("发现重复文件，已跳过上传") }} · {{ duplicateNames.length }}</strong>
+        <p>{{ duplicateNames.slice(0, 5).join("、") }}{{ duplicateNames.length > 5 ? " …" : "" }}</p>
+        <span>{{ t("原件不会再次上传，已有照片仍可在时间线查看。其他文件继续上传。") }}</span>
+      </div>
+      <p v-if="importMessage" class="notice" role="status">{{ importMessage }}</p>
+      <div v-if="importErrors.length" class="notice" role="alert">
+        <strong>{{ t("以下文件未能读取，其余文件已继续处理：") }}</strong>
+        <ul>
+          <li v-for="name in importErrors" :key="name">{{ name }}</li>
+        </ul>
+        <p>{{ t("请先将这些原片下载到“我的 iPhone”，再从文件导入。") }}</p>
+      </div>
+      <div class="upload-workspace">
+      <section class="panel batch-settings" aria-labelledby="upload-batch-heading">
+        <h2 id="upload-batch-heading">{{ t("批次设置") }}</h2>
         <div class="form-row">
           <label>
             {{ t("这批回忆的名字") }}
@@ -587,130 +610,6 @@ onBeforeUnmount(() => {
           <small v-if="!kids.length" class="muted">{{ t("未关联人物与宠物") }}</small>
         </div>
       </section>
-      <div
-        class="dropzone compact-dropzone"
-        :class="{ dragging }"
-        @dragover.prevent="dragging = true"
-        @dragleave.prevent="dragging = false"
-        @drop.prevent="
-          dragging = false;
-          addFiles($event.dataTransfer?.files || null);
-        "
-      >
-        <UploadCloud :size="30" />
-        <div>
-          <h2>
-            {{ parsing ? t("正在读取原文件…") : t("拖入这一批照片与视频") }}
-          </h2>
-          <p>{{ t("支持多选 · HEIC、JPG、RAW、MOV、MP4 与 Live Photo") }}</p>
-        </div>
-        <div class="picker-actions">
-          <button
-            v-if="nativePicker"
-            type="button"
-            class="button primary"
-            :disabled="parsing || busy"
-            @click="importIOSLivePhoto"
-          >
-            <Film :size="16" />{{ t("选择实况照片并上传") }}
-          </button>
-          <label class="button primary file-picker main-picker">
-            <Plus :size="16" />{{ queue.length ? t("继续添加") : t("选择文件") }}
-            <input
-              type="file"
-              multiple
-              :accept="accepted"
-              :aria-label="queue.length ? t('继续添加') : t('选择文件')"
-              :disabled="parsing || busy"
-              @cancel="addFiles(null)"
-              @change="addFiles(($event.target as HTMLInputElement).files, $event.target as HTMLInputElement)"
-            />
-          </label>
-          <label class="button file-picker">
-            <FileImage :size="16" />{{ t("单张选择") }}
-            <input
-              type="file"
-              :accept="accepted"
-              :aria-label="t('单张选择')"
-              :disabled="parsing || busy"
-              @cancel="addFiles(null)"
-              @change="addFiles(($event.target as HTMLInputElement).files, $event.target as HTMLInputElement)"
-            />
-          </label>
-          <label class="button file-picker">
-            <FolderOpen :size="16" />{{ t("从文件导入") }}
-            <input
-              type="file"
-              multiple
-              :aria-label="t('从文件导入')"
-              :disabled="parsing || busy"
-              @cancel="addFiles(null)"
-              @change="addFiles(($event.target as HTMLInputElement).files, $event.target as HTMLInputElement)"
-            />
-          </label>
-        </div>
-        <div v-if="parsing || parsingName" class="parse-progress">
-          <span>
-            <template v-if="parsing && readingTotal">{{ readingIndex }} / {{ readingTotal }} · </template>
-            {{ parsingName }}
-            <template v-if="!parsing || readingTotal"> · {{ hashProgress }}%</template>
-          </span>
-          <ElProgress v-if="!parsing || readingTotal" :percentage="hashProgress" :show-text="false" />
-        </div>
-      </div>
-      <p class="notice">{{ t("实况照片需同时导入照片和配套 MOV。") }}</p>
-      <details class="live-import-guide">
-        <summary><Film :size="18" />{{ t("导入实况照片") }}</summary>
-        <p>{{ t("Mac：在“照片”App 选中照片 → 文件 → 导出 → 导出未修改的原片，再把导出的照片和 MOV 一起拖入这里。") }}</p>
-        <small>{{ t("配对成功后，上传列表会显示 LIVE；没有显示时，请先检查是否同时选中了 MOV。") }}</small>
-      </details>
-      <section class="paste-import">
-        <h2><ClipboardPaste :size="18" />{{ t("相册卡住？直接粘贴照片") }}</h2>
-        <p id="paste-instructions">{{
-          t("在“照片”App 中选择照片 → 分享 → 拷贝照片，再回到下面的框内长按，选择“粘贴”。")
-        }}</p>
-        <div
-          class="paste-target"
-          role="textbox"
-          :aria-label="t('粘贴照片')"
-          aria-describedby="paste-instructions paste-limitations"
-          :aria-disabled="parsing || busy"
-          :contenteditable="!parsing && !busy"
-          :tabindex="parsing || busy ? -1 : 0"
-          :data-placeholder="t('长按此处，选择“粘贴”')"
-          @paste.prevent="pastePhotos"
-          @beforeinput.prevent
-          @drop.prevent
-        ></div>
-        <small id="paste-limitations">{{
-          t("粘贴可能丢失拍摄日期和实况动态；需要原件请从文件导入。")
-        }}</small>
-      </section>
-      <div v-if="duplicateNames.length" class="duplicate-notice notice" role="alert">
-        <strong>{{ t("发现重复文件，已跳过上传") }} · {{ duplicateNames.length }}</strong>
-        <p>{{ duplicateNames.slice(0, 5).join("、") }}{{ duplicateNames.length > 5 ? " …" : "" }}</p>
-        <span>{{ t("原件不会再次上传，已有照片仍可在时间线查看。其他文件继续上传。") }}</span>
-      </div>
-      <p v-if="importMessage" class="notice" role="status">{{ importMessage }}</p>
-      <div v-if="importErrors.length" class="notice" role="alert">
-        <strong>{{ t("以下文件未能读取，其余文件已继续处理：") }}</strong>
-        <ul>
-          <li v-for="name in importErrors" :key="name">{{ name }}</li>
-        </ul>
-        <p>{{ t("请先将这些原片下载到“我的 iPhone”，再从文件导入。") }}</p>
-      </div>
-      <details class="upload-tip">
-        <summary>
-          <ShieldCheck :size="14" /> {{ t("原件保存与 iPhone 导入提示") }}
-        </summary>
-        <p>
-          {{
-            t(
-              "文件将按所选原始字节直接上传。iPhone 相册可能提供转换或编辑版本，如需相机原件，请先导出“未修改的原片”到文件 App，再从这里导入。Live Photo 可在文件详情中配对。",
-            )
-          }}
-        </p>
-      </details>
       <section v-if="queue.length" class="panel upload-queue">
         <div class="queue-heading">
           <div>
@@ -899,6 +798,14 @@ onBeforeUnmount(() => {
           <RouterLink to="/"> {{ t("去时间线查看 →") }} </RouterLink>
         </p>
       </section>
+      <section v-else class="queue-empty" aria-labelledby="upload-queue-heading">
+        <FileImage :size="28" aria-hidden="true" />
+        <div>
+          <h2 id="upload-queue-heading">{{ t("待上传文件") }}</h2>
+          <p>{{ t("选择文件后，可在这里检查拍摄日期、实况配对和上传顺序。") }}</p>
+        </div>
+      </section>
+      </div>
       <details v-if="resumable.length" class="panel resume-panel">
         <summary>
           {{ t("接着上传 ·") }} {{ resumable.length }} {{ t("个未完成文件") }}
@@ -933,6 +840,48 @@ onBeforeUnmount(() => {
           {{ t("本次文件已恢复上传。") }}
         </p>
       </details>
+      <div class="upload-help">
+      <details class="live-import-guide">
+        <summary><Film :size="16" aria-hidden="true" /> {{ t("导入实况照片") }}</summary>
+        <p>{{ t("实况照片需同时导入照片和配套 MOV。") }}</p>
+        <p>{{ t("Mac：在“照片”App 选中照片 → 文件 → 导出 → 导出未修改的原片，再把导出的照片和 MOV 一起拖入这里。") }}</p>
+        <small>{{ t("配对成功后，上传列表会显示 LIVE；没有显示时，请先检查是否同时选中了 MOV。") }}</small>
+      </details>
+      <details class="paste-import">
+        <summary><ClipboardPaste :size="16" aria-hidden="true" /> {{ t("相册卡住？直接粘贴照片") }}</summary>
+        <p id="paste-instructions">{{
+          t("在“照片”App 中选择照片 → 分享 → 拷贝照片，再回到下面的框内长按，选择“粘贴”。")
+        }}</p>
+        <div
+          class="paste-target"
+          role="textbox"
+          :aria-label="t('粘贴照片')"
+          aria-describedby="paste-instructions paste-limitations"
+          :aria-disabled="parsing || busy"
+          :contenteditable="!parsing && !busy"
+          :tabindex="parsing || busy ? -1 : 0"
+          :data-placeholder="t('长按此处，选择“粘贴”')"
+          @paste.prevent="pastePhotos"
+          @beforeinput.prevent
+          @drop.prevent
+        ></div>
+        <small id="paste-limitations">{{
+          t("粘贴可能丢失拍摄日期和实况动态；需要原件请从文件导入。")
+        }}</small>
+      </details>
+      <details class="upload-tip">
+        <summary>
+          <ShieldCheck :size="14" /> {{ t("原件保存与 iPhone 导入提示") }}
+        </summary>
+        <p>
+          {{
+            t(
+              "文件将按所选原始字节直接上传。iPhone 相册可能提供转换或编辑版本，如需相机原件，请先导出“未修改的原片”到文件 App，再从这里导入。Live Photo 可在文件详情中配对。",
+            )
+          }}
+        </p>
+      </details>
+      </div>
     </template>
     <MotionDialog
       :model-value="!!dateReview"
@@ -1113,29 +1062,29 @@ onBeforeUnmount(() => {
   </div>
 </template>
 <style scoped>
-.live-import-guide {
-  margin: 18px 0;
-  padding: 16px 18px;
-  border-left: 3px solid var(--sage);
-  background: var(--surface);
-  border-radius: 8px;
+.upload-help {
+  margin-block: 20px 0;
+  border-top: 1px solid var(--line);
 }
-.live-import-guide summary {
-  cursor: pointer;
-  display: list-item;
-  font-size: 15px;
-}
-.live-import-guide summary svg {
-  vertical-align: middle;
-  margin-right: 6px;
-}
-.live-import-guide p,
-.live-import-guide small {
-  display: block;
-  margin-top: 8px;
-  font-size: 13px;
-  line-height: 1.7;
+.upload-help details {
+  border-bottom: 1px solid var(--line);
   color: var(--muted);
+}
+.upload-help summary {
+  padding: 12px 4px;
+  min-height: 44px;
+  color: var(--text);
+  cursor: pointer;
+}
+.upload-help summary svg {
+  margin-inline: 5px;
+  color: var(--sage);
+}
+.upload-help details > :is(p, small, .paste-target) {
+  margin: 0 10px 12px;
+}
+.upload-help small {
+  display: block;
 }
 .date-review-intro {
   line-height: 1.8;
@@ -1187,68 +1136,63 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 10px;
 }
+.upload-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, .64fr);
+  gap: 16px;
+  align-items: start;
+  margin: 18px 0;
+}
+.upload-workspace > * {
+  min-width: 0;
+}
 .batch-settings {
-  padding: 22px;
-  margin-bottom: 18px;
+  grid-column: 2;
+  grid-row: 1;
+  padding: 18px;
+}
+.batch-settings h2 {
+  font-size: 17px;
+}
+.batch-settings .form-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
 }
 .batch-settings small {
-  font-size: 12px;
   color: var(--muted);
-  font-weight: 400;
 }
 .batch-children {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 12px;
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
 }
-.compact-dropzone {
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 20px;
-  padding: 24px;
-  text-align: left;
+.queue-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  grid-column: 1;
+  grid-row: 1;
+  border-block: 1px solid var(--line);
+  padding: 24px 8px;
   color: var(--sage);
 }
-.compact-dropzone > div:not(.parse-progress):not(.picker-actions) {
-  flex: 1;
+.queue-empty h2 {
+  color: var(--text);
+  font-size: 17px;
 }
-.compact-dropzone h2 {
-  font-size: 18px;
+.queue-empty p {
+  margin-top: 4px;
+  color: var(--muted);
 }
-.compact-dropzone p {
-  margin: 6px 0 0;
+.upload-queue {
+  grid-column: 1;
+  grid-row: 1;
 }
 .file-picker {
   position: relative;
   overflow: hidden;
   flex-direction: row;
-}
-.picker-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.picker-actions .file-picker {
-  margin: 0;
-}
-.paste-import {
-  margin-top: 16px;
-  padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.8;
-}
-.paste-import h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 16px;
-  color: var(--text);
 }
 .paste-import p {
   margin: 8px 0 12px;
@@ -1292,26 +1236,6 @@ onBeforeUnmount(() => {
 .file-picker:has(input:disabled) {
   opacity: 0.5;
   cursor: not-allowed;
-}
-.compact-dropzone .parse-progress {
-  flex-basis: 100%;
-  max-width: none;
-  margin: 0;
-}
-.upload-tip {
-  margin: 14px 0 24px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.upload-tip summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  cursor: pointer;
-}
-.upload-tip p {
-  margin: 10px 0;
-  line-height: 1.8;
 }
 .upload-queue {
   padding: 0;
@@ -1473,27 +1397,15 @@ onBeforeUnmount(() => {
   margin: 10px 0 20px;
   font-size: 12px;
 }
+@media (max-width: 1050px) {
+  .upload-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .upload-workspace > * {
+    grid-area: auto;
+  }
+}
 @media (max-width: 700px) {
-  .batch-settings {
-    padding: 16px;
-  }
-  .batch-settings .form-row {
-    grid-template-columns: 1fr;
-  }
-  .compact-dropzone {
-    gap: 12px;
-    padding: 20px 16px;
-  }
-  .picker-actions {
-    width: 100%;
-  }
-  .picker-actions .file-picker {
-    flex: 1;
-    justify-content: center;
-  }
-  .picker-actions .main-picker {
-    flex-basis: 100%;
-  }
   .queue-heading {
     align-items: flex-start;
     padding: 16px;
