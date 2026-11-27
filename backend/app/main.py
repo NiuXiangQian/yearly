@@ -794,11 +794,17 @@ def file_url(
     fid: int,
     download: bool = False,
     purpose: Literal["thumbnail", "preview", "original"] = "preview",
+    status: Literal["active", "deleted"] = "active",
     db=Depends(get_db),
     user=Depends(current_user),
     storage=Depends(get_storage),
 ):
-    media = require_active_media(db, mid, user)
+    if status == "deleted":
+        media = visible_row(db, Media, mid, user)
+        if media.status != "deleted" or download or purpose == "original":
+            raise HTTPException(404, "媒体不可用")
+    else:
+        media = require_active_media(db, mid, user)
     file = next(
         (f for f in media.files if f.id == fid and f.upload_status == "complete"), None
     )

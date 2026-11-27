@@ -144,6 +144,46 @@ def test_stable_pagination_and_trash(context):
     assert len(context.storage.objects) == 4
 
 
+def test_trash_previews_respect_visibility_and_keep_media_deleted(context):
+    result = upload(context)
+    hidden = upload(context)
+    client = context.client
+    mid = result["media_id"]
+    fid = result["tasks"][0]["file_id"]
+    hidden_mid = hidden["media_id"]
+    hidden_fid = hidden["tasks"][0]["file_id"]
+    resource = f"/api/media/{mid}/files/{fid}/url"
+
+    assert client.put(f"/api/media/{hidden_mid}", json={"share_allowed": False}).status_code == 200
+    assert client.get(resource, params={"status": "deleted"}).status_code == 404
+    assert client.delete(f"/api/media/{mid}").status_code == 200
+    assert client.delete(f"/api/media/{hidden_mid}").status_code == 200
+    assert client.get(resource).status_code == 404
+
+    client.cookies.set("yearly_session", "viewer")
+    client.headers["X-CSRF-Token"] = "csrf-viewer"
+    for purpose in ("thumbnail", "preview"):
+        response = client.get(resource, params={"status": "deleted", "purpose": purpose})
+        assert response.status_code == 200
+        assert response.json()["url"] == f"https://private.invalid/{purpose}"
+    for params in ({"purpose": "original"}, {"download": "true"}):
+        assert client.get(resource, params={"status": "deleted", **params}).status_code == 404
+    assert client.get(
+        f"/api/media/{hidden_mid}/files/{hidden_fid}/url", params={"status": "deleted"}
+    ).status_code == 404
+    assert client.get(
+        f"/api/media/{mid}/files/{hidden_fid}/url", params={"status": "deleted"}
+    ).status_code == 404
+    assert client.get("/api/timeline", params={"status": "deleted"}).json()["total"] == 1
+    assert client.post(f"/api/media/{mid}/restore", json={}).status_code == 403
+
+    client.cookies.set("yearly_session", "admin")
+    client.headers["X-CSRF-Token"] = "csrf-admin"
+    assert client.post(f"/api/media/{mid}/restore", json={}).status_code == 200
+    assert client.get(resource).status_code == 200
+    assert client.get(resource, params={"status": "deleted"}).status_code == 404
+
+
 def test_explicit_unknown_preserves_original_time(context):
     a = child(context)
     mid = upload(context, [a["id"]])["media_id"]

@@ -406,19 +406,34 @@ struct NativeMediaTrash: View {
     @State private var cursor: String?
     @State private var busy = false
     @State private var message = ""
+    @State private var selectedItem: NativeTimelineItem?
 
     var body: some View {
         NavigationStack {
             List {
                 if items.isEmpty && !busy { Text("回收站是空的").foregroundStyle(.secondary) }
                 ForEach(items, id: \.stableID) { item in
-                    HStack {
-                        Text(item.primary?.original_filename ?? item.label)
-                        Spacer()
-                        if item.editable(by: store.session.account) {
-                            Button("恢复") { Task { await restore(item) } }.disabled(busy)
-                        } else { Label("已锁定", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary) }
+                    Button {
+                        selectedItem = item
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.primary?.original_filename ?? item.label)
+                                Text(item.day).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if !item.editable(by: store.session.account) {
+                                Label("已锁定", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
+                        }
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .disabled(busy)
+                    .accessibilityHint("打开预览")
                 }
                 if busy { ProgressView() }
                 if cursor != nil { Button("加载更多") { Task { await load(more: true) } }.disabled(busy) }
@@ -428,6 +443,11 @@ struct NativeMediaTrash: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .task { await load() }
             .refreshable { await load() }
+            .nativeSheet(item: $selectedItem) { item in
+                NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
+                                  pagePosition: nil, previous: nil, next: nil, onSaved: {}, onDeleted: {},
+                                  onLocate: nil, restoreFromTrash: { try await restore(item) })
+            }
         }
     }
 
@@ -451,16 +471,10 @@ struct NativeMediaTrash: View {
         } catch { message = friendly(error) }
     }
 
-    private func restore(_ item: NativeTimelineItem) async {
-        guard !busy else { return }
-        busy = true
-        message = ""
-        defer { busy = false }
-        do {
-            let resource = item.kind == "event" ? "events" : "media"
-            try await store.session.write("/\(resource)/\(item.id)/restore", method: "POST", json: [:])
-            items.removeAll { $0.stableID == item.stableID }
-            await store.load()
-        } catch { message = friendly(error) }
+    private func restore(_ item: NativeTimelineItem) async throws {
+        let resource = item.kind == "event" ? "events" : "media"
+        try await store.session.write("/\(resource)/\(item.id)/restore", method: "POST", json: [:])
+        items.removeAll { $0.stableID == item.stableID }
+        Task { await store.load() }
     }
 }

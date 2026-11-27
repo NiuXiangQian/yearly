@@ -12,7 +12,7 @@
 
 原件使用 `originals/YYYY/MM/UUID.ext`，兼容预览使用 `previews/YYYY/MM/UUID.ext`，不使用用户路径，不重用对象 Key。合并请求附带 `x-oss-forbid-overwrite=true`。分片 ETag 只作为 OSS 完成分片的标识，不作为整个文件 MD5。浏览器先计算整文件 CRC64，服务端比较 OSS 整对象 `x-oss-hash-crc64ecma`。SHA-256 为浏览器计算值，记录于数据库及对象元数据。HEAD 的 SHA-256 元数据是上传时的声明，不能单独证明对象字节 SHA-256。CLI 完整备份会逐字节分块重算 SHA-256，作为独立审计。
 
-上传 API 不接收二进制原件，不修改 EXIF 或原件字节。默认列表、头像和日记封面通过 OSS 图片处理加载最长边 480px、质量 70 的 WebP；详情加载最长边 1600px、质量 80 的 WebP，HEIC / HEIF 也由 OSS 转换。视频列表仅加载 OSS 截帧封面，完全不预加载视频原件。私有签名有效期 300 秒，前端在有效期内复用预览 URL。`/media/{mid}/files/{fid}/url` 默认 `purpose=preview`；只有显式 `purpose=original` 或 `download=true` 才返回原件。
+上传 API 不接收二进制原件，不修改 EXIF 或原件字节。默认列表、头像和日记封面通过 OSS 图片处理加载最长边 480px、质量 70 的 WebP；详情加载最长边 1600px、质量 80 的 WebP，HEIC / HEIF 也由 OSS 转换。视频列表仅加载 OSS 截帧封面，完全不预加载视频原件。私有签名有效期 300 秒，前端在有效期内复用预览 URL。`/media/{mid}/files/{fid}/url` 默认 `purpose=preview`；只有显式 `purpose=original` 或 `download=true` 才返回原件。回收站指定 `status=deleted`，仅可预览账号可见的已删除影像和缩略图。
 
 视频由独立 `generate-previews` 工作进程生成 H.264 / AAC MP4，最长边不超过 1280px、短边不超过 720px，最高 30fps，CRF 28、码率上限 2.2 Mbps、faststart。HLG / PQ 输入通过 FFmpeg tone mapping 转为 SDR。按 SHA-256 去重，每个唯一视频只需读取一次原件，生成 `previews/video-v1/{sha256}.mp4`，完成后播放只读取该副本。工作进程下载到临时目录，检查大小和实际 SHA-256，再转码上传；结束清理临时文件。缓存状态保存在 MySQL `video_preview`，不计入原件清单和备份，丢失后可重新生成。MySQL 命名锁确保同一个库只有一个生成进程，异常退出的 processing 任务下次启动重试；failed 任务通过 `generate-previews --retry-failed` 重试。新增已完成上传和历史视频都由工作进程自动发现。
 

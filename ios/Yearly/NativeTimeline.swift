@@ -76,11 +76,17 @@ enum NativeMediaNetwork {
     }
 }
 
+private func nativePreviewPath(mediaID: Int, fileID: Int, purpose: String, inTrash: Bool) -> String {
+    let path = "/media/\(mediaID)/files/\(fileID)/url?purpose=\(purpose)"
+    return inTrash ? path + "&status=deleted" : path
+}
+
 struct NativeMediaImage: View {
     @ObservedObject var session: NativeSession
     let mediaID: Int
     let fileID: Int
     var purpose = "thumbnail"
+    var inTrash = false
     @State private var image: UIImage?
     @State private var failure = ""
     @State private var attempt = 0
@@ -99,20 +105,21 @@ struct NativeMediaImage: View {
             let owner = session.account?.id
             let cacheKey = "\(session.site.url.absoluteString)|\(owner ?? -1)|\(mediaID)|\(fileID)|\(purpose)"
             failure = ""
-            if attempt == 0, let cached = await NativeImageCache.image(for: cacheKey, scope: session.cacheScope) {
+            if !inTrash, attempt == 0, let cached = await NativeImageCache.image(for: cacheKey, scope: session.cacheScope) {
                 guard !Task.isCancelled, session.account?.id == owner else { return }
                 image = cached; return
             }
             image = nil
             do {
-                let resource: NativeMediaResource = try await session.get("/media/\(mediaID)/files/\(fileID)/url?purpose=\(purpose)")
+                let path = nativePreviewPath(mediaID: mediaID, fileID: fileID, purpose: purpose, inTrash: inTrash)
+                let resource: NativeMediaResource = try await session.get(path)
                 guard let raw = resource.url, let url = AppConfiguration.httpsURL(raw) else {
                     throw UploadFailure(message: "预览正在准备。")
                 }
                 let result = try await NativeMediaNetwork.image(url, maximumDimension: purpose == "thumbnail" ? 512 : 2048)
                 try Task.checkCancellation()
                 guard session.account?.id == owner else { return }
-                NativeImageCache.insert(result, for: cacheKey, scope: session.cacheScope)
+                if !inTrash { NativeImageCache.insert(result, for: cacheKey, scope: session.cacheScope) }
                 image = result
             } catch { if !Task.isCancelled { failure = friendly(error) } }
         }
@@ -1085,6 +1092,7 @@ struct NativeMediaDetail: View {
     let onDeleted: () -> Void
     let onLocate: ((NativeTimelineItem) -> Void)?
     var initialPlaybackSeconds: Double? = nil
+    var restoreFromTrash: (() async throws -> Void)? = nil
     @NativeDismiss private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var detail: NativeTimelineItem?
@@ -1104,7 +1112,9 @@ struct NativeMediaDetail: View {
     @State private var showingPeople = false
     @State private var savingToPhotos = false
     @State private var deleting = false
+    @State private var restoring = false
     private var item: NativeTimelineItem { detail ?? initial }
+    private var inTrash: Bool { restoreFromTrash != nil }
     var body: some View {
         NavigationStack {
             ZStack {
@@ -1124,7 +1134,8 @@ struct NativeMediaDetail: View {
                                 if item.media_type == "live_photo" { liveBadge }
                             }
                     } else if let file = item.primary {
-                        NativeMediaImage(session: session, mediaID: item.id, fileID: file.id, purpose: item.media_type == "video" ? "thumbnail" : "preview")
+                        NativeMediaImage(session: session, mediaID: item.id, fileID: file.id,
+                                         purpose: item.media_type == "video" ? "thumbnail" : "preview", inTrash: inTrash)
                             .scaleEffect(zoom).offset(offset)
                             .gesture(DragGesture().onChanged { value in
                                 offset = CGSize(width: dragOrigin.width + value.translation.width, height: dragOrigin.height + value.translation.height)
@@ -1143,6 +1154,9 @@ struct NativeMediaDetail: View {
                             }
                     } else if item.media_type == "video" {
                         Color.black.overlay { videoPlayControl }
+                    } else if inTrash {
+                        Text("影像预览暂时不可用").foregroundStyle(.white)
+                            .frame(maxHeight: .infinity)
                     } else {
                         Spacer(minLength: 0)
                     }
@@ -1154,6 +1168,16 @@ struct NativeMediaDetail: View {
                         Label("上传人 · " + (item.owner_name ?? "未记录"), systemImage: "person.crop.circle")
                             .font(.caption).foregroundStyle(.white.opacity(0.85))
                             .padding(.horizontal).padding(.vertical, 4)
+                    }
+                    if inTrash {
+                        VStack(spacing: 4) {
+                            if let filename = item.primary?.original_filename { Text(filename) }
+                            Text(item.previewDateTime)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding([.horizontal, .bottom])
                     }
                     if let pagePosition {
                         HStack(spacing: 16) {
@@ -1190,43 +1214,55 @@ struct NativeMediaDetail: View {
                       abs(x) > 48, abs(x) > abs(y) * 1.5 else { return }
                 if let navigate = x < 0 ? next : previous { stop(); navigate() }
             })
-            .disabled(deleting)
+            .disabled(deleting || restoring)
             .navigationTitle(item.label).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { stop(); dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { stop(); dismiss() }.disabled(restoring)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack {
-                        Button { stop(); showingInfo = true } label: {
-                            Image(systemName: item.editable(by: session.account) ? "square.and.pencil" : "info.circle")
-                        }.accessibilityLabel(item.editable(by: session.account) ? (item.kind == "event" ? "编辑日记" : "编辑影像") : "查看信息与修改日志")
-                        if item.editable(by: session.account) && (item.kind != "event" || NativeDay.date(item.day) != nil) {
-                            Button { stop(); showingShare = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel(item.kind == "event" ? "分享当天回忆" : "分享这项影像")
+                    if let restoreFromTrash {
+                        if restoring {
+                            ProgressView().accessibilityLabel("正在恢复")
+                        } else if item.editable(by: session.account) {
+                            Button("恢复") { Task { await restore(restoreFromTrash) } }
                         }
-                        Menu {
-                            if item.kind == "event" && !item.editable(by: session.account) {
-                                Button("查看信息", systemImage: "info.circle") { stop(); showingInfo = true }
+                    } else {
+                        HStack {
+                            Button { stop(); showingInfo = true } label: {
+                                Image(systemName: item.editable(by: session.account) ? "square.and.pencil" : "info.circle")
+                            }.accessibilityLabel(item.editable(by: session.account) ? (item.kind == "event" ? "编辑日记" : "编辑影像") : "查看信息与修改日志")
+                            if item.editable(by: session.account) && (item.kind != "event" || NativeDay.date(item.day) != nil) {
+                                Button { stop(); showingShare = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel(item.kind == "event" ? "分享当天回忆" : "分享这项影像")
                             }
-                            if let onLocate {
-                                Button("跳到归档位置", systemImage: "scope") { stop(); onLocate(item) }
-                            }
-                            if item.kind != "event" {
-                                if session.isAdmin {
-                                    Button("确认人物与宠物", systemImage: "person.crop.rectangle") { stop(); showingPeople = true }
+                            Menu {
+                                if item.kind == "event" && !item.editable(by: session.account) {
+                                    Button("查看信息", systemImage: "info.circle") { stop(); showingInfo = true }
                                 }
-                                Button("保存到相册", systemImage: "square.and.arrow.down") { Task { await saveToPhotos() } }
-                                    .disabled(savingToPhotos || deleting)
-                                if item.editable(by: session.account) {
-                                    Button("移到回收站", systemImage: "trash", role: .destructive) { confirmingDelete = true }
+                                if let onLocate {
+                                    Button("跳到归档位置", systemImage: "scope") { stop(); onLocate(item) }
+                                }
+                                if item.kind != "event" {
+                                    if session.isAdmin {
+                                        Button("确认人物与宠物", systemImage: "person.crop.rectangle") { stop(); showingPeople = true }
+                                    }
+                                    Button("保存到相册", systemImage: "square.and.arrow.down") { Task { await saveToPhotos() } }
                                         .disabled(savingToPhotos || deleting)
+                                    if item.editable(by: session.account) {
+                                        Button("移到回收站", systemImage: "trash", role: .destructive) { confirmingDelete = true }
+                                            .disabled(savingToPhotos || deleting)
+                                    }
                                 }
-                            }
-                        } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("影像操作")
+                            } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("影像操作")
+                        }
                     }
                 }
             }
+            .nativeInteractiveDismissDisabled(restoring)
             .task {
                 guard initial.kind != "event" else { return }
                 startAutomaticPlaybackIfNeeded()
+                guard !inTrash else { return }
                 do {
                     let current: NativeTimelineItem = try await session.get("/media/\(initial.id)")
                     try Task.checkCancellation()
@@ -1302,6 +1338,18 @@ struct NativeMediaDetail: View {
         } catch { message = friendly(error) }
     }
 
+    private func restore(_ action: () async throws -> Void) async {
+        guard !restoring else { return }
+        stop()
+        restoring = true
+        message = ""
+        defer { restoring = false }
+        do {
+            try await action()
+            dismiss()
+        } catch { message = friendly(error) }
+    }
+
     private var liveBadge: some View {
         Button(action: play) {
             Label("LIVE", systemImage: "livephoto").padding(8).background(.regularMaterial, in: Capsule())
@@ -1345,7 +1393,7 @@ struct NativeMediaDetail: View {
         if hadPlayer { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     }
     private func play() {
-        guard !savingToPhotos, !deleting else { return }
+        guard !savingToPhotos, !deleting, !restoring else { return }
         let live = item.media_type == "live_photo"
         guard let file = live ? item.motion : item.primary else {
             message = live ? "实况照片缺少配对资源。" : "影像原件不可用。"
@@ -1354,11 +1402,12 @@ struct NativeMediaDetail: View {
         stop(); message = ""; loading = true
         playbackTask = Task {
             do {
-                var resource: NativeMediaResource = try await session.get("/media/\(item.id)/files/\(file.id)/url?purpose=preview")
+                let path = nativePreviewPath(mediaID: item.id, fileID: file.id, purpose: "preview", inTrash: inTrash)
+                var resource: NativeMediaResource = try await session.get(path)
                 while live && resource.url == nil && ["pending", "processing"].contains(resource.status) {
                     message = "动态预览正在准备…"
                     try await Task.sleep(nanoseconds: 15_000_000_000)
-                    resource = try await session.get("/media/\(item.id)/files/\(file.id)/url?purpose=preview")
+                    resource = try await session.get(path)
                 }
                 try Task.checkCancellation()
                 message = ""
