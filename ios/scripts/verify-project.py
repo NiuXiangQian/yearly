@@ -44,12 +44,18 @@ manifest = plistlib.loads((root / 'Yearly/PrivacyInfo.xcprivacy').read_bytes())
 assert manifest['NSPrivacyTracking'] is False
 assert manifest['NSPrivacyAccessedAPITypes'][0]['NSPrivacyAccessedAPITypeReasons'] == ['CA92.1']
 icons = root / 'Yearly/Assets.xcassets/AppIcon.appiconset'
-for entry in json.loads((icons / 'Contents.json').read_text())['images']:
+icon_entries = json.loads((icons / 'Contents.json').read_text())['images']
+icon_appearances = [entry.get('appearances', []) for entry in icon_entries]
+assert len(icon_entries) == 2 and [] in icon_appearances, 'Missing default app icon'
+assert [{'appearance': 'luminosity', 'value': 'dark'}] in icon_appearances, 'Missing dark app icon'
+assert len({entry['filename'] for entry in icon_entries}) == 2, 'App icon appearances must use distinct files'
+for entry in icon_entries:
+    assert entry['idiom'] == 'universal' and entry['platform'] == 'ios'
+    assert entry['size'] == '1024x1024'
     data = (icons / entry['filename']).read_bytes()
     assert data[:8] == b'\x89PNG\r\n\x1a\n'
-    width, height, depth, color = struct.unpack('>IIBB', data[16:26])
-    expected = int(entry['size'].split('x')[0]) * int(entry['scale'][:-1])
-    assert width == height == expected
+    width, height, _, color = struct.unpack('>IIBB', data[16:26])
+    assert width == height == 1024
     assert color == 2, 'App icons must be RGB without transparency'
 scheme = ET.parse(root / 'Yearly.xcodeproj/xcshareddata/xcschemes/Yearly.xcscheme')
 assert scheme.find('ArchiveAction').attrib['buildConfiguration'] == 'Release'
