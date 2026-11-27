@@ -7,6 +7,16 @@ struct NativeShareRequest: Identifiable {
     var items: [NativeTimelineItem]? = nil
 }
 
+struct NativeShareLockBadge: View {
+    var body: some View {
+        Label("禁止分享", systemImage: "lock.fill")
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 7).padding(.vertical, 5)
+            .foregroundStyle(.primary)
+            .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+    }
+}
+
 struct NativeSharingView: View {
     private enum StartMode: String, CaseIterable, Identifiable {
         case earliest = "从最早的回忆", year = "最近一年", halfYear = "最近半年", custom = "自定义"
@@ -16,6 +26,7 @@ struct NativeSharingView: View {
 
     let selectedItems: [NativeTimelineItem]?
     private var selectionMode: Bool { selectedItems != nil }
+    private var containsLockedItems: Bool { selectedItems?.contains(where: \.sharingLocked) == true }
     @StateObject private var store: NativeSharingStore
     @NativeDismiss private var dismiss
     @State private var title = ""
@@ -61,7 +72,7 @@ struct NativeSharingView: View {
     private var valid: Bool {
         guard (1...168).contains(hours), title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count <= 120,
               !store.busy, store.session.canEdit, profilesLoaded, allProfiles || !profileIDs.isEmpty else { return false }
-        if let selectedItems { return (1...200).contains(selectedItems.count) }
+        if let selectedItems { return (1...200).contains(selectedItems.count) && !containsLockedItems }
         return resolvedStart.map { NativeDay.string($0) <= NativeDay.string(end) } == true
     }
     var body: some View {
@@ -103,6 +114,10 @@ struct NativeSharingView: View {
                         if !(1...200).contains(selectedItems?.count ?? 0) {
                             Text("请选择 1 至 200 项影像。").font(.caption).foregroundStyle(.red)
                         }
+                        if containsLockedItems {
+                            Label("所选影像中有禁止分享的文件，请返回取消选择这些文件。", systemImage: "lock.fill")
+                                .font(.footnote).foregroundStyle(.primary)
+                        }
                     }
                     Text(selectionMode ? "链接从下方所选影像中筛选，Live Photo 作为一项完整分享。" : "链接包含所选日期内允许分享的回忆。普通成员仅能分享自己添加的内容。")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -137,6 +152,9 @@ struct NativeSharingView: View {
                                 VStack(alignment: .leading) {
                                     Text(item.primary?.original_filename ?? item.label).lineLimit(2)
                                     Text(item.media_type == "live_photo" ? "LIVE · 图片与动态资源" : item.media_type == "video" ? "视频" : "照片").font(.caption).foregroundStyle(.secondary)
+                                    if item.sharingLocked {
+                                        Label("禁止分享", systemImage: "lock.fill").font(.caption.weight(.semibold))
+                                    }
                                 }
                             }
                         }

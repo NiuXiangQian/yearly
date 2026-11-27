@@ -655,6 +655,9 @@ struct NativePhotoMap: View {
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(alignment: .topTrailing) {
+                        if item.sharingLocked { NativeShareLockBadge().padding(7).accessibilityHidden(true) }
+                    }
                     .overlay(alignment: .bottomTrailing) {
                         if item.media_type == "video" || item.media_type == "live_photo" {
                             Image(systemName: item.media_type == "video" ? "play.fill" : "livephoto")
@@ -669,6 +672,7 @@ struct NativePhotoMap: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel("查看 \(item.label)，\(item.day)")
+            .accessibilityValue(item.sharingLocked ? "禁止分享" : "")
     }
 
     private func exploreMap() {

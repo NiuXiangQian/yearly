@@ -487,12 +487,23 @@ struct NativeTimelineView: View {
                             }
                         }.buttonStyle(.plain)
                         .accessibilityLabel(item.label)
+                        .accessibilityValue(item.sharingLocked && item.kind == "media" ? "禁止分享" : "")
                         .accessibilityAddTraits(selecting && item.kind == "media" && chosen.contains { $0.id == item.id } ? .isSelected : [])
                         .disabled(selecting && item.kind != "media")
                         .overlay(alignment: .topTrailing) {
-                            if selecting && item.kind == "media" && item.editable(by: store.session.account) {
-                                Image(systemName: chosen.contains(where: { $0.id == item.id }) ? "checkmark.circle.fill" : "circle")
-                                    .font(.title2).foregroundStyle(.tint).padding(7).background(.regularMaterial, in: Circle()).allowsHitTesting(false)
+                            if item.kind == "media" {
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    if item.sharingLocked {
+                                        NativeShareLockBadge().accessibilityHidden(true)
+                                    }
+                                    if selecting && item.editable(by: store.session.account) {
+                                        Image(systemName: chosen.contains(where: { $0.id == item.id }) ? "checkmark.circle.fill" : "circle")
+                                            .font(.title2).foregroundStyle(.tint).padding(7).background(.regularMaterial, in: Circle())
+                                            .accessibilityHidden(true)
+                                    }
+                                }
+                                .padding(7)
+                                .allowsHitTesting(false)
                             }
                         }
                         .overlay(alignment: .topLeading) {
@@ -505,7 +516,7 @@ struct NativeTimelineView: View {
                         .contextMenu {
                             if item.editable(by: store.session.account) {
                                 Button(item.kind == "event" ? "编辑日记" : "编辑影像", systemImage: "square.and.pencil") { editingItem = item }
-                                if item.kind == "media" {
+                                if item.kind == "media" && !item.sharingLocked {
                                     Button("分享这项影像", systemImage: "square.and.arrow.up") { shareRequest = NativeShareRequest(items: [item]) }
                                 }
                             }
@@ -1195,6 +1206,10 @@ struct NativeMediaDetail: View {
                     if loading && item.media_type != "video" {
                         ProgressView("正在准备预览…").tint(.white).foregroundStyle(.white)
                     }
+                    if !inTrash && item.sharingLocked {
+                        Label("禁止分享", systemImage: "lock.fill")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.white).padding(.horizontal)
+                    }
                     if item.kind == "media" {
                         Label("上传人 · " + (item.owner_name ?? "未记录"), systemImage: "person.crop.circle")
                             .font(.caption).foregroundStyle(.white.opacity(0.85))
@@ -1263,7 +1278,7 @@ struct NativeMediaDetail: View {
                             Button { stop(); showingInfo = true } label: {
                                 Image(systemName: item.editable(by: session.account) ? "square.and.pencil" : "info.circle")
                             }.accessibilityLabel(item.editable(by: session.account) ? "编辑影像" : "影像信息")
-                            if item.editable(by: session.account) {
+                            if item.editable(by: session.account) && !item.sharingLocked {
                                 Button { stop(); showingShare = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享这项影像")
                             }
                             Menu {
@@ -1643,6 +1658,9 @@ private struct NativeAISearch: View {
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay(alignment: .topTrailing) {
+                        if item.sharingLocked { NativeShareLockBadge().padding(7).accessibilityHidden(true) }
+                    }
                     .overlay(alignment: .bottomTrailing) {
                         if item.media_type == "video" || item.media_type == "live_photo" {
                             Image(systemName: item.media_type == "video" ? "play.fill" : "livephoto")
@@ -1653,6 +1671,7 @@ private struct NativeAISearch: View {
                 Text(item.day).font(.caption.weight(.medium)).foregroundStyle(.secondary)
             }
         }.buttonStyle(.plain).accessibilityLabel("查看 " + item.label)
+            .accessibilityValue(item.sharingLocked ? "禁止分享" : "")
             .contextMenu {
                 if let onLocate { Button("在时间线查看", systemImage: "scope") { onLocate(item) } }
             }

@@ -69,6 +69,7 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var corrected_offset_minutes: Int?
     var time_unknown: Bool?
     var share_allowed: Bool?
+    var sharingLocked: Bool { share_allowed == false }
     var tags: [String]?
     var folder_id: Int?
     var files: [NativeMediaFile]?
