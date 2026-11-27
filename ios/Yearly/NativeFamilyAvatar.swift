@@ -37,52 +37,186 @@ struct NativeFamilyAvatar: View {
     let name: String
     let pet: Bool
     let color: Color
-    var size: CGFloat = 48
+    var size: CGFloat? = 48
+    var cornerRadius: CGFloat?
     var draft: UIImage?
     @State private var remote: UIImage?
     @State private var loadedID: Int?
 
-    var body: some View {
-        ZStack {
-            Circle().fill(color.opacity(0.2))
-            if let image = draft ?? (loadedID == mediaID ? remote : nil) {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else if pet {
-                Image(systemName: "pawprint.fill").font(.system(size: size * 0.34)).foregroundStyle(color)
-            } else {
-                Text(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1).uppercased())
-                    .font(.system(size: size * 0.36, weight: .semibold)).foregroundStyle(color)
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .accessibilityHidden(true)
-        .task(id: mediaID) { await load() }
+    private var shape: AnyShape {
+        if let cornerRadius { return AnyShape(RoundedRectangle(cornerRadius: cornerRadius)) }
+        return AnyShape(Circle())
     }
 
-    private func load() async {
-        remote = nil
-        loadedID = nil
-        guard let mediaID, let account = session.account?.id else { return }
-        let cacheKey = "avatar|\(session.site.url.absoluteString)|\(account)|\(mediaID)"
-        if let cached = await NativeImageCache.image(for: cacheKey, scope: session.cacheScope) {
-            guard !Task.isCancelled, session.account?.id == account else { return }
-            remote = cached
-            loadedID = mediaID
-            return
-        }
-        do {
-            let media: NativeTimelineItem = try await session.get("/media/\(mediaID)")
-            guard let file = media.files?.first(where: { $0.file_role == "preview" }) ?? media.primary else { return }
-            let resource: NativeMediaResource = try await session.get("/media/\(mediaID)/files/\(file.id)/url?purpose=thumbnail")
-            guard let raw = resource.url, let url = AppConfiguration.httpsURL(raw) else { return }
-            let image = try await NativeMediaNetwork.image(url, maximumDimension: 256)
+    var body: some View {
+        shape.fill(color.opacity(0.20))
+            .aspectRatio(1, contentMode: .fit)
+            .frame(width: size, height: size)
+            .overlay {
+                if let image = draft ?? (loadedID == mediaID ? remote : nil) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else if pet {
+                    Image(systemName: "pawprint.fill")
+                        .font(.system(size: (size ?? 120) * 0.34))
+                        .foregroundStyle(cornerRadius == nil ? color : .primary)
+                } else {
+                    Text(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1).uppercased())
+                        .font(.system(size: (size ?? 120) * 0.36, weight: .semibold))
+                        .foregroundStyle(cornerRadius == nil ? color : .primary)
+                }
+            }
+            .clipShape(shape)
+            .accessibilityHidden(true)
+            .task(id: mediaID) {
+                remote = nil
+                loadedID = nil
+                guard let mediaID,
+                      let image = try? await NativeFamilyAvatarImage.load(session: session, mediaID: mediaID, fullSize: false)
+                else { return }
+                remote = image
+                loadedID = mediaID
+            }
+    }
+}
+
+@MainActor private enum NativeFamilyAvatarImage {
+    static func load(session: NativeSession, mediaID: Int, fullSize: Bool) async throws -> UIImage {
+        guard let account = session.account?.id else { throw CancellationError() }
+        let scope = session.cacheScope
+        let purpose = fullSize ? "preview" : "thumbnail"
+        let key = "avatar|\(session.site.url.absoluteString)|\(account)|\(mediaID)|\(purpose)"
+        if let cached = await NativeImageCache.image(for: key, scope: scope) {
             try Task.checkCancellation()
-            guard session.account?.id == account else { return }
-            NativeImageCache.insert(image, for: cacheKey, scope: session.cacheScope)
-            remote = image
-            loadedID = mediaID
-        } catch { /* Initials are also the fallback for unavailable avatars. */ }
+            guard session.account?.id == account else { throw CancellationError() }
+            return cached
+        }
+
+        let media: NativeTimelineItem = try await session.get("/media/\(mediaID)")
+        guard let file = media.files?.first(where: { $0.file_role == "preview" }) ?? media.primary else {
+            throw UploadFailure(message: "头像暂时无法查看。")
+        }
+        let resource: NativeMediaResource = try await session.get("/media/\(mediaID)/files/\(file.id)/url?purpose=\(purpose)")
+        guard let raw = resource.url, let url = AppConfiguration.httpsURL(raw) else {
+            throw UploadFailure(message: "头像预览暂时不可用。")
+        }
+        let image = try await NativeMediaNetwork.image(url, maximumDimension: fullSize ? 2048 : 480)
+        try Task.checkCancellation()
+        guard session.account?.id == account else { throw CancellationError() }
+        NativeImageCache.insert(image, for: key, scope: scope)
+        return image
+    }
+}
+
+struct NativeFamilyAvatarViewer: View {
+    let session: NativeSession
+    let mediaID: Int
+    let name: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var image: UIImage?
+    @State private var error = ""
+    @State private var attempt = 0
+    @State private var zoom: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @GestureState private var pinch: CGFloat = 1
+    @GestureState private var drag: CGSize = .zero
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                if let image {
+                    zoomable(image)
+                } else if !error.isEmpty {
+                    VStack(spacing: 12) {
+                        Text(error).multilineTextAlignment(.center)
+                        Button("重试") { error = ""; attempt += 1 }
+                            .buttonStyle(.bordered)
+                            .frame(minHeight: 44)
+                    }.padding(24)
+                } else {
+                    ProgressView("正在加载头像…")
+                }
+            }
+            .navigationTitle("\(name)的头像")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+                if image != nil {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button(action: toggleZoom) {
+                            Image(systemName: zoom > 1 ? "minus.magnifyingglass" : "plus.magnifyingglass")
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
+                        .accessibilityLabel(zoom > 1 ? "适应屏幕" : "放大头像")
+                    }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .tint(.white)
+        .task(id: attempt) {
+            do {
+                image = try await NativeFamilyAvatarImage.load(session: session, mediaID: mediaID, fullSize: true)
+            } catch is CancellationError {
+                return
+            } catch {
+                if !Task.isCancelled { self.error = friendly(error) }
+            }
+        }
+    }
+
+    private func zoomable(_ image: UIImage) -> some View {
+        GeometryReader { geometry in
+            let viewport = geometry.size
+            let fit = min(viewport.width / image.size.width, viewport.height / image.size.height)
+            let base = CGSize(width: image.size.width * fit, height: image.size.height * fit)
+            let scale = boundedZoom(zoom * pinch)
+            let position = boundedOffset(
+                CGSize(width: offset.width + drag.width, height: offset.height + drag.height),
+                base: base, viewport: viewport, scale: scale
+            )
+            Image(uiImage: image)
+                .resizable()
+                .frame(width: base.width, height: base.height)
+                .scaleEffect(scale)
+                .offset(position)
+                .frame(width: viewport.width, height: viewport.height)
+                .clipped()
+                .contentShape(Rectangle())
+                .gesture(DragGesture()
+                    .updating($drag) { value, state, _ in state = value.translation }
+                    .onEnded { value in
+                        offset = boundedOffset(
+                            CGSize(width: offset.width + value.translation.width, height: offset.height + value.translation.height),
+                            base: base, viewport: viewport, scale: zoom
+                        )
+                    }, including: scale > 1 ? .all : .none)
+                .simultaneousGesture(MagnificationGesture()
+                    .updating($pinch) { value, state, _ in state = value }
+                    .onEnded { value in
+                        zoom = boundedZoom(zoom * value)
+                        offset = boundedOffset(offset, base: base, viewport: viewport, scale: zoom)
+                    })
+                .onTapGesture(count: 2, perform: toggleZoom)
+                .onChange(of: viewport) { _ in offset = .zero }
+                .accessibilityLabel("头像照片")
+        }
+    }
+
+    private func toggleZoom() {
+        zoom = zoom > 1 ? 1 : 2
+        offset = .zero
+    }
+
+    private func boundedZoom(_ scale: CGFloat) -> CGFloat { min(4, max(1, scale)) }
+
+    private func boundedOffset(_ position: CGSize, base: CGSize, viewport: CGSize, scale: CGFloat) -> CGSize {
+        let x = max(0, (base.width * scale - viewport.width) / 2)
+        let y = max(0, (base.height * scale - viewport.height) / 2)
+        return CGSize(width: min(x, max(-x, position.width)), height: min(y, max(-y, position.height)))
     }
 }
 

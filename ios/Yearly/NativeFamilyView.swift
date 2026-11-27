@@ -24,37 +24,62 @@ struct NativeFamilyView: View {
     @ObservedObject var store: NativeTimelineStore
     let showTimeline: (UploadProfile) -> Void
     let onProfileUpdated: () -> Void
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var editing: UploadProfile?
     @State private var auditing: UploadProfile?
-    @State private var saved = false
+    @State private var savedProfileID: Int?
+
+    private var columns: [GridItem] {
+        textSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 144), spacing: 16)]
+    }
 
     var body: some View {
         NavigationStack {
-            List {
-                if saved {
-                    Label("家人资料已保存", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .accessibilityAddTraits(.isHeader)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    if store.profiles.isEmpty {
+                        if store.profilesLoading {
+                            ProgressView("正在读取家人资料…")
+                                .frame(maxWidth: .infinity)
+                        } else if store.profilesError.isEmpty {
+                            Text("还没有家人或宠物资料。")
+                                .foregroundStyle(NativeTheme.secondaryText)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    if !store.profilesError.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(store.profilesError).foregroundStyle(.red)
+                            Button("重新加载") { Task { await store.loadProfiles(refresh: true) } }
+                                .buttonStyle(NativeActionStyle(compact: true))
+                        }
+                    }
+                    profileSection("人物", profiles: store.profiles.filter { !$0.isPet })
+                    profileSection("宠物", profiles: store.profiles.filter(\.isPet))
                 }
-                if store.profilesLoading && store.profiles.isEmpty { ProgressView("正在读取家人资料…") }
-                if !store.profilesError.isEmpty {
-                    Text(store.profilesError).foregroundStyle(.red)
-                    Button("重新加载") { Task { await store.loadProfiles(refresh: true) } }
-                }
-                if store.profiles.isEmpty && !store.profilesLoading && store.profilesError.isEmpty {
-                    Text("还没有家人或宠物资料。").foregroundStyle(.secondary)
-                }
-                let people = store.profiles.filter { $0.profile_type != "pet" }
-                let pets = store.profiles.filter { $0.profile_type == "pet" }
-                if !people.isEmpty {
-                    Section("人物") { ForEach(people) { profileRow($0) } }
-                }
-                if !pets.isEmpty {
-                    Section("宠物") { ForEach(pets) { profileRow($0) } }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 28)
+                .frame(maxWidth: 780)
+                .frame(maxWidth: .infinity)
+            }
+            .background(NativeTheme.background)
+            .navigationTitle("家人与宠物")
+            .navigationDestination(for: Int.self) { profileID in
+                if let profile = store.profiles.first(where: { $0.id == profileID }) {
+                    NativeFamilyDetail(profile: profile, session: store.session, saved: savedProfileID == profile.id) {
+                        showTimeline(profile)
+                    } edit: {
+                        savedProfileID = nil
+                        editing = profile
+                    } audit: {
+                        auditing = profile
+                    }
+                } else {
+                    Text("此档案已不可用。").foregroundStyle(NativeTheme.secondaryText)
+                        .navigationTitle("家人资料")
                 }
             }
-            .scrollContentBackground(.hidden).background(NativeTheme.background)
-            .navigationTitle("家人与宠物")
             .refreshable { await store.loadProfiles(refresh: true) }
             .task { await store.loadProfiles(refresh: true) }
             .nativeSheet(item: $auditing) { profile in
@@ -69,57 +94,205 @@ struct NativeFamilyView: View {
                         store.profiles[index] = updated
                         store.profiles.sort { ($0.sort_order ?? 0, $0.id) < ($1.sort_order ?? 0, $1.id) }
                     }
-                    saved = true
+                    savedProfileID = updated.id
                     onProfileUpdated()
                 }
             }
         }
     }
 
-    private func profileRow(_ profile: UploadProfile) -> some View {
-        let name = profile.nickname.isEmpty ? profile.name : profile.nickname
-        return HStack(alignment: .top, spacing: 10) {
-            Button { showTimeline(profile) } label: {
-                HStack(alignment: .top, spacing: 12) {
-                    NativeFamilyAvatar(session: store.session, mediaID: profile.avatar_media_id,
-                                       name: name, pet: profile.profile_type == "pet",
-                                       color: ProfileColor.color(profile.theme_color))
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(name).font(.headline).foregroundStyle(.primary)
-                        Text(summary(for: profile)).font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
-                        if let birthday = profile.birthday {
-                            Text("出生日期 \(birthday)").font(.caption).foregroundStyle(NativeTheme.secondaryText)
+    @ViewBuilder
+    private func profileSection(_ title: String, profiles: [UploadProfile]) -> some View {
+        if !profiles.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                    ForEach(profiles) { profile in
+                        NavigationLink(value: profile.id) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                NativeFamilyAvatar(session: store.session, mediaID: profile.avatar_media_id,
+                                                   name: profile.displayName, pet: profile.isPet, color: profile.portraitColor,
+                                                   size: nil, cornerRadius: 16)
+                                    .frame(maxWidth: textSize.isAccessibilitySize ? 240 : .infinity)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(profile.displayName).font(.headline).foregroundStyle(.primary)
+                                    Text(profile.status == "archived" ? "已归档" : profile.portraitSubtitle)
+                                        .font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                                }
+                                .lineLimit(textSize.isAccessibilitySize ? nil : 2)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
-                        if let description = profile.description, !description.isEmpty {
-                            Text(description).font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
-                        }
-                    }.fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                        .foregroundStyle(NativeTheme.accent).padding(.top, 4).accessibilityHidden(true)
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityHint("打开档案详情")
+                    }
                 }
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .accessibilityHint("查看此档案关联的时间线")
-            Menu {
-                if profile.editable(by: store.session.account) {
-                    Button("编辑资料", systemImage: "square.and.pencil") { saved = false; editing = profile }
-                }
-                Button("修改记录", systemImage: "clock.arrow.circlepath") { auditing = profile }
-            } label: {
-                Image(systemName: "ellipsis").frame(width: 44, height: 44)
-            }.accessibilityLabel("\(name)的档案操作")
-        }.padding(.vertical, 6)
+        }
+    }
+}
+
+private struct NativeFamilyDetail: View {
+    let profile: UploadProfile
+    @ObservedObject var session: NativeSession
+    let saved: Bool
+    let showTimeline: () -> Void
+    let edit: () -> Void
+    let audit: () -> Void
+    @Environment(\.dynamicTypeSize) private var textSize
+    @State private var showingPortrait = false
+
+    private var facts: [(title: String, value: String)] {
+        let values: [(String, String?)] = [
+            (profile.isPet ? "名字" : "姓名", profile.name == profile.displayName ? nil : profile.name),
+            (profile.isPet ? "物种" : "家庭关系", profile.isPet ? profile.species : profile.relationship),
+            ("品种", profile.isPet ? profile.breed : nil),
+            ("性别", profile.gender),
+            ("出生日期", profile.birthday),
+            ("出生时刻", profile.birth_time),
+        ]
+        return values.compactMap { title, value in
+            guard let value, !value.isEmpty else { return nil }
+            return (title, value)
+        }
     }
 
-    private func summary(for profile: UploadProfile) -> String {
-        let details = profile.profile_type == "pet"
-            ? ["宠物", profile.species ?? "", profile.breed ?? ""]
-            : [profile.relationship.flatMap { $0.isEmpty ? nil : $0 } ?? (profile.profile_type == "child" ? "孩子" : "家人")]
-        return (details + [profile.status == "archived" ? "已归档" : ""]).filter { !$0.isEmpty }.joined(separator: " · ")
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                header
+                Button(action: showTimeline) {
+                    Label("查看时间线", systemImage: "photo.on.rectangle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(NativeActionStyle(kind: .primary))
+
+                if saved {
+                    Label("资料已保存", systemImage: "checkmark.circle")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(NativeTheme.secondaryText)
+                }
+                if !facts.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("基本资料").font(.headline).accessibilityAddTraits(.isHeader)
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(facts, id: \.title) { fact in
+                                if fact.title != facts.first?.title { Divider().accessibilityHidden(true) }
+                                factRow(fact.title, value: fact.value)
+                                    .padding(.vertical, 12)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
+                        .background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                    }
+                }
+                if let description = profile.description, !description.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("简介").font(.headline).accessibilityAddTraits(.isHeader)
+                        Text(description).fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                            .background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
+            .frame(maxWidth: 540)
+            .frame(maxWidth: .infinity)
+        }
+        .background(NativeTheme.background)
+        .navigationTitle("档案详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    if profile.editable(by: session.account) {
+                        Button("编辑资料", systemImage: "square.and.pencil", action: edit)
+                    }
+                    Button("修改记录", systemImage: "clock.arrow.circlepath", action: audit)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel("档案操作")
+            }
+        }
+        .fullScreenCover(isPresented: $showingPortrait) {
+            if let mediaID = profile.avatar_media_id {
+                NativeFamilyAvatarViewer(session: session, mediaID: mediaID, name: profile.displayName)
+            }
+        }
+    }
+
+    private func factRow(_ title: String, value: String) -> some View {
+        let layout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        return layout {
+            Text(title)
+                .foregroundStyle(NativeTheme.secondaryText)
+                .fixedSize(horizontal: !textSize.isAccessibilitySize, vertical: true)
+            Text(value)
+                .frame(maxWidth: .infinity, alignment: textSize.isAccessibilitySize ? .leading : .trailing)
+                .multilineTextAlignment(textSize.isAccessibilitySize ? .leading : .trailing)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var header: some View {
+        VStack(spacing: 12) {
+            if profile.avatar_media_id != nil {
+                Button { showingPortrait = true } label: {
+                    portrait.overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(.black.opacity(0.78), in: Circle())
+                            .padding(8)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("查看\(profile.displayName)的头像")
+            } else {
+                portrait
+            }
+            VStack(spacing: 4) {
+                Text(profile.displayName)
+                    .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Text(profile.status == "archived" ? "\(profile.kindLabel) · 已归档" : profile.kindLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(NativeTheme.secondaryText)
+            }
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var portrait: some View {
+        NativeFamilyAvatar(session: session, mediaID: profile.avatar_media_id, name: profile.displayName,
+                           pet: profile.isPet, color: profile.portraitColor, size: 144, cornerRadius: 24)
+    }
+}
+
+private extension UploadProfile {
+    var displayName: String { nickname.isEmpty ? name : nickname }
+    var isPet: Bool { profile_type == "pet" }
+    var portraitColor: Color { ProfileColor.color(theme_color) }
+    var kindLabel: String { isPet ? "宠物" : profile_type == "child" ? "孩子" : "人物" }
+
+    var portraitSubtitle: String {
+        let details = isPet ? [species, breed].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+            : relationship ?? ""
+        return details.isEmpty ? kindLabel : details
     }
 }
 
