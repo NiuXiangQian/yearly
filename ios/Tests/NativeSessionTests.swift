@@ -623,6 +623,23 @@ private final class SessionHTTP: URLProtocol {
         precondition(aiRequest.httpMethod == "POST" && aiRequest.timeoutInterval == 150)
         precondition(aiRequest.value(forHTTPHeaderField: "X-CSRF-Token") == "test-csrf")
         precondition(aiRequest.value(forHTTPHeaderField: "Origin") == "https://native.invalid")
+        func searchPage(_ ids: ClosedRange<Int>, page: Int, total: Int) -> NativeSearchPage {
+            NativeSearchPage(items: ids.map { NativeTimelineItem(id: $0) }, search_id: "sample", page: page, total: total, page_size: 20)
+        }
+        var searchResults = NativeSearchResults(query: "多多", firstPage: searchPage(1...20, page: 1, total: 25))
+        precondition(searchResults.items.map(\.id) == Array(1...20) && searchResults.nextPage == 2)
+        searchResults.append(searchPage(21...25, page: 2, total: 25))
+        precondition(searchResults.items.map(\.id) == Array(1...25) && searchResults.nextPage == nil)
+
+        searchResults = NativeSearchResults(query: "多多", firstPage: searchPage(1...20, page: 1, total: 41))
+        searchResults.remove(2)
+        searchResults.append(searchPage(3...21, page: 1, total: 40))
+        precondition(searchResults.items.map(\.id) == [1] + Array(3...21) && searchResults.nextPage == 2,
+                     "refreshing the last loaded page fills the gap from deletion without duplicating existing results")
+        searchResults.append(searchPage(22...41, page: 2, total: 40))
+        searchResults.append(searchPage(22...41, page: 2, total: 40))
+        precondition(searchResults.items.map(\.id) == [1] + Array(3...41) && searchResults.nextPage == nil,
+                     "refreshing an already loaded page preserves rank and unique identities")
         let searchTimeline = NativeTimelineStore(session: session)
         searchTimeline.showRecentUploads()
         searchTimeline.selected = [7]

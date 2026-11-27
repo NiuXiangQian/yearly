@@ -510,8 +510,41 @@ struct NativeSearchPage: Decodable {
     let page: Int
     let total: Int
     let page_size: Int
+}
 
-    var pageCount: Int { (total + page_size - 1) / page_size }
+struct NativeSearchResults {
+    let query: String
+    let searchID: String
+    private(set) var items: [NativeTimelineItem] = []
+    private(set) var total = 0
+    private(set) var page = 0
+    private var pageSize = 1
+
+    var nextPage: Int? { page * pageSize < total ? page + 1 : nil }
+
+    init(query: String, firstPage: NativeSearchPage) {
+        self.query = query
+        searchID = firstPage.search_id
+        append(firstPage)
+    }
+
+    mutating func append(_ result: NativeSearchPage) {
+        page = result.page
+        pageSize = result.page_size
+        total = result.total
+        guard total > 0 else {
+            items.removeAll()
+            return
+        }
+        var seen = Set(items.map(\.id))
+        items.append(contentsOf: result.items.filter { seen.insert($0.id).inserted })
+    }
+
+    mutating func remove(_ id: Int) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items.remove(at: index)
+        total = max(0, total - 1)
+    }
 }
 
 struct NativeSearchProgress: Decodable { let stage: String }
