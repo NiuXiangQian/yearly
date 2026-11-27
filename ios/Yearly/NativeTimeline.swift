@@ -498,6 +498,12 @@ struct NativeTimelineView: View {
                             }
                         }
                         if item.kind == "media" {
+                            let ageCaption = item.childPhotoAgeCaption
+                            if !ageCaption.isEmpty {
+                                Text(verbatim: ageCaption)
+                                    .font(.caption).foregroundStyle(NativeTheme.secondaryText)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                             Label("上传人 · " + (item.owner_name ?? "未记录"), systemImage: "person.crop.circle")
                                 .font(.caption2.weight(.medium)).foregroundStyle(NativeTheme.secondaryText).lineLimit(2)
                                 .accessibilityLabel("上传人，" + (item.owner_name ?? "未记录"))

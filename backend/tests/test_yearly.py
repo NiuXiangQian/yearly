@@ -1,6 +1,7 @@
 from sqlalchemy import select, func
 from app.models import Media, MediaFile, MediaChild
 from conftest import child, upload
+from test_people import person
 
 
 def test_shared_media_one_object_and_dynamic_ages(context):
@@ -45,6 +46,22 @@ def test_shared_media_one_object_and_dynamic_ages(context):
     assert row["children"][0]["age"] == "出生当天"
     # Single-child queries show only that child's age tags.
     assert len(row["children"]) == 1
+
+
+def test_timeline_keeps_child_age_when_group_photo_matches_another_person(context):
+    baby = child(context, "宝宝", "2024-03-31")
+    parent = person(context)
+    group_photo = upload(context, [baby["id"], parent["id"]])
+    upload(context, [baby["id"]])
+
+    response = context.client.get(f"/api/timeline?child_id={parent['id']}")
+    assert response.status_code == 200, response.text
+    [item] = response.json()["items"]
+    assert item["id"] == group_photo["media_id"]
+    assert {p["id"]: p["age"] for p in item["children"]} == {
+        baby["id"]: "出生当天",
+        parent["id"]: None,
+    }
 
 
 def test_unlink_and_child_delete_preserve_original(context):

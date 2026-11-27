@@ -77,6 +77,16 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var media_position: NativeMediaPosition?
     var stableID: String { "\(kind ?? "media")-\(id)" }
     var label: String { [title, batch_name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "珍藏的瞬间" }
+    var childPhotoAgeCaption: String {
+        guard media_type == "photo" || media_type == "live_photo" else { return "" }
+        return (children ?? []).compactMap { child in
+            let isChild = child.profile_type == "child" ||
+                (child.profile_type == "person" && child.relationship == "孩子")
+            guard isChild, let age = child.age else { return nil }
+            let name = child.nickname.isEmpty ? child.name : child.nickname
+            return "\(name) · \(age)"
+        }.joined(separator: "\n")
+    }
     var day: String { String((timeline_day ?? timeline_date ?? taken_at_local ?? start_at ?? "日期未知").prefix(10)) }
     var previewDateTime: String {
         if time_unknown != true, let capture = corrected_taken_at_local ?? taken_at_local,

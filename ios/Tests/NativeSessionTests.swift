@@ -156,6 +156,22 @@ private final class SessionHTTP: URLProtocol {
         precondition(datedMedia.previewDateTime == "2026-10-01", "unknown capture time displays only the archive date")
         datedMedia.time_unknown = false; datedMedia.corrected_taken_at_local = nil; datedMedia.taken_at_local = nil
         precondition(datedMedia.previewDateTime == "2026-10-01", "no capture time must not invent midnight")
+        let photoWithChildren = #"""
+        {"id":2,"kind":"media","media_type":"photo","timeline_day":"2026-10-01","taken_at_local":"2025-05-01T23:59:07","children":[
+          {"id":1,"profile_type":"child","name":"小满","nickname":"满满","age":"1 岁 2 个月"},
+          {"id":2,"profile_type":"person","relationship":"孩子","name":"小禾","nickname":"","age":"出生当天"},
+          {"id":3,"profile_type":"pet","name":"豆豆","nickname":"","age":"2 岁"},
+          {"id":4,"profile_type":"person","name":"妈妈","nickname":"","age":"29 岁"},
+          {"id":5,"profile_type":"child","name":"安安","nickname":"","age":null}
+        ]}
+        """#
+        var childPhoto = try JSONDecoder().decode(NativeTimelineItem.self, from: Data(photoWithChildren.utf8))
+        precondition(childPhoto.childPhotoAgeCaption == "满满 · 1 岁 2 个月\n小禾 · 出生当天")
+        childPhoto.media_type = "live_photo"
+        precondition(childPhoto.childPhotoAgeCaption == "满满 · 1 岁 2 个月\n小禾 · 出生当天")
+        childPhoto.media_type = "video"
+        precondition(childPhoto.childPhotoAgeCaption.isEmpty)
+        precondition(datedMedia.childPhotoAgeCaption.isEmpty)
         let cacheDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("YearlyCacheTests-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: cacheDirectory) }
         let disk = NativeLocalCache(directory: cacheDirectory)

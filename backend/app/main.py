@@ -1299,7 +1299,7 @@ def timeline(
                 Media.sort_order.desc(), Media.taken_at_local.desc(), Media.id.desc()
             )
         ).unique():
-            folder_previews[media.folder_id].append(media_data(media, child_id))
+            folder_previews[media.folder_id].append(media_data(media))
     media_map = {
         m.id: m for m in db.scalars(select(Media).where(Media.id.in_(media_ids)))
     }
@@ -1312,7 +1312,7 @@ def timeline(
     items = []
     for row in rows:
         if row["kind"] == "media":
-            item = {**media_data(media_map[row["id"]], child_id), "kind": "media"}
+            item = {**media_data(media_map[row["id"]]), "kind": "media"}
             if row["id"] in positions:
                 item["media_position"] = positions[row["id"]]
             if upload_order:

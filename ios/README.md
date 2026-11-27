@@ -179,6 +179,8 @@ API 网络使用 ephemeral URLSession，禁用共享 Cookie、凭据和响应缓
 
 时间线复用 `/api/timeline` 的游标分页与 `child_id` 筛选；人物复用 `/api/children`；预览复用 `/api/media/{id}/files/{file_id}/url`；人物关联使用 `/api/media/batch-children`，避免覆盖原件日期或其他元数据。
 
+普通照片和实况照片卡片显示已关联孩子在拍摄当天的年龄。按人物筛选只限制显示哪些照片，合照卡片仍显示照片里已关联孩子的年龄。
+
 ## 元数据和时间
 
 ImageIO 只读属性/标签，保存可解析 EXIF、XMP、IPTC、Apple MakerNote、GPS、镜头、曝光、ISO、方向等；AVFoundation 只读 QuickTime metadata/视频尺寸与时长。所有嵌入字段无论是否能解析，始终保留在未修改的原始字节中。数据库 JSON 有大小预算，超预算时明确标为 partial，完整字段仍在原件。

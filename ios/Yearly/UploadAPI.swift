@@ -56,6 +56,7 @@ struct UploadProfile: Decodable, Identifiable {
     let species: String?
     let breed: String?
     let birthday: String?
+    let age: String?
     let birth_time: String?
     let gender: String?
     let description: String?
