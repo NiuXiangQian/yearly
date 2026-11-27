@@ -45,7 +45,7 @@ private struct NativeMapBounds: Decodable, Hashable {
         return MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: latitude, longitude: Self.longitude(west + longitudeSpan / 2)),
             span: MKCoordinateSpan(latitudeDelta: min(170, max(0.008, (north - south) * (padded ? 1.27 : 1))),
-                                  longitudeDelta: min(360, max(0.008, longitudeSpan * (padded ? 1.22 : 1))))
+                                  longitudeDelta: min(360, max(0.008, longitudeSpan * (padded ? 1.34 : 1))))
         )
     }
 
@@ -70,10 +70,11 @@ private struct NativeMapGroup: Decodable, Identifiable, Equatable {
     let longitude: Double
     let bounds: NativeMapBounds
     let next_level: NativeMapLevel
-    let cover: NativeMapCover?
+    let covers: [NativeMapCover]?
 
     var title: String { name ?? "附近影像" }
     var accessibilityTitle: String { "\(title)，\(count) 项影像" }
+    var thumbnails: [NativeMapCover] { covers ?? [] }
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: min(85.051128, max(-85.051128, latitude)), longitude: longitude)
     }
@@ -91,6 +92,14 @@ private struct NativeMapPage: Decodable {
     let total: Int
     let page: Int
     let page_size: Int
+
+    var mediaItems: [NativeTimelineItem] {
+        items.map { item in
+            var media = item
+            media.kind = "media"
+            return media
+        }
+    }
 }
 
 private struct NativeMapViewport: Hashable {
@@ -133,6 +142,17 @@ private struct NativeMapRequest: Hashable {
     let revision: Int
 }
 
+private struct NativeMapPreviewRequest {
+    let group: NativeMapGroup
+    let request: NativeMapRequest
+}
+
+private struct NativeMapPreviewSource: Identifiable {
+    let id: Int
+    let page: NativeMapPage
+    let request: NativeMapRequest
+}
+
 @MainActor
 private final class NativeMapResults: ObservableObject {
     let session: NativeSession
@@ -151,6 +171,9 @@ private final class NativeMapResults: ObservableObject {
     private var loadedPage = 0
     private var pageSize = 30
     var nextPage: Int? { loadedPage > 0 && loadedPage * pageSize < total ? loadedPage + 1 : nil }
+    var gallerySnapshot: NativeMapPage {
+        NativeMapPage(items: items, total: total, page: loadedPage, page_size: pageSize)
+    }
 
     init(session: NativeSession) { self.session = session }
 
@@ -202,11 +225,7 @@ private final class NativeMapResults: ObservableObject {
             let page: NativeMapPage = try await session.get(request.path + "&page=\(loadedPage + 1)", refresh: true)
             guard galleryRequest == request, !Task.isCancelled else { return }
             let existing = Set(items.map(\.id))
-            items += page.items.filter { !existing.contains($0.id) }.map { item in
-                var media = item
-                media.kind = "media"
-                return media
-            }
+            items += page.mediaItems.filter { !existing.contains($0.id) }
             pageSize = page.page_size
             loadedPage = page.page
             total = page.total
@@ -234,8 +253,8 @@ struct NativePhotoMap: View {
     @State private var showingUnlocated = false
     @State private var tray: NativeMapTray = .regular
     @GestureState private var trayDrag: CGFloat = 0
-    @State private var preview: NativeTimelineItem?
-    @State private var pendingPreview: NativeMapGroup?
+    @State private var preview: NativeMapPreviewSource?
+    @State private var pendingPreview: NativeMapPreviewRequest?
     @State private var revision = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -331,16 +350,19 @@ struct NativePhotoMap: View {
             guard panel == .media && tray != .compact else { return }
             await results.loadGallery(galleryRequest, debounce: viewport != nil && !showingUnlocated && selectedGroup == nil)
         }
-        .task(id: pendingPreview?.cover) {
-            guard let group = pendingPreview, let cover = group.cover else { return }
+        .task(id: pendingPreview?.request) {
+            guard let pending = pendingPreview else { return }
             do {
-                var item: NativeTimelineItem = try await results.session.get("/media/\(cover.media_id)", refresh: true)
-                guard !Task.isCancelled, pendingPreview?.cover == cover else { return }
-                item.kind = "media"
-                preview = item
+                let page: NativeMapPage = try await results.session.get(pending.request.path, refresh: true)
+                guard !Task.isCancelled, pendingPreview?.request == pending.request else { return }
+                if let initial = page.items.first {
+                    preview = NativeMapPreviewSource(id: initial.id, page: page, request: pending.request)
+                } else {
+                    selectGroup(pending.group)
+                }
             } catch {
-                guard !Task.isCancelled, pendingPreview?.cover == cover else { return }
-                selectGroup(group)
+                guard !Task.isCancelled, pendingPreview?.request == pending.request else { return }
+                selectGroup(pending.group)
             }
             pendingPreview = nil
         }
@@ -349,9 +371,9 @@ struct NativePhotoMap: View {
             showOverview()
         }
         .onReceive(results.session.uploadsChanged) { _ in revision += 1 }
-        .fullScreenCover(item: $preview) { item in
+        .fullScreenCover(item: $preview) { source in
             NativeMapMediaPreview(session: results.session, profiles: filters.profiles,
-                                  items: results.items, initial: item, onChanged: refreshAfterEdit)
+                                  source: source, onChanged: refreshAfterEdit)
         }
     }
 
@@ -618,7 +640,9 @@ struct NativePhotoMap: View {
     }
 
     private func mediaTile(_ item: NativeTimelineItem) -> some View {
-        Button { preview = item } label: {
+        Button {
+            preview = NativeMapPreviewSource(id: item.id, page: results.gallerySnapshot, request: galleryRequest)
+        } label: {
             VStack(alignment: .leading, spacing: 4) {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(NativeTheme.background)
@@ -653,8 +677,10 @@ struct NativePhotoMap: View {
     }
 
     private func selectMarker(_ group: NativeMapGroup) {
-        if group.count == 1, group.cover != nil {
-            pendingPreview = group
+        if !group.thumbnails.isEmpty, let summary {
+            let selection = NativeMapSelection(group: group, level: summary.level, viewport: viewport)
+            let query = [URLQueryItem(name: "scope", value: "map")] + selection.query
+            pendingPreview = NativeMapPreviewRequest(group: group, request: request("/media/map/items", extra: query))
         } else {
             selectGroup(group)
         }
@@ -690,6 +716,7 @@ struct NativePhotoMap: View {
     }
 
     private func showOverview() {
+        pendingPreview = nil
         trail.removeAll()
         selectedGroup = nil
         showingUnlocated = false
@@ -708,34 +735,84 @@ struct NativePhotoMap: View {
 private struct NativeMapMediaPreview: View {
     let session: NativeSession
     let profiles: [UploadProfile]
-    let items: [NativeTimelineItem]
     let onChanged: () -> Void
+    private let request: NativeMapRequest
     @NativeDismiss private var dismiss
+    @State private var items: [NativeTimelineItem]
     @State private var index: Int
+    @State private var page: Int
+    @State private var pageSize: Int
+    @State private var total: Int
+    @State private var paging = false
+    @State private var advanceWhenReady = false
+    @State private var pageError = ""
+    @State private var showingPageError = false
 
-    init(session: NativeSession, profiles: [UploadProfile], items: [NativeTimelineItem],
-         initial: NativeTimelineItem, onChanged: @escaping () -> Void) {
+    init(session: NativeSession, profiles: [UploadProfile], source: NativeMapPreviewSource,
+         onChanged: @escaping () -> Void) {
         self.session = session
         self.profiles = profiles
         self.onChanged = onChanged
-        if let index = items.firstIndex(where: { $0.id == initial.id }) {
-            self.items = items
-            _index = State(initialValue: index)
-        } else {
-            self.items = [initial]
-            _index = State(initialValue: 0)
-        }
+        request = source.request
+        _items = State(initialValue: source.page.mediaItems)
+        _index = State(initialValue: source.page.items.firstIndex(where: { $0.id == source.id }) ?? 0)
+        _page = State(initialValue: source.page.page)
+        _pageSize = State(initialValue: source.page.page_size)
+        _total = State(initialValue: source.page.total)
     }
+
+    private var hasMore: Bool { page * pageSize < total }
 
     var body: some View {
         let item = items[index]
-        let position = NativePreviewPosition(day: item.day, withinDay: "已加载", overall: "\(index + 1) / \(items.count)")
+        let position = NativePreviewPosition(day: item.day, withinDay: "地图影像", overall: "\(index + 1) / \(max(total, items.count))")
         NativeMediaDetail(session: session, initial: item, profiles: profiles, pagePosition: position,
                           previous: index > 0 ? { index -= 1 } : nil,
-                          next: index + 1 < items.count ? { index += 1 } : nil,
+                          next: index + 1 < items.count || hasMore ? advance : nil,
                           onSaved: onChanged, onDeleted: { onChanged(); dismiss() }, onLocate: nil)
             .id(item.stableID)
             .preferredColorScheme(.dark)
+            .task(id: item.id) {
+                if index >= items.count - 3, hasMore { await loadMore() }
+            }
+            .alert("无法加载下一页", isPresented: $showingPageError) {
+                Button("重试", action: advance)
+                Button("取消", role: .cancel) {}
+            } message: { Text(pageError) }
+    }
+
+    private func advance() {
+        if index + 1 < items.count {
+            index += 1
+        } else {
+            advanceWhenReady = true
+            Task { await loadMore() }
+        }
+    }
+
+    private func loadMore() async {
+        guard hasMore, !paging else { return }
+        paging = true
+        defer { paging = false; advanceWhenReady = false }
+        do {
+            while hasMore && !Task.isCancelled {
+                let response: NativeMapPage = try await session.get(request.path + "&page=\(page + 1)", refresh: true)
+                try Task.checkCancellation()
+                let known = Set(items.map(\.id))
+                let added = response.mediaItems.filter { !known.contains($0.id) }
+                items += added
+                page = response.page
+                pageSize = response.page_size
+                total = response.total
+                if !added.isEmpty { break }
+            }
+            if advanceWhenReady, index + 1 < items.count { index += 1 }
+        } catch {
+            if advanceWhenReady && !Task.isCancelled {
+                pageError = friendly(error)
+                showingPageError = true
+            }
+        }
     }
 }
 
@@ -749,37 +826,86 @@ private final class NativeMapAnnotation: NSObject, MKAnnotation {
 }
 
 private final class NativeMapPhotoAnnotationView: MKAnnotationView {
-    func configure(with cover: NativeMapCover, count: Int, session: NativeSession) {
-        bounds = CGRect(x: 0, y: 0, width: 58, height: 54)
-        centerOffset = CGPoint(x: 0, y: -27)
-        layer.cornerRadius = 10
-        layer.borderWidth = 2
-        layer.masksToBounds = true
+    private let pointer = CAShapeLayer()
+    private let pointerHeight: CGFloat = 8
+
+    func configure(with covers: [NativeMapCover], count: Int, session: NativeSession) {
+        let cardWidth: CGFloat = 52
+        let cardHeight: CGFloat = 46
+        let overlap: CGFloat = 30
+        let width = cardWidth + CGFloat(covers.count - 1) * (cardWidth - overlap)
+        let height = cardHeight + pointerHeight
+        bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        centerOffset = CGPoint(x: 0, y: -height / 2)
         collisionMode = .rectangle
         let contents = UIHostingConfiguration {
-            NativeMediaImage(session: session, mediaID: cover.media_id, fileID: cover.file_id,
-                             contentMode: .fill, showsStatus: false)
-                .frame(width: 58, height: 54)
-                .clipped()
-                .overlay(alignment: .bottomTrailing) {
-                    if count > 1 || cover.media_type != "photo" {
-                        Group {
-                            if count > 1 { Text(String(count)).font(.caption2.bold()) }
-                            else { Image(systemName: cover.media_type == "video" ? "play.fill" : "livephoto").font(.caption2) }
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5).padding(.vertical, 3)
-                        .background(.black.opacity(0.75), in: Capsule())
-                        .padding(4)
+            VStack(spacing: 0) {
+                HStack(spacing: -overlap) {
+                    ForEach(covers.indices, id: \.self) { index in
+                        let cover = covers[index]
+                        NativeMediaImage(session: session, mediaID: cover.media_id, fileID: cover.file_id,
+                                         contentMode: .fill, showsStatus: false)
+                            .frame(width: cardWidth, height: cardHeight)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white, lineWidth: 2) }
+                            .overlay(alignment: .bottomLeading) {
+                                if cover.media_type != "photo" {
+                                    Image(systemName: cover.media_type == "video" ? "play.fill" : "livephoto")
+                                        .font(.caption2).foregroundStyle(.white).padding(3)
+                                        .background(.black.opacity(0.78), in: Circle()).padding(4)
+                                }
+                            }
+                            .zIndex(Double(covers.count - index))
                     }
                 }
-                .accessibilityHidden(true)
+                .overlay(alignment: .bottomTrailing) {
+                    if count > 1 {
+                        Text(String(count)).font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 3)
+                            .background(.black.opacity(0.82), in: Capsule())
+                            .padding(4)
+                        }
+                }
+                Color.clear.frame(height: pointerHeight)
+            }
+            .accessibilityHidden(true)
         }.margins(.all, 0).makeContentView()
         contents.frame = bounds
         contents.isUserInteractionEnabled = false
         contents.accessibilityElementsHidden = true
         subviews.forEach { $0.removeFromSuperview() }
         addSubview(contents)
+        pointer.frame = bounds
+        pointer.fillColor = UIColor.white.cgColor
+        layer.addSublayer(pointer)
+        positionPointer(shift: 0)
+    }
+
+    func keepCardInside(_ map: MKMapView) {
+        guard let annotation else { return }
+        let projected = map.convert(annotation.coordinate, toPointTo: map)
+        let padding = bounds.width / 2 + 3
+        let maxX = map.bounds.width
+        guard projected.x.isFinite, (0...maxX).contains(projected.x), maxX >= padding * 2 else { return }
+        let shift = min(max(projected.x, padding), maxX - padding) - projected.x
+        if abs(shift - centerOffset.x) > 0.5 { positionPointer(shift: shift) }
+    }
+
+    private func positionPointer(shift: CGFloat) {
+        centerOffset = CGPoint(x: shift, y: -bounds.height / 2)
+        let tip = bounds.midX - shift
+        let base = min(max(tip, 7), bounds.maxX - 7)
+        let top = bounds.maxY - pointerHeight
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: base - 7, y: top))
+        path.addLine(to: CGPoint(x: base + 7, y: top))
+        path.addLine(to: CGPoint(x: tip, y: bounds.maxY))
+        path.closeSubpath()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pointer.path = path
+        CATransaction.commit()
     }
 }
 
@@ -829,6 +955,7 @@ private struct NativeMapCanvas: UIViewRepresentable {
         private var viewportReport: Task<Void, Never>?
         private var annotations: [String: NativeMapAnnotation] = [:]
         private var selectedID: String?
+        private var photoAnnotations: [NativeMapAnnotation] = []
 
         init(session: NativeSession) { self.session = session }
 
@@ -852,6 +979,13 @@ private struct NativeMapCanvas: UIViewRepresentable {
                 let annotation = NativeMapAnnotation(group: group)
                 annotations[group.id] = annotation
                 view.addAnnotation(annotation)
+            }
+            photoAnnotations = groups.compactMap { $0.thumbnails.isEmpty ? nil : annotations[$0.id] }
+        }
+
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            for annotation in photoAnnotations {
+                (mapView.view(for: annotation) as? NativeMapPhotoAnnotationView)?.keepCardInside(mapView)
             }
         }
 
@@ -903,9 +1037,10 @@ private struct NativeMapCanvas: UIViewRepresentable {
             guard let annotation = annotation as? NativeMapAnnotation else { return nil }
             let group = annotation.group
             let marker: MKAnnotationView
-            if let cover = group.cover,
+            if !group.thumbnails.isEmpty,
                let photo = mapView.dequeueReusableAnnotationView(withIdentifier: "media-cover", for: annotation) as? NativeMapPhotoAnnotationView {
-                photo.configure(with: cover, count: group.count, session: session)
+                photo.configure(with: group.thumbnails, count: group.count, session: session)
+                photo.keepCardInside(mapView)
                 marker = photo
             } else {
                 marker = mapView.dequeueReusableAnnotationView(withIdentifier: "media-count", for: annotation)
@@ -923,14 +1058,14 @@ private struct NativeMapCanvas: UIViewRepresentable {
                 count.glyphTintColor = UIColor(NativeTheme.onAccent)
                 count.titleVisibility = group.name == nil && !isSelected ? .hidden : .visible
                 count.subtitleVisibility = .hidden
-            } else {
-                marker.layer.borderColor = (isSelected ? UIColor(NativeTheme.accent) : UIColor.white).cgColor
             }
             marker.displayPriority = isSelected ? .required : .defaultHigh
             marker.canShowCallout = false
             marker.isAccessibilityElement = true
-            if let cover = group.cover, group.count == 1, !cover.title.isEmpty {
+            if let cover = group.thumbnails.first, group.count == 1, !cover.title.isEmpty {
                 marker.accessibilityLabel = "预览 \(cover.title)"
+            } else if !group.thumbnails.isEmpty {
+                marker.accessibilityLabel = "预览\(group.title)，\(group.count) 项影像"
             } else {
                 marker.accessibilityLabel = group.accessibilityTitle
             }

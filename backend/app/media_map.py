@@ -1,13 +1,14 @@
 """Map queries for the same private, active media shown on the timeline."""
 
 from collections import defaultdict
-from math import ceil, floor, log2
+from heapq import nsmallest
+from math import ceil, cos, floor, log2, radians
 from typing import Annotated, Literal
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import and_, func, not_, or_, select
+from sqlalchemy import and_, func, not_, or_, select, tuple_
 
 from .db import get_db
 from .map_geography import administrative_place, geographic_bounds, wrap_longitude
@@ -155,52 +156,56 @@ def group_annotations(rows, level, span):
     exponent = min(6, max(-14, ceil(log2(max(span / 9, 0.0001)))))
     groups = defaultdict(list)
     names = {}
-    for latitude, longitude, count, sample_id in rows:
+    for latitude, longitude, count in rows:
         key, name = group_for(latitude, longitude, level, exponent)
-        groups[key].append((latitude, longitude, count, sample_id))
+        groups[key].append((latitude, longitude, count))
         names[key] = name
     annotations = []
     for key, members in groups.items():
-        coordinates = [(lat, lon) for lat, lon, _, _ in members]
+        coordinates = [(lat, lon) for lat, lon, _ in members]
         bounds = geographic_bounds(coordinates)
-        total = sum(count for _, _, count, _ in members)
+        total = sum(count for _, _, count in members)
         west = bounds["west"]
-        latitude = sum(lat * count for lat, _, count, _ in members) / total
-        longitude = wrap_longitude(west + sum((lon - west) % 360 * count for _, lon, count, _ in members) / total)
+        center_lat = sum(lat * count for lat, _, count in members) / total
+        center_lon = wrap_longitude(west + sum((lon - west) % 360 * count for _, lon, count in members) / total)
+        longitude_scale = cos(radians(center_lat))
+
+        def distance(point):
+            lat, lon = point
+            return ((lat - center_lat) ** 2 + (wrap_longitude(lon - center_lon) * longitude_scale) ** 2, point)
+
+        nearby = nsmallest(MAX_COVER_MEDIA, coordinates, key=distance)
+        latitude, longitude = nearby[0]
         annotations.append({
             "id": key, "name": names[key], "count": total,
             "latitude": latitude, "longitude": longitude, "bounds": bounds,
             "next_level": "region" if level == "country" and spans_areas(coordinates, "region") else "local",
-            "sample_id": max(sample_id for _, _, _, sample_id in members),
+            "cover_coordinates": nearby,
         })
     return sorted(annotations, key=lambda item: (-item["count"], item["id"]))
 
 
 def add_covers(db, filters, user, groups):
-    ids = [group["sample_id"] for group in groups if group["count"] <= MAX_COVER_MEDIA]
-    if not ids:
-        return
-    statement = select(Media.id, MediaFile.id, Media.media_type, Media.title, Media.batch_name).join(
-        MediaFile, MediaFile.media_id == Media.id
-    ).where(
-        Media.id.in_(ids), MediaFile.file_role == "original", MediaFile.upload_status == "complete"
-    ).order_by(MediaFile.id)
-    covers = {}
-    for media_id, file_id, media_type, title, batch in db.execute(filters.media(statement, user)):
-        covers.setdefault(media_id, {
-            "media_id": media_id, "file_id": file_id, "media_type": media_type, "title": title or batch,
-        })
+    original = select(func.min(MediaFile.id)).where(
+        MediaFile.media_id == Media.id,
+        MediaFile.file_role == "original", MediaFile.upload_status == "complete",
+    ).scalar_subquery()
+    statement = filters.media(select(Media.id, original, Media.media_type, Media.title, Media.batch_name), user)
+    statement = statement.where(original.is_not(None)).order_by(*media_ordering()).limit(MAX_COVER_MEDIA)
     for group in groups:
-        if group["count"] <= MAX_COVER_MEDIA and group["sample_id"] in covers:
-            group["cover"] = covers[group["sample_id"]]
+        query = statement.where(tuple_(Media.latitude, Media.longitude).in_(group["cover_coordinates"]))
+        group["covers"] = [
+            {"media_id": media_id, "file_id": file_id, "media_type": media_type, "title": title or batch}
+            for media_id, file_id, media_type, title, batch in db.execute(query)
+        ]
 
 
 @router.get("")
 def map_summary(filters: Annotated[MapFilters, Query()], db=Depends(get_db), user=Depends(current_user)):
-    statement = filters.media(select(Media.latitude, Media.longitude, func.count(), func.max(Media.id)), user)
+    statement = filters.media(select(Media.latitude, Media.longitude, func.count()), user)
     statement = filters.located(statement).group_by(Media.latitude, Media.longitude)
-    rows = [(float(lat), float(lon), count, sample_id) for lat, lon, count, sample_id in db.execute(statement)]
-    points = [(lat, lon) for lat, lon, _, _ in rows]
+    rows = [(float(lat), float(lon), count) for lat, lon, count in db.execute(statement)]
+    points = [(lat, lon) for lat, lon, _ in rows]
     bounds = geographic_bounds(points)
     window = filters.window
     level = filters.level or zoom_level(window, points)
@@ -212,10 +217,10 @@ def map_summary(filters: Annotated[MapFilters, Query()], db=Depends(get_db), use
     if filters.include_covers and len(groups) <= MAX_COVER_GROUPS:
         add_covers(db, filters, user, groups)
     for group in groups:
-        group.pop("sample_id")
+        group.pop("cover_coordinates")
     return {
         "level": level, "bounds": bounds, "groups": groups,
-        "located_total": sum(count for _, _, count, _ in rows), "unlocated_total": unlocated,
+        "located_total": sum(count for _, _, count in rows), "unlocated_total": unlocated,
     }
 
 

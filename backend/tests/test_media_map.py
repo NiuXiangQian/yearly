@@ -116,7 +116,7 @@ def test_offline_boundary_data_and_bounds():
     assert geographic_bounds([(1, 180), (2, -180)]) == {"south": 1, "north": 2, "west": -180, "east": -180}
 
 
-def test_sparse_map_covers_are_visible_completed_originals(context, monkeypatch):
+def test_map_stacks_use_visible_originals_and_anchor_to_a_real_photo(context, monkeypatch):
     def original(db, media_id, status="complete"):
         file = MediaFile(
             media_id=media_id, file_role="original", oss_bucket="fixture",
@@ -130,7 +130,11 @@ def test_sparse_map_covers_are_visible_completed_originals(context, monkeypatch)
     with context.db() as db:
         public_media = add_media(db, "西湖", 30.241, 120.148)
         public_file = original(db, public_media)
+        another_media = add_media(db, "西湖夜景", 30.241, 120.148)
+        another_file = original(db, another_media)
+        original(db, add_media(db, "郊游", 30.303, 120.243))
         original(db, add_media(db, "隐藏照片", 30.241, 120.148, share_allowed=False))
+        original(db, add_media(db, "等待西湖原件", 30.241, 120.148), status="pending")
         original(db, add_media(db, "等待原件", 31.324, 120.629), status="pending")
         for index in range(4):
             original(db, add_media(db, f"上海影像{index}", 31.239, 121.49))
@@ -142,16 +146,22 @@ def test_sparse_map_covers_are_visible_completed_originals(context, monkeypatch)
     result = client.get("/api/media/map", params={**area, "include_covers": True})
     assert result.status_code == 200, result.text
     groups = {group["name"]: group for group in result.json()["groups"]}
-    assert groups["浙江省"]["cover"] == {
-        "media_id": public_media, "file_id": public_file, "media_type": "photo", "title": "西湖",
+    zhejiang = groups["浙江省"]
+    assert (zhejiang["latitude"], zhejiang["longitude"]) == (30.241, 120.148)
+    assert zhejiang["count"] == 4
+    assert {item["title"] for item in zhejiang["covers"]} == {"西湖", "西湖夜景", "郊游"}
+    assert {item["media_id"]: item["file_id"] for item in zhejiang["covers"] if item["title"].startswith("西湖")} == {
+        public_media: public_file, another_media: another_file,
     }
-    assert all("sample_id" not in group for group in groups.values())
-    assert "cover" not in groups["江苏省"]
-    assert "cover" not in groups["上海市"]
+    assert all("cover_coordinates" not in group for group in groups.values())
+    assert groups["江苏省"]["covers"] == []
+    assert groups["上海市"]["count"] == 4 and len(groups["上海市"]["covers"]) == 3
+    album = client.get("/api/media/map/items", params={**area, "group": zhejiang["id"], "page_size": 2}).json()
+    assert album["total"] == 4 and len(album["items"]) == 2
 
     result = client.get("/api/media/map", params=area)
-    assert all("cover" not in group for group in result.json()["groups"])
+    assert all("covers" not in group for group in result.json()["groups"])
     monkeypatch.setattr("app.media_map.MAX_COVER_GROUPS", 2)
     result = client.get("/api/media/map", params={**area, "include_covers": True})
     assert len(result.json()["groups"]) == 3
-    assert all("cover" not in group for group in result.json()["groups"])
+    assert all("covers" not in group for group in result.json()["groups"])
