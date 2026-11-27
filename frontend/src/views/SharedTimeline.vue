@@ -18,6 +18,7 @@ import TimelineMonths from "../components/TimelineMonths.vue";
 import ScrollLoader from "../components/ScrollLoader.vue";
 import TimelineOrder from "../components/TimelineOrder.vue";
 import TimelineRail from "../components/TimelineRail.vue";
+import SharedMediaCardContent from "../components/SharedMediaCardContent.vue";
 import SharedThumbnail from "../components/SharedThumbnail.vue";
 import LivePhotoViewer from "../components/LivePhotoViewer.vue";
 import { cachedMediaResource, releaseMediaResource, type MediaResource } from "../lib/media-resource";
@@ -440,14 +441,7 @@ onBeforeUnmount(() => {
                       <p>{{ item.content }}</p>
                     </div></template
                   >
-                  <template v-else
-                    ><SharedThumbnail :base="base" :media="item" /><span
-                      v-if="item.title"
-                      class="shared-caption"
-                      :class="{ 'with-live-badge': item.media_type === 'live_photo' }"
-                      >{{ item.title }}</span
-                    ></template
-                  >
+                  <SharedMediaCardContent v-else :base="base" :media="item" />
                 </button>
               </div>
               <button v-if="share.scope !== 'selection' && day.items.length > 8"
@@ -495,12 +489,7 @@ onBeforeUnmount(() => {
           class="shared-card"
           @click="openMedia(item)"
         >
-          <SharedThumbnail :base="base" :media="item" /><span
-            v-if="item.title"
-            class="shared-caption"
-            :class="{ 'with-live-badge': item.media_type === 'live_photo' }"
-            >{{ item.title }}</span
-          >
+          <SharedMediaCardContent :base="base" :media="item" />
         </button>
       </div>
       <ScrollLoader
@@ -715,25 +704,6 @@ onBeforeUnmount(() => {
   outline: 2px solid var(--sage);
   outline-offset: 4px;
   border-radius: 10px;
-}
-.shared-caption {
-  display: block;
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  border-radius: 0 0 10px 10px;
-  background: linear-gradient(transparent, #15261acc);
-  color: white;
-  pointer-events: none;
-  padding: 24px 10px 10px;
-  font-size: 12px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.shared-caption.with-live-badge {
-  padding-left: 68px;
 }
 .shared-folder,
 .shared-diary {

@@ -4,6 +4,7 @@ import hmac
 import re
 import secrets
 from base64 import urlsafe_b64encode
+from collections import defaultdict
 from datetime import date, timedelta
 from html import escape
 from typing import Literal, Annotated
@@ -15,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, func, literal, union_all, or_, case
 from sqlalchemy.dialects.mysql import insert
 
+from .age import age_at
 from .config import settings
 from .db import get_db, now
 from .models import (
@@ -26,6 +28,7 @@ from .models import (
     User,
     VideoPreview,
     TimelineDay,
+    Child,
     MediaChild,
     EventChild,
 )
@@ -453,14 +456,51 @@ def sharing_bounds(db=Depends(get_db), user=Depends(editor)):
     return {"earliest": earliest, "latest": latest}
 
 
-def public_media(media):
-    # No filenames, GPS, EXIF, account/child IDs, storage keys or original URLs.
-    return {
+def public_child_ages(db, media_ids):
+    ages = defaultdict(list)
+    if not media_ids:
+        return ages
+    rows = db.execute(
+        select(
+            MediaChild.media_id, Child.name, Child.nickname,
+            Child.birthday, Media.taken_at_local,
+        )
+        .select_from(MediaChild)
+        .join(Child, Child.id == MediaChild.child_id)
+        .join(Media, Media.id == MediaChild.media_id)
+        .where(
+            MediaChild.media_id.in_(media_ids),
+            Child.status == "active",
+            Child.growth_enabled.is_(True),
+            Child.birthday.is_not(None),
+            or_(
+                Child.profile_type == "child",
+                (Child.profile_type == "person") & (Child.relationship == "孩子"),
+            ),
+            Media.time_unknown.is_(False),
+            Media.taken_at_local.is_not(None),
+        )
+        .order_by(Child.sort_order, Child.id)
+    )
+    for media_id, name, nickname, birthday, taken in rows:
+        ages[media_id].append({
+            "name": nickname or name,
+            "age": age_at(birthday, taken.date()),
+        })
+    return ages
+
+
+def public_media(media, child_ages=None):
+    # Only display names and derived ages from child profiles go into the payload.
+    item = {
         "kind": "media",
         "id": media.id,
         "title": media.title,
         "media_type": media.media_type,
     }
+    if child_ages:
+        item["child_ages"] = child_ages
+    return item
 
 
 def entries(db, share, day, offset=0, limit=8, order="desc"):
@@ -486,7 +526,7 @@ def entries(db, share, day, offset=0, limit=8, order="desc"):
     media_query, _, _ = shared_queries(share)
     media_ids = [r["id"] for r in rows if r["kind"] == "media"]
     event_ids = [r["id"] for r in rows if r["kind"] == "event"]
-    # Read only public columns; do not hydrate child/EXIF/file relationships for cards.
+    # Read card fields without hydrating child/EXIF/file relationships.
     media_map = {
         m.id: m
         for m in db.execute(
@@ -495,6 +535,7 @@ def entries(db, share, day, offset=0, limit=8, order="desc"):
             )
         )
     }
+    child_ages = public_child_ages(db, media_ids)
     event_map = {
         e.id: e
         for e in db.execute(
@@ -504,7 +545,8 @@ def entries(db, share, day, offset=0, limit=8, order="desc"):
     items = []
     for row in rows:
         if row["kind"] == "media":
-            items.append(public_media(media_map[row["id"]]))
+            media_id = row["id"]
+            items.append(public_media(media_map[media_id], child_ages.get(media_id)))
         elif row["kind"] == "event":
             event = event_map[row["id"]]
             items.append(
@@ -623,11 +665,12 @@ def read_folder(
         )
         .offset(offset)
         .limit(40)
-    )
+    ).all()
+    child_ages = public_child_ages(db, [m.id for m in rows])
     return {
         "id": folder.id,
         "name": folder.name,
-        "items": [public_media(m) for m in rows],
+        "items": [public_media(m, child_ages.get(m.id)) for m in rows],
         "total": total,
     }
 

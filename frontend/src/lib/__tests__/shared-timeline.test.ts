@@ -19,12 +19,19 @@ const observers = new Map<Element, (entries: { isIntersecting: boolean }[]) => v
 function intersect(element: Element) {
   observers.get(element)!([{ isIntersecting: true }]);
 }
-const items = Array.from({ length: 12 }, (_, i) => ({
+const items: {
+  id: number;
+  kind: string;
+  media_type: string;
+  title: string;
+  child_ages?: { name: string; age: string }[];
+}[] = Array.from({ length: 12 }, (_, i) => ({
   id: i + 1,
   kind: "media",
   media_type: "photo",
   title: "Memory " + i,
 }));
+const childAges = [{ name: "小禾", age: "出生当天" }, { name: "小满", age: "2 个月" }];
 function response() {
   return {
     dates: ["2024-01-01", "2024-01-02"],
@@ -100,6 +107,23 @@ it("provides a family-sharing title and the site logo for an untitled share", as
   await mount();
   await vi.waitFor(() => expect(document.title).toBe("我们的家庭时光"));
   expect(host.querySelector(".shared-brand img")?.getAttribute("src")).toBe("/share-logo.png");
+});
+it("shows each child's localized age below an untitled shared Live Photo", async () => {
+  const data = response();
+  data.days[0]!.items[0] = {
+    ...items[0]!, title: "", media_type: "live_photo", child_ages: childAges,
+  };
+  vi.mocked(api).mockResolvedValue(data);
+  await mount();
+  const captions = () => [...host.querySelectorAll(".shared-child-ages > span")].map(el => el.textContent?.trim());
+  try {
+    await vi.waitFor(() => expect(captions()).toEqual(["小禾 · 出生当天", "小满 · 2 个月"]));
+    setLocale("en");
+    await nextTick();
+    expect(captions()).toEqual(["小禾 · Day of birth", "小满 · 2mo"]);
+  } finally {
+    setLocale("zh-CN");
+  }
 });
 it("shows the selected person's title and avatar and updates the expiry countdown", async () => {
   const timestamp = Date.now();
@@ -417,9 +441,11 @@ it("automatically appends shared folder contents when its end becomes visible", 
   vi.mocked(api).mockResolvedValueOnce({ id: 90, name: "合成文件夹", items: items.slice(0, 8), total: 12 });
   (host.querySelector(".shared-card") as HTMLButtonElement).click();
   await vi.waitFor(() => expect(document.querySelectorAll(".shared-folder-dialog .shared-card")).toHaveLength(8));
-  vi.mocked(api).mockResolvedValueOnce({ id: 90, name: "合成文件夹", items: items.slice(8), total: 12 });
+  const laterItems = items.slice(8).map(item => ({ ...item, child_ages: childAges }));
+  vi.mocked(api).mockResolvedValueOnce({ id: 90, name: "合成文件夹", items: laterItems, total: 12 });
   intersect(document.querySelector(".shared-folder-dialog .scroll-loader")!);
   await vi.waitFor(() => expect(document.querySelectorAll(".shared-folder-dialog .shared-card")).toHaveLength(12));
+  expect(document.querySelector(".shared-folder-dialog .shared-child-ages")?.textContent).toContain("小禾 · 出生当天");
   expect(api).toHaveBeenLastCalledWith("/public/shares/virtual/folders/90?offset=8&order=desc");
 });
 

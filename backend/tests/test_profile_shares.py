@@ -7,6 +7,8 @@ from app.db import now
 from app.models import TimelineShare
 from conftest import child, upload
 from test_folders import folder
+from test_people import person as create_person
+from test_pets import pet
 from test_shares import share
 
 
@@ -41,6 +43,47 @@ def test_person_selection_intersects_explicit_media_and_validates_profile(contex
     body = context.client.get("/api/public/shares/" + result["token"]).json()
     assert [item["id"] for item in body["days"][0]["items"]] == [chosen]
     assert context.client.post("/api/shares", json={"media_ids": [chosen], "profile_id": 999999999}).status_code == 422
+
+
+def test_public_cards_show_capture_ages_for_tagged_children(context):
+    client = context.client
+    baby = child(context, "大名", "2024-03-31")
+    response = client.put(f"/api/children/{baby['id']}", json={
+        "name": "大名", "nickname": "小禾", "birthday": "2024-03-31",
+    })
+    assert response.status_code == 200, response.text
+    sibling = create_person(context, "小满", "孩子", birthday="2024-01-31")
+    parent = create_person(context, "妈妈", "妈妈", birthday="1990-01-01", growth_enabled=True)
+    hidden_age = create_person(context, "小雨", "孩子", birthday="2024-03-01", growth_enabled=False)
+    no_birthday = create_person(context, "小风", "孩子")
+    animal = pet(context, birthday="2020-01-01")
+    children = [p["id"] for p in (baby, sibling, parent, hidden_age, no_birthday, animal)]
+    album = folder(context)
+    root = upload(context, children, taken="2024-03-30T10:00:00", timeline_date="2024-04-02")["media_id"]
+    edit = client.put(f"/api/media/{root}", json={
+        "corrected_taken_at_local": "2024-03-31T10:00:00", "child_ids": children,
+    })
+    assert edit.status_code == 200, edit.text
+    nested = upload(context, [baby["id"], parent["id"]], folder_id=album["id"])["media_id"]
+    unknown = upload(context, [baby["id"], parent["id"]], taken=None, timeline_date="2024-04-02")["media_id"]
+    date_share = share(context, profile_id=parent["id"])
+    selection = client.post("/api/shares", json={"media_ids": [nested, unknown]}).json()
+    client.cookies.clear()
+
+    base = "/api/public/shares/" + date_share["token"]
+    expected = [{"name": "小禾", "age": "出生当天"}, {"name": "小满", "age": "2 个月"}]
+    for page in (client.get(base).json()["days"][0], client.get(base + "/days/2024-04-02").json()):
+        by_id = {item["id"]: item for item in page["items"]}
+        assert by_id[root] == {
+            "kind": "media", "id": root, "title": "", "media_type": "photo", "child_ages": expected,
+        }
+        assert "child_ages" not in by_id[unknown]
+    folder_items = client.get(f"{base}/folders/{album['id']}").json()["items"]
+    selected_items = client.get("/api/public/shares/" + selection["token"]).json()["days"][0]["items"]
+    assert folder_items[0]["id"] == nested
+    assert selected_items[0] == folder_items[0]
+    assert selected_items[0]["child_ages"] == expected[:1]
+    assert "child_ages" not in selected_items[1]
 
 
 @pytest.mark.parametrize("unavailable", ["revoked", "expired"])

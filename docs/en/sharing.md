@@ -20,6 +20,8 @@ Click **Share timeline**:
 
 Shares update with the timeline and saved permissions, including new content allowed for sharing. To change a link's date range, revoke it and create a new link.
 
+Media cards in both date-range and selected-media shares show each tagged child's display name and age at capture, including on cards inside folders. Ages use the capture date, including any correction. A missing capture date, missing birthday, or disabled growth tracking omits the corresponding age.
+
 Recipients need no account and read a separate, read-only timeline. Each day initially shows eight entries, with more available on demand. Folders and media retain their mixed order. Readers can open folders and diaries, zoom images, and play compressed videos and Live Photos. Undated files are outside date-range shares. The signed-in mobile timeline also folds entries beyond eight per day; selection and sorting modes show all entries for editing.
 
 Both family and shared timelines offer **Newest first / Oldest first**. Newest first is the default; each view remembers its preference in this browser. Dates and capture times follow the selected direction while manual mixed ordering retains priority. Undated family entries stay last. Switching resets pagination so cursors from the previous direction are not reused.
@@ -45,7 +47,7 @@ These 2× lossless PNGs use fictional data only. The creation dialog only asks f
 - Anyone with a link can read it. Share only with trusted recipients. This does not prevent screenshots or saving visible content.
 - Public lists, folder thumbnails, counts, and media URLs enforce scope, content permissions, expiry, revocation, and creator permissions on the server. The server selects the signed object from the authorized media record; client-supplied object paths, other file IDs, or download flags cannot expand access. Share tokens do not authenticate private original-download endpoints.
 - Only compressed thumbnails and previews are served. There is no original-download entry point. Unavailable video previews ask readers to retry; they never fall back to originals.
-- Regular list payloads omit accounts, child profiles, original filenames, GPS, EXIF, and storage details. OSS previews use short-lived signed URLs; recipients can see the domain and object path, with the signature limited to that preview.
+- Media cards may include `child_ages`, with each child's display `name` and capture `age`. Regular list payloads omit accounts, child profile IDs, birthdays, original filenames, GPS, EXIF, and storage details. OSS previews use short-lived signed URLs; recipients can see the domain and object path, with the signature limited to that preview.
 - **Custom titles and diary text are shared content.** Review private writing before sharing. Diaries do not expose original media associations or covers that could reveal excluded files.
 - Expiry and revocation block new API access immediately. Previously issued preview URLs remain valid for at most 60 seconds, never beyond the share's remaining lifetime. Loaded or saved content cannot be recalled.
 - The database stores only SHA-256 digests of random link tokens. Portable backups omit share links. Deactivating a creator or removing their editing role also disables their links. Changing a role revokes existing links. Copying another account’s link preserves its original content ownership scope.
