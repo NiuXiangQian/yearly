@@ -69,6 +69,7 @@ from .services import (
     timeline_time,
 )
 from .age import milestones
+from .media_map import router as media_map_router
 from .visibility import visible_query, visible_row
 from .accounts import require_editable
 from .storage import get_storage, preview_resource
@@ -122,6 +123,7 @@ app.include_router(face_router)
 app.include_router(curation_router)
 app.include_router(interview_router)
 app.include_router(pet_router)
+app.include_router(media_map_router)
 
 
 @app.middleware("http")

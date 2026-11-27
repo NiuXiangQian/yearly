@@ -203,6 +203,7 @@ struct LoginCaptcha: Decodable {
         let revision = cacheRevision
         let cacheKey = "accounts-v2|" + path
         let cacheable = path.range(of: #"^/(timeline|media|events|children|folders|stats|uploaders)([/?]|$)"#, options: .regularExpression) != nil && !path.contains("/url?")
+            && !path.hasPrefix("/media/map")
         let cache = localCache
         if cacheable, !refresh, let scope {
             let cached = await Task.detached(priority: .userInitiated) {

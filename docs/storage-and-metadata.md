@@ -62,6 +62,17 @@ exifr 通过 Blob 的分段读取器读取 JPEG、PNG、WebP、HEIC/HEIF、TIFF/
 
 GPS 纬经度从 EXIF 或 QuickTime ISO6709 获取，海拔从可用字段读取，GPS 时间、方向等保存在 raw JSON。无默认地理编码或第三方位置请求。手工地点和 GPS 修正仅更新数据库，raw JSON 继续保留原值。
 
+## iOS 照片地图
+
+在时间线点「地图」。首次打开按可见影像的经纬度取景。跨国时按国家或地区聚合，跨省时按省、州等一级行政区聚合，拉近后按地理范围聚合。点地图数字或从「地点列表」选择可查看聚合内的影像。点「显示全部」恢复总览。筛选沿用人物、宠物、上传人、类型及归档日期，地图内调整筛选时保留时间线的设置。手机定位权限不参与此流程。
+
+地图读现有媒体记录上的经纬度，手动修改或清除坐标后会重新加载结果。坐标不完整的影像可以从「无坐标」打开，原有地点名称仍会显示。实况照片作为一项。回收站、头像、未完成上传和账号不可见的影像不参与列表、数量或聚合。
+
+iOS 通过 MapKit 加载底图。服务端用随版本部署的 Natural Earth 5.1.2 国家和一级行政区边界进行离线归类。边界经过简化，归属适用于相册浏览。未匹配到行政区的坐标仍显示在地理聚合里。可用原项目的 [Natural Earth 数据与条款](https://www.naturalearthdata.com/about/terms-of-use/)，以版本 [v5.1.2](https://github.com/nvkelso/natural-earth-vector/tree/v5.1.2/geojson) 的 `ne_10m_admin_0_countries.geojson` 与 `ne_10m_admin_1_states_provinces.geojson` 运行 `python3 scripts/build-map-boundaries.py <countries> <regions> backend/app/data/map-boundaries.jsonl.gz` 更新内置数据。部署照片地图时，先部署含数据文件的服务端，再更新 iOS app。
+
+- `GET /api/media/map` 返回聚合层级、点位、数量和取景范围。初始请求覆盖全部匹配影像，带 `south`、`west`、`north`、`east` 时仅查询地图范围。西边界大于东边界表示跨越 180° 经线。
+- `GET /api/media/map/items` 按页返回对应范围、聚合或无坐标列表的影像。聚合选择带 `level`、`group` 和原范围。两个接口共用现有可见性规则与归档日期筛选，`start` 含当天，`end` 为排他上界。
+
 ## 视频解析与时间可信度
 
 有界 ISO-BMFF walker 按 box 范围读取，跳过 mdat，最大深度 12、总 box 数 12,000、单叶最多 1 MiB、元数据总读取 8 MiB。不把数 GB 视频载入内存。支持常见 MOV / MP4 的 mvhd 时长、tkhd 尺寸与旋转、stsd 编码、hdlr 音轨、mdhd/stts 恒定帧率近似及 QuickTime keyed metadata 的日期、位置和标识。

@@ -155,6 +155,7 @@ struct NativeTimelineView: View {
     let appendToDay: (String) -> Void
     @State private var showingFilter = false
     @State private var showingAISearch = false
+    @State private var showingPhotoMap = false
     @State private var shareRequest: NativeShareRequest?
     @State private var selecting = false
     @State private var chosen: [NativeTimelineItem] = []
@@ -719,12 +720,14 @@ struct NativeTimelineView: View {
             HStack(spacing: 8) {
                 searchButton
                 filterButton
+                photoMapButton
                 sortMenu
             }
             VStack(alignment: .leading, spacing: 8) {
                 searchButton
                 HStack(spacing: 8) {
                     filterButton
+                    photoMapButton
                     sortMenu
                 }
             }
@@ -749,6 +752,13 @@ struct NativeTimelineView: View {
         }
         .buttonStyle(NativeActionStyle(kind: filterCount == 0 ? .secondary : .primary, compact: true))
         .accessibilityIdentifier("timeline-filters")
+    }
+
+    private var photoMapButton: some View {
+        Button { showingPhotoMap = true } label: { Label("地图", systemImage: "map") }
+            .buttonStyle(NativeActionStyle(compact: true))
+            .accessibilityLabel("照片地图")
+            .accessibilityIdentifier("timeline-photo-map")
     }
 
     private var sortMenu: some View {
@@ -862,6 +872,16 @@ struct NativeTimelineView: View {
             .alert("一次最多选择 200 项", isPresented: $selectionLimit) { Button("知道了", role: .cancel) { } }
             .nativeSheet(item: $shareRequest) { request in
                 NativeSharingView(session: store.session, day: request.day, selectedItems: request.items)
+            }
+            .fullScreenCover(isPresented: $showingPhotoMap) {
+                NavigationStack {
+                    NativePhotoMap(timeline: store, onMediaChanged: { Task { await store.load(refresh: true) } })
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("关闭") { showingPhotoMap = false }
+                            }
+                        }
+                }
             }
             .nativeSheet(isPresented: $showingFilter) { NativeTimelineFilters(store: store) }
             .fullScreenCover(isPresented: $showingAISearch) {

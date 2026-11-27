@@ -62,6 +62,16 @@ Containers, vendor MakerNotes, and browser export behavior can leave fields miss
 
 Latitude and longitude come from EXIF or QuickTime ISO6709; altitude is read where available. GPS time, direction, and other fields remain in raw JSON. There is no default geocoding or third-party location request. Manual place and GPS corrections change only the database; raw JSON retains the original values.
 
+## iOS photo map
+
+Tap Map on the timeline. The initial camera fits the coordinates of visible media. The map groups wide coverage by country or region, closer coverage by first-level administrative area such as a state or province, and nearby media by geographic proximity. Tap a count or use the place list to open its media. Show All restores the overview. Filters cover people, pets, uploader, media type, and archive dates. Changes on the map preserve the timeline's filter settings. Browsing uses media coordinates and requires no device location permission.
+
+The map reads coordinates saved on the media record and refreshes after that record changes. Media without a complete coordinate pair are available from the No Coordinates list, where saved place names are retained. A Live Photo counts as one item. The list and counts use active, visible family media.
+
+The iOS app loads Apple MapKit. The server classifies points offline using bundled, simplified Natural Earth 5.1.2 country and first-level administrative boundaries. Unmatched coordinates still appear in geographic groups. To refresh the snapshot, run `python3 scripts/build-map-boundaries.py <countries> <regions> backend/app/data/map-boundaries.jsonl.gz` with `ne_10m_admin_0_countries.geojson` and `ne_10m_admin_1_states_provinces.geojson` from [Natural Earth v5.1.2](https://github.com/nvkelso/natural-earth-vector/tree/v5.1.2/geojson). [Natural Earth data terms](https://www.naturalearthdata.com/about/terms-of-use/).
+
+Deploy the server with the data snapshot before updating the iOS app. `GET /api/media/map` returns groups, counts, and camera bounds. Optional `south`, `west`, `north`, and `east` restrict the viewport. A west edge greater than the east edge crosses the 180-degree meridian. `GET /api/media/map/items` pages media in the viewport, the selected group, or the No Coordinates list. Both endpoints share permission and archive-date filters. `start` is inclusive and `end` is exclusive.
+
 ## Video parsing and timestamp confidence
 
 A bounded ISO-BMFF walker reads box ranges and skips `mdat`. Limits are depth 12, 12,000 boxes, 1 MiB per leaf, and 8 MiB of total metadata reads. Multi-gigabyte videos are not loaded entirely into memory. Common MOV / MP4 support includes `mvhd` duration, `tkhd` dimensions and rotation, `stsd` codec, `hdlr` audio tracks, `mdhd/stts` constant-frame-rate approximations, and dates, locations, and identifiers from QuickTime keyed metadata.

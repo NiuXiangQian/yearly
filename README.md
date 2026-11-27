@@ -40,6 +40,8 @@ iPhone 上的 SwiftUI 原生客户端，支持 iOS 16 及以上。用手机珍�
   <a href="docs/images/demo-ios-family.png"><img src="docs/images/demo-ios-family.png" width="250" alt="家人与宠物" /></a>
 </p>
 
+iOS 时间线的「地图」按拍摄坐标浏览照片、实况和视频。可以从国家、省市缩放到拍摄地点，并复用人物和归档日期筛选。 [照片地图说明](docs/storage-and-metadata.md#ios-照片地图)
+
 [时间线原图](docs/images/demo-ios-timeline.png) · [上传原图](docs/images/demo-ios-upload.png) · [家人与宠物原图](docs/images/demo-ios-family.png)
 
 ### 沉浸预览、限时分享、账号管理

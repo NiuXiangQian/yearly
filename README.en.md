@@ -40,6 +40,8 @@ Browse by date and filter by profile, uploader, or media type. Select photos, vi
   <a href="docs/images/demo-ios-family.png"><img src="docs/images/demo-ios-family.png" width="250" alt="People and pets" /></a>
 </p>
 
+The iOS timeline's Map lets you browse photos, Live Photos, and videos by capture location, with country and province groups and the same people and archive-date filters. [Photo map guide](docs/en/storage-and-metadata.md#ios-photo-map)
+
 [Timeline original](docs/images/demo-ios-timeline.png) · [Upload original](docs/images/demo-ios-upload.png) · [Profiles original](docs/images/demo-ios-family.png)
 
 ### Full-screen previews, expiring shares, and accounts
