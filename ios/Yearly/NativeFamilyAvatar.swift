@@ -226,6 +226,7 @@ struct NativeFamilyPhotoSearch: View {
     let select: (Int) -> Void
     @NativeDismiss private var dismiss
     @State private var query = ""
+    @FocusState private var queryFocused: Bool
     @State private var loadedQuery: String?
     @State private var items: [NativeTimelineItem] = []
     @State private var page = 0
@@ -277,19 +278,23 @@ struct NativeFamilyPhotoSearch: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
             .safeAreaInset(edge: .top, spacing: 0) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("搜索照片标题、批次或备注", text: $query)
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(NativeTheme.accent)
+                        .accessibilityHidden(true).padding(.leading, 12)
+                    TextField("搜索照片标题、批次或备注", text: $query, prompt: NativeTheme.inputPrompt("搜索照片标题、批次或备注"))
+                        .textFieldStyle(.plain)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .submitLabel(.search)
+                        .focused($queryFocused).submitLabel(.search)
+                        .padding(.trailing, 8)
                     if !query.isEmpty {
                         Button { query = "" } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                        }.accessibilityLabel("清空头像搜索")
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(NativeTheme.secondaryText)
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityLabel("清空头像搜索")
                     }
                 }
-                .padding(.horizontal, 14).frame(minHeight: 46)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                .frame(minHeight: 48)
+                .nativeInputSurface(focused: queryFocused)
                 .padding(.horizontal).padding(.vertical, 8).background(.bar)
             }
             .task(id: query) { await load(debounce: true) }

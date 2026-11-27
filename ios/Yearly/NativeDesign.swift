@@ -14,8 +14,94 @@ enum NativeTheme {
     static let secondaryText = Color(UIColor { $0.userInterfaceStyle == .dark
         ? UIColor(red: 0.71, green: 0.77, blue: 0.84, alpha: 1)
         : UIColor(red: 0.32, green: 0.39, blue: 0.47, alpha: 1) })
+    static let inputBackground = Color(UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0.09, green: 0.14, blue: 0.20, alpha: 1)
+        : UIColor(red: 0.95, green: 0.97, blue: 0.98, alpha: 1) })
+    static let inputError = Color(UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 1, green: 0.62, blue: 0.60, alpha: 1)
+        : UIColor(red: 0.67, green: 0.17, blue: 0.20, alpha: 1) })
     static let display = Font.system(.largeTitle, design: .serif).weight(.semibold)
     static let line = Color(UIColor.separator).opacity(0.35)
+
+    static func inputPrompt(_ label: String) -> Text {
+        Text(label).foregroundColor(secondaryText)
+    }
+}
+
+struct NativeFormField<Input: View>: View {
+    let title: String
+    var hint: String? = nil
+    var error: String? = nil
+    @ViewBuilder var input: () -> Input
+    @Environment(\.isEnabled) private var enabled
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(enabled ? .primary : .secondary)
+                .accessibilityHidden(true)
+            input()
+                .textFieldStyle(.plain)
+                .font(.body)
+                .foregroundStyle(enabled ? .primary : .secondary)
+                .tint(NativeTheme.accent)
+                .accessibilityLabel(title)
+                .focused($focused)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .frame(minHeight: 48)
+                .background {
+                    Rectangle().fill(.clear)
+                        .contentShape(Rectangle())
+                        .onTapGesture { if enabled { focused = true } }
+                        .accessibilityHidden(true)
+                }
+                .nativeInputSurface(focused: focused, invalid: error != nil)
+            if let error {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(NativeTheme.inputError)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let hint {
+                Text(hint)
+                    .font(.footnote)
+                    .foregroundStyle(NativeTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct NativeInputSurface: ViewModifier {
+    var focused: Bool
+    var invalid: Bool
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var border: Color {
+        if invalid { return NativeTheme.inputError }
+        if focused && enabled { return NativeTheme.accent }
+        return NativeTheme.secondaryText.opacity(contrast == .increased ? 1 : 0.72)
+    }
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12)
+        content
+            .background(NativeTheme.inputBackground.opacity(enabled ? 1 : 0.5), in: shape)
+            .overlay {
+                shape.strokeBorder(border, lineWidth: focused && enabled ? 2 : 1)
+                    .allowsHitTesting(false)
+            }
+    }
+}
+
+extension View {
+    func nativeInputSurface(focused: Bool, invalid: Bool = false) -> some View {
+        modifier(NativeInputSurface(focused: focused, invalid: invalid))
+    }
 }
 
 struct NativeActionStyle: ButtonStyle {

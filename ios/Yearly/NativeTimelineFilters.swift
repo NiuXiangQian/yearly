@@ -11,6 +11,7 @@ struct NativeTimelineFilters: View {
     @State private var start: Date
     @State private var end: Date
     @State private var uploaderSearch = ""
+    @FocusState private var uploaderSearchFocused: Bool
 
     init(store: NativeTimelineStore) {
         self.store = store
@@ -34,7 +35,16 @@ struct NativeTimelineFilters: View {
                     DisclosureGroup {
                         NativeFilterOption(title: "全部上传人", selected: uploaderID == nil) { uploaderID = nil }
                         if store.uploaders.count > 8 {
-                            TextField("搜索上传人", text: $uploaderSearch).autocorrectionDisabled()
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass").foregroundStyle(NativeTheme.accent)
+                                    .accessibilityHidden(true)
+                                TextField("搜索上传人", text: $uploaderSearch, prompt: NativeTheme.inputPrompt("搜索上传人"))
+                                    .textFieldStyle(.plain).autocorrectionDisabled()
+                                    .focused($uploaderSearchFocused).submitLabel(.search)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 48)
+                            .nativeInputSurface(focused: uploaderSearchFocused)
                         }
                         ForEach(store.uploaders.filter {
                             uploaderSearch.isEmpty || $0.displayName.localizedCaseInsensitiveContains(uploaderSearch)

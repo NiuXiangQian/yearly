@@ -440,16 +440,17 @@ private struct NativeFamilyEditor: View {
                          : "关闭后仍可关联和筛选影像。")
                 }
                 Section(pet ? "关于宠物" : "关于家人") {
-                    TextField("性格、爱好，或你想记下的话…", text: $notes, axis: .vertical).lineLimit(4...10)
-                    Text("\(notes.unicodeScalars.count) / 10,000").font(.caption).foregroundStyle(.secondary)
+                    NativeFormField(title: "档案介绍", hint: "\(notes.unicodeScalars.count) / 10,000") {
+                        TextField("", text: $notes, prompt: NativeTheme.inputPrompt("性格、爱好，或你想记下的话…"), axis: .vertical)
+                            .lineLimit(4...10)
+                    }
                 }
                 Section {
                     ColorPicker("时间线标识颜色", selection: Binding(get: { displayColor }, set: {
                         if let hex = ProfileColor.hex($0) { theme = hex }
                     }), supportsOpacity: false)
-                    LabeledContent("显示顺序") {
-                        TextField("0", text: $order).keyboardType(.numbersAndPunctuation)
-                            .multilineTextAlignment(.trailing)
+                    NativeFormField(title: "显示顺序") {
+                        TextField("", text: $order, prompt: NativeTheme.inputPrompt("0")).keyboardType(.numbersAndPunctuation)
                     }
                     Picker("档案状态", selection: $status) {
                         Text("启用").tag("active")
@@ -539,8 +540,8 @@ private struct NativeFamilyEditor: View {
     }
 
     private func field(_ title: String, _ placeholder: String, text: Binding<String>) -> some View {
-        LabeledContent(title) {
-            TextField(placeholder, text: text).multilineTextAlignment(.trailing)
+        NativeFormField(title: title) {
+            TextField("", text: text, prompt: NativeTheme.inputPrompt(placeholder))
         }
     }
 

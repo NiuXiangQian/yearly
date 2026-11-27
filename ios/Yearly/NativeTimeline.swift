@@ -1495,27 +1495,32 @@ private struct NativeAISearch: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                HStack(spacing: 10) {
+                HStack(spacing: 4) {
                     Image(systemName: "magnifyingglass").foregroundStyle(NativeTheme.accent)
-                    TextField("描述画面，找照片和视频", text: $query)
+                        .accessibilityHidden(true).padding(.leading, 12)
+                    TextField("描述画面，找照片和视频", text: $query, prompt: NativeTheme.inputPrompt("描述画面，找照片和视频"))
+                        .textFieldStyle(.plain)
                         .focused($queryFocused).submitLabel(.search)
                         .autocorrectionDisabled().disabled(busy)
                         .onSubmit { performSearch() }
                         .onChange(of: query) { value in if value.count > 200 { query = String(value.prefix(200)) } }
+                        .padding(.horizontal, 4)
                     if !query.isEmpty && !busy && !paging {
                         Button { query = ""; results = nil; failedPage = nil; message = ""; queryFocused = true } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                        }.accessibilityLabel("清空搜索")
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(NativeTheme.secondaryText)
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityLabel("清空搜索")
                     }
                     if !query.isEmpty {
                         Button(action: performSearch) {
                             Image(systemName: "arrow.up.circle.fill").font(.title2)
-                                .foregroundStyle(canSearch ? NativeTheme.accent : Color.secondary)
-                        }.disabled(!canSearch).accessibilityLabel("搜索")
+                                .foregroundStyle(canSearch ? NativeTheme.accent : NativeTheme.secondaryText)
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain).disabled(!canSearch).accessibilityLabel("搜索")
                     }
                 }
-                .padding(.horizontal, 14).frame(minHeight: 50)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                .frame(minHeight: 48)
+                .nativeInputSurface(focused: queryFocused)
                 Button("取消") { searchTask?.cancel(); dismiss() }
                     .font(.subheadline.weight(.medium)).frame(minHeight: 44)
             }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)

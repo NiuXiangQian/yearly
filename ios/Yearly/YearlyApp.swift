@@ -236,6 +236,8 @@ struct NativeAppShell: View {
 struct NativeLoginView: View {
     @ObservedObject var session: NativeSession
     let editSite: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var username: String
     @State private var password = ""
     @State private var answer = ""
@@ -256,12 +258,14 @@ struct NativeLoginView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
-                        Image(decorative: "FamilyAlbumCover")
-                            .resizable()
-                            .scaledToFill()
-                            .frame(height: 132)
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        if verticalSizeClass != .compact {
+                            Image(decorative: "FamilyAlbumCover")
+                                .resizable()
+                                .scaledToFill()
+                                .frame(height: 132)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
                         Text("欢迎回家")
                             .font(NativeTheme.display)
                             .accessibilityAddTraits(.isHeader)
@@ -273,26 +277,18 @@ struct NativeLoginView: View {
                     .listRowBackground(Color.clear)
                 }
                 Section("登录家庭账号") {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("用户名").font(.subheadline)
-                        TextField("家庭账户", text: $username).textContentType(.username)
+                    NativeFormField(title: "用户名") {
+                        TextField("", text: $username, prompt: NativeTheme.inputPrompt("家庭账户")).textContentType(.username)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .accessibilityLabel("用户名")
-                    }.padding(.vertical, 4)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("密码").font(.subheadline)
-                        SecureField("输入密码", text: $password).textContentType(.password)
-                            .accessibilityLabel("密码")
-                    }.padding(.vertical, 4)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("图片验证码").font(.subheadline)
-                        ViewThatFits(in: .horizontal) {
-                            HStack(spacing: 12) { captchaField; captchaControl }
-                            VStack(alignment: .leading, spacing: 8) { captchaField; captchaControl }
-                        }
-                        if !captchaError.isEmpty { Text(captchaError).font(.footnote).foregroundStyle(.red) }
                     }
-                    .padding(.vertical, 4)
+                    NativeFormField(title: "密码") {
+                        SecureField("", text: $password).textContentType(.password)
+                    }
+                    captchaInputs
+                    if !captchaError.isEmpty {
+                        Label(captchaError, systemImage: "exclamationmark.circle")
+                            .font(.footnote).foregroundStyle(NativeTheme.inputError)
+                    }
                     Button {
                         guard let captcha, !loading, !loadingCaptcha else { return }
                         loading = true; message = ""
@@ -328,10 +324,32 @@ struct NativeLoginView: View {
                 .task { await refreshCaptcha() }
         }
     }
+    @ViewBuilder private var captchaInputs: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            stackedCaptchaInputs
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .bottom, spacing: 12) {
+                    captchaField.frame(minWidth: 132)
+                    captchaControl.fixedSize(horizontal: true, vertical: false).padding(.bottom, 6)
+                }
+                stackedCaptchaInputs
+            }
+        }
+    }
+
+    private var stackedCaptchaInputs: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            captchaField
+            captchaControl
+        }
+    }
+
     private var captchaField: some View {
-        TextField("输入验证码", text: $answer)
-            .textInputAutocapitalization(.characters).autocorrectionDisabled()
-            .accessibilityLabel("图片验证码")
+        NativeFormField(title: "图片验证码") {
+            TextField("", text: $answer)
+                .textInputAutocapitalization(.characters).autocorrectionDisabled()
+        }
     }
     private var captchaControl: some View {
         Button { Task { await refreshCaptcha() } } label: {
@@ -379,13 +397,14 @@ struct SiteSettings: View {
                     }.padding(.vertical, 12)
                 }
                 Section {
-                    TextField("https://example.com/yearly/", text: $draft)
-                        .textContentType(.URL).keyboardType(.URL)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .accessibilityLabel("家庭站点 HTTPS 地址")
-                    if !draft.isEmpty && SiteOrigin(draft) == nil {
-                        Text("请输入有效的 HTTPS 站点地址，并去掉查询参数和页面锚点。")
-                            .font(.caption).foregroundStyle(.red)
+                    NativeFormField(
+                        title: "家庭站点 HTTPS 地址",
+                        error: !draft.isEmpty && SiteOrigin(draft) == nil
+                            ? "请输入有效的 HTTPS 站点地址，并去掉查询参数和页面锚点。" : nil
+                    ) {
+                        TextField("", text: $draft, prompt: NativeTheme.inputPrompt("https://example.com/yearly/"))
+                            .textContentType(.URL).keyboardType(.URL)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
                     Button("连接家庭站点") {
                         guard let site = SiteOrigin(draft) else { return }

@@ -232,10 +232,18 @@ struct NativeMediaInfo: View {
                 if item.kind != "event" && editable {
                     if draft != nil {
                         Section("整理回忆") {
-                            TextField("标题", text: field(\.title))
-                            TextField("批次名称", text: field(\.batch_name))
-                            TextField("备注", text: field(\.remark), axis: .vertical).lineLimit(2...6)
-                            TextField("标签（用逗号分隔）", text: $tags)
+                            NativeFormField(title: "标题") {
+                                TextField("", text: field(\.title))
+                            }
+                            NativeFormField(title: "批次名称") {
+                                TextField("", text: field(\.batch_name))
+                            }
+                            NativeFormField(title: "备注") {
+                                TextField("", text: field(\.remark), axis: .vertical).lineLimit(2...6)
+                            }
+                            NativeFormField(title: "标签", hint: "多个标签用逗号分隔。") {
+                                TextField("", text: $tags)
+                            }
                             Toggle("允许分享", isOn: Binding(get: { draft?.share_allowed ?? false }, set: { draft?.share_allowed = $0 }))
                         }
                         Section("时间") {
@@ -247,9 +255,8 @@ struct NativeMediaInfo: View {
                                 DatePicker("当地拍摄时间", selection: $correctionDate)
                                     .environment(\.timeZone, NativeLocalDateTime.zone)
                             }
-                            LabeledContent("时区偏移（分钟）") {
-                                TextField("随原件", text: $utcOffset)
-                                    .keyboardType(.numbersAndPunctuation).multilineTextAlignment(.trailing)
+                            NativeFormField(title: "时区偏移（分钟）") {
+                                TextField("", text: $utcOffset, prompt: NativeTheme.inputPrompt("随原件")).keyboardType(.numbersAndPunctuation)
                             }
                             Menu("选择常用时区", systemImage: "globe") {
                                 Button("沿用原件") { utcOffset = "" }
@@ -258,9 +265,15 @@ struct NativeMediaInfo: View {
                             }
                         }
                         Section("地点") {
-                            TextField("地点名称", text: field(\.location_name))
-                            TextField("纬度", text: $latitude).keyboardType(.numbersAndPunctuation)
-                            TextField("经度", text: $longitude).keyboardType(.numbersAndPunctuation)
+                            NativeFormField(title: "地点名称") {
+                                TextField("", text: field(\.location_name))
+                            }
+                            NativeFormField(title: "纬度") {
+                                TextField("", text: $latitude).keyboardType(.numbersAndPunctuation)
+                            }
+                            NativeFormField(title: "经度") {
+                                TextField("", text: $longitude).keyboardType(.numbersAndPunctuation)
+                            }
                             if !latitude.isEmpty || !longitude.isEmpty {
                                 Button("清除坐标") { latitude = ""; longitude = "" }
                             }

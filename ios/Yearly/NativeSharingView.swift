@@ -78,9 +78,12 @@ struct NativeSharingView: View {
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                     }
-                    TextField("分享标题（可留空）", text: $title)
-                    if title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 120 {
-                        Text("分享标题最多 120 个字符。").font(.caption).foregroundStyle(.red)
+                    NativeFormField(
+                        title: "分享标题",
+                        error: title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 120
+                            ? "分享标题最多 120 个字符。" : nil
+                    ) {
+                        TextField("", text: $title, prompt: NativeTheme.inputPrompt("可留空"))
                     }
                     if !selectionMode {
                         Picker("开始范围", selection: $startMode) {
@@ -114,9 +117,11 @@ struct NativeSharingView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("链接有效期") {
-                    LabeledContent("有效期（小时）") {
-                        TextField("1 至 168", text: $hoursText)
-                            .keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                    NativeFormField(
+                        title: "有效期（小时）",
+                        error: (1...168).contains(hours) ? nil : "有效期须为 1 至 168 的整数小时。"
+                    ) {
+                        TextField("", text: $hoursText, prompt: NativeTheme.inputPrompt("1 至 168")).keyboardType(.numberPad)
                     }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
                         ForEach([1, 24, 72, 168], id: \.self) { value in
@@ -125,9 +130,6 @@ struct NativeSharingView: View {
                                 .accessibilityAddTraits(hours == value ? .isSelected : [])
                         }
                     }.buttonStyle(.borderless)
-                    if !(1...168).contains(hours) {
-                        Text("有效期须为 1 至 168 的整数小时。").font(.footnote).foregroundStyle(.red)
-                    }
                     Text("链接无需登录，仅可查看预览，不能下载原件或编辑。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Button { confirming = true } label: {

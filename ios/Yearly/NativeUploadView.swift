@@ -238,12 +238,12 @@ struct NativeUploadView: View {
 
     private var batchSettings: some View {
         Section {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("批次名称").font(.subheadline)
-                TextField("可留空", text: $batchName).accessibilityLabel("批次名称")
-            }.padding(.vertical, 4)
-            if batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255 {
-                Text("批次名称最多 255 个字符，请缩短后上传。").font(.caption).foregroundStyle(.red)
+            NativeFormField(
+                title: "批次名称",
+                error: batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255
+                    ? "批次名称最多 255 个字符，请缩短后上传。" : nil
+            ) {
+                TextField("", text: $batchName, prompt: NativeTheme.inputPrompt("可留空"))
             }
             Toggle("设置本批归档日期", isOn: $useArchiveDate)
             if useArchiveDate {

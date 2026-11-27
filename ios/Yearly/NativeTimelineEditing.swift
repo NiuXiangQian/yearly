@@ -1,5 +1,13 @@
 import SwiftUI
 
+private func nativeRequiredNameError(_ name: String, label: String) -> String? {
+    if name.unicodeScalars.count > 255 { return "\(label)最多 255 个字符。" }
+    if !name.isEmpty && name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return "请填写\(label)。"
+    }
+    return nil
+}
+
 struct NativeDiaryRequest: Identifiable {
     let id = UUID()
     var day: String?
@@ -54,11 +62,19 @@ struct NativeDiaryEditor: View {
                 if ready {
                     Group {
                     Section("日记内容") {
-                        TextField("标题", text: $title)
-                        Text(title.unicodeScalars.count > 255 ? "日记标题最多 255 个字符。" : "日记标题必填，最多 255 个字符。")
-                            .font(.caption).foregroundStyle(title.unicodeScalars.count > 255 || (!title.isEmpty && title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ? .red : .secondary)
-                        TextField("记录这段回忆", text: $content, axis: .vertical).lineLimit(4...12)
-                        if content.unicodeScalars.count > 50_000 { Text("日记内容最多 50,000 个字符。").font(.caption).foregroundStyle(.red) }
+                        NativeFormField(
+                            title: "标题", hint: "必填，最多 255 个字符。",
+                            error: nativeRequiredNameError(title, label: "日记标题")
+                        ) {
+                            TextField("", text: $title)
+                        }
+                        NativeFormField(
+                            title: "正文",
+                            error: content.unicodeScalars.count > 50_000 ? "日记内容最多 50,000 个字符。" : nil
+                        ) {
+                            TextField("", text: $content, prompt: NativeTheme.inputPrompt("记录这段回忆"), axis: .vertical)
+                                .lineLimit(4...12)
+                        }
                         Toggle("允许分享日记", isOn: $allowed)
                     }
                     Section("时间") {
@@ -290,9 +306,13 @@ private struct NativeFolderEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("文件夹名称", text: $name).disabled(!editable)
-                Text(name.unicodeScalars.count > 255 ? "文件夹名称最多 255 个字符。" : "文件夹名称必填，最多 255 个字符。")
-                    .font(.caption).foregroundStyle(name.unicodeScalars.count > 255 || (!name.isEmpty && name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ? .red : .secondary)
+                NativeFormField(
+                    title: "文件夹名称", hint: "必填，最多 255 个字符。",
+                    error: nativeRequiredNameError(name, label: "文件夹名称")
+                ) {
+                    TextField("", text: $name)
+                }
+                .disabled(!editable)
                 if folder != nil {
                     Toggle("允许分享文件夹及其内容", isOn: $allowed).disabled(!editable)
                     if editable { Button("删除文件夹", role: .destructive) { deleting = true } }
@@ -424,9 +444,12 @@ struct NativeBatchMediaEditor: View {
                 Section("归档与批次") {
                     Toggle("修改批次名称", isOn: $editBatch)
                     if editBatch {
-                        TextField("批次名称（留空可清除）", text: $batch)
-                        Text("批次名称最多 255 个字符，留空可清除。")
-                            .font(.caption).foregroundStyle(batch.unicodeScalars.count > 255 ? .red : .secondary)
+                        NativeFormField(
+                            title: "批次名称", hint: "留空可清除。",
+                            error: batch.unicodeScalars.count > 255 ? "批次名称最多 255 个字符。" : nil
+                        ) {
+                            TextField("", text: $batch)
+                        }
                     }
                     Toggle("修改归档日期", isOn: $editArchive)
                     if editArchive {

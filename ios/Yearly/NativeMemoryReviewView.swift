@@ -412,7 +412,10 @@ private struct NativeOrganizationReviewCard: View {
         ForEach(entry.proposed.tags ?? [], id: \.self) { tag in
             VStack(alignment: .leading, spacing: 6) {
                 Toggle(tag, isOn: Binding(get: { selected.contains(tag) }, set: { if $0 { selected.insert(tag) } else { selected.remove(tag) } })).disabled(busy)
-                TextField("修改标签", text: Binding(get: { labels[tag] ?? tag }, set: { labels[tag] = $0 })).disabled(busy || !selected.contains(tag))
+                NativeFormField(title: "修改标签") {
+                    TextField("", text: Binding(get: { labels[tag] ?? tag }, set: { labels[tag] = $0 }))
+                }
+                .disabled(busy || !selected.contains(tag))
                 if let item = entry.evidence.tags?.first(where: { $0.name == tag }) { Text(item.evidence).font(.caption).foregroundStyle(.secondary) }
             }
         }

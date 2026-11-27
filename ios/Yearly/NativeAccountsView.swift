@@ -95,18 +95,26 @@ private struct NativeAccountEditor: View {
         NavigationStack {
             Form {
                 Section("账户信息") {
-                    TextField("昵称（选填）", text: $nickname).textContentType(.nickname)
-                    Text(nickname.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 80 ? "昵称最多 80 个字符。" : "优先显示昵称，留空则显示用户名。昵称不会更改登录用户名。")
-                        .font(.caption).foregroundStyle(nickname.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 80 ? .red : .secondary)
-                    TextField("用户名", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Text(NativeAccountValidation.username(username) ?? "用户名可使用文字、数字、下划线、点、@ 和短横线。")
-                        .font(.caption)
-                        .foregroundStyle(!username.isEmpty && NativeAccountValidation.username(username) != nil ? .red : .secondary)
-                    SecureField(existing == nil ? "初始密码，至少 12 个字符" : "新密码，留空保持当前密码", text: $password)
-                        .textContentType(.newPassword)
-                    Text(NativeAccountValidation.password(password, optional: existing != nil) ?? (existing == nil ? "密码须为 12 至 256 个字符。" : "新密码须为 12 至 256 个字符；留空保持当前密码。"))
-                        .font(.caption)
-                        .foregroundStyle(!password.isEmpty && NativeAccountValidation.password(password, optional: existing != nil) != nil ? .red : .secondary)
+                    NativeFormField(
+                        title: "昵称", hint: "留空则显示用户名。",
+                        error: nickname.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 80
+                            ? "昵称最多 80 个字符。" : nil
+                    ) {
+                        TextField("", text: $nickname).textContentType(.nickname)
+                    }
+                    NativeFormField(
+                        title: "用户名", hint: "可使用文字、数字、下划线、点、@ 和短横线。",
+                        error: username.isEmpty ? nil : NativeAccountValidation.username(username)
+                    ) {
+                        TextField("", text: $username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    }
+                    NativeFormField(
+                        title: existing == nil ? "初始密码" : "新密码",
+                        hint: existing == nil ? "密码须为 12 至 256 个字符。" : "12 至 256 个字符，留空沿用当前密码。",
+                        error: password.isEmpty ? nil : NativeAccountValidation.password(password)
+                    ) {
+                        SecureField("", text: $password).textContentType(.newPassword)
+                    }
                     Picker("角色", selection: $role) {
                         Text("普通账户").tag("member")
                         Text("管理员").tag("admin")
@@ -162,15 +170,21 @@ struct NativePasswordView: View {
     var body: some View {
         Form {
             Section("修改密码") {
-                SecureField("当前密码", text: $current).textContentType(.password)
-                if current.isEmpty { Text("请输入当前密码以验证身份。").font(.caption).foregroundStyle(.secondary) }
-                SecureField("新密码，至少 12 个字符", text: $new).textContentType(.newPassword)
-                Text(NativeAccountValidation.password(new) ?? "新密码须为 12 至 256 个字符。")
-                    .font(.caption)
-                    .foregroundStyle(!new.isEmpty && NativeAccountValidation.password(new) != nil ? .red : .secondary)
-                SecureField("再次输入新密码", text: $confirmation).textContentType(.newPassword)
-                if confirmation.isEmpty { Text("请再次输入新密码。").font(.caption).foregroundStyle(.secondary) }
-                else if confirmation != new { Text("两次输入的新密码不一致。").font(.caption).foregroundStyle(.red) }
+                NativeFormField(title: "当前密码") {
+                    SecureField("", text: $current).textContentType(.password)
+                }
+                NativeFormField(
+                    title: "新密码", hint: "密码须为 12 至 256 个字符。",
+                    error: new.isEmpty ? nil : NativeAccountValidation.password(new)
+                ) {
+                    SecureField("", text: $new).textContentType(.newPassword)
+                }
+                NativeFormField(
+                    title: "确认新密码",
+                    error: !confirmation.isEmpty && confirmation != new ? "两次输入的新密码不一致。" : nil
+                ) {
+                    SecureField("", text: $confirmation).textContentType(.newPassword)
+                }
                 Button("更新密码并重新登录") {
                     busy = true; error = ""
                     Task {
