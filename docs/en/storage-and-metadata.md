@@ -64,7 +64,7 @@ Latitude and longitude come from EXIF or QuickTime ISO6709; altitude is read whe
 
 ## iOS photo map
 
-Tap Map on the timeline. The initial camera fits the coordinates of visible media. The map groups wide coverage by country or region, closer coverage by first-level administrative area such as a state or province, and nearby media by geographic proximity. Tap a count or use the place list to open its media. Show All restores the overview. Filters cover people, pets, uploader, media type, and archive dates. Changes on the map preserve the timeline's filter settings. Browsing uses media coordinates and requires no device location permission.
+Tap Map on the timeline. The initial camera fits the coordinates of visible media. The map groups wide coverage by country or region, closer coverage by first-level administrative area such as a state or province, and nearby media by geographic proximity. The Places list opens below the map. Tap a row or marker to open its media at the same map scale. Use Zoom In to browse smaller areas, Back to return to the previous area, or Show All to restore the overview. Expand the media grid to browse more items, keep scrolling to load the next page, or swipe through loaded items in the preview. Filters cover people, pets, uploader, media type, and archive dates. Changes on the map preserve the timeline's filter settings. Browsing uses media coordinates and requires no device location permission.
 
 The map reads coordinates saved on the media record and refreshes after that record changes. Media without a complete coordinate pair are available from the No Coordinates list, where saved place names are retained. A Live Photo counts as one item. The list and counts use active, visible family media.
 

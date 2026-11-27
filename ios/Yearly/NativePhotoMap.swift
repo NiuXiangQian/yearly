@@ -40,12 +40,12 @@ private struct NativeMapBounds: Decodable, Hashable {
 
     var longitudeSpan: Double { east >= west ? east - west : east - west + 360 }
 
-    var cameraRegion: MKCoordinateRegion {
+    func cameraRegion(padded: Bool) -> MKCoordinateRegion {
         let latitude = min(85, max(-85, (south + north) / 2))
         return MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: latitude, longitude: Self.longitude(west + longitudeSpan / 2)),
-            span: MKCoordinateSpan(latitudeDelta: min(170, max(0.008, (north - south) * 1.27)),
-                                  longitudeDelta: min(360, max(0.008, longitudeSpan * 1.22)))
+            span: MKCoordinateSpan(latitudeDelta: min(170, max(0.008, (north - south) * (padded ? 1.27 : 1))),
+                                  longitudeDelta: min(360, max(0.008, longitudeSpan * (padded ? 1.22 : 1))))
         )
     }
 
@@ -82,6 +82,7 @@ private struct NativeMapPage: Decodable {
     let items: [NativeTimelineItem]
     let total: Int
     let page: Int
+    let page_size: Int
 }
 
 private struct NativeMapViewport: Hashable {
@@ -97,12 +98,19 @@ private struct NativeMapCamera: Equatable {
     let id = UUID()
     let bounds: NativeMapBounds
     let reportLevel: NativeMapLevel?
+    var padded = true
 }
+
+private enum NativeMapPanel: Hashable { case places, media }
 
 private struct NativeMapSelection {
     let group: NativeMapGroup
     let level: NativeMapLevel
     let viewport: NativeMapViewport?
+
+    var canDrillDown: Bool {
+        level != .local || group.bounds.longitudeSpan >= 0.002 || group.bounds.north - group.bounds.south >= 0.002
+    }
 
     var query: [URLQueryItem] {
         (viewport?.bounds.query ?? []) + [URLQueryItem(name: "level", value: level.rawValue),
@@ -131,6 +139,8 @@ private final class NativeMapResults: ObservableObject {
     private var unlocatedRevision: Int?
     private var galleryRequest: NativeMapRequest?
     private var loadedPage = 0
+    private var pageSize = 30
+    var nextPage: Int? { loadedPage > 0 && loadedPage * pageSize < total ? loadedPage + 1 : nil }
 
     init(session: NativeSession) { self.session = session }
 
@@ -162,10 +172,13 @@ private final class NativeMapResults: ObservableObject {
         loadedMapRequest == request ? summary : nil
     }
 
+    func hasGallery(for request: NativeMapRequest) -> Bool { galleryRequest == request }
+
     func loadGallery(_ request: NativeMapRequest, more: Bool = false, debounce: Bool = false) async {
         if more {
-            guard galleryRequest == request, !galleryLoading, items.count < total else { return }
+            guard galleryRequest == request, !galleryLoading, nextPage != nil else { return }
         } else {
+            if galleryRequest == request, loadedPage > 0, galleryError.isEmpty { return }
             galleryRequest = request
             items = []
             total = 0
@@ -184,8 +197,9 @@ private final class NativeMapResults: ObservableObject {
                 media.kind = "media"
                 return media
             }
-            total = page.total
+            pageSize = page.page_size
             loadedPage = page.page
+            total = page.total
         } catch {
             if galleryRequest == request && !Task.isCancelled { galleryError = friendly(error) }
         }
@@ -204,11 +218,14 @@ struct NativePhotoMap: View {
     @State private var viewport: NativeMapViewport?
     @State private var selectedGroup: NativeMapSelection?
     @State private var camera: NativeMapCamera?
+    @State private var trail: [NativeMapViewport?] = []
+    @State private var panel: NativeMapPanel = .places
     @State private var showingFilter = false
     @State private var showingUnlocated = false
     @State private var expanded = false
     @State private var preview: NativeTimelineItem?
     @State private var revision = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(timeline: NativeTimelineStore, onMediaChanged: @escaping () -> Void) {
         let draft = NativeTimelineStore(session: timeline.session)
@@ -252,9 +269,11 @@ struct NativePhotoMap: View {
         return request("/media/map/items", extra: [scope] + query)
     }
 
+    private var summary: NativeMapSummary? { results.summary(for: summaryRequest) }
+
     private var galleryTitle: String {
-        if showingUnlocated { return "无坐标" }
-        return selectedGroup?.group.title ?? (viewport == nil ? "全部地点" : "当前地图范围")
+        if showingUnlocated { return "无坐标影像" }
+        return selectedGroup?.group.title ?? (viewport == nil ? "全部地图影像" : "当前范围影像")
     }
 
     var body: some View {
@@ -263,12 +282,12 @@ struct NativePhotoMap: View {
             if wide {
                 HStack(spacing: 0) {
                     map.frame(width: geometry.size.width * 0.58)
-                    gallery(alwaysExpanded: true)
+                    browser(wide: true)
                 }
             } else {
                 VStack(spacing: 0) {
-                    map.frame(height: geometry.size.height * (expanded ? 0.42 : 0.57))
-                    gallery(alwaysExpanded: false)
+                    map.frame(height: geometry.size.height * (panel == .media && expanded ? 0.30 : 0.50))
+                    browser(wide: false)
                 }
             }
         }
@@ -279,8 +298,9 @@ struct NativePhotoMap: View {
                 Button {
                     showingFilter = true
                 } label: {
-                    Label("筛选", systemImage: filters.hasFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    Text(filters.hasFilters ? "筛选中" : "筛选")
                 }
+                .accessibilityHint("按人物、归档日期或影像类型筛选")
                 .accessibilityIdentifier("photo-map-filters")
             }
         }
@@ -293,7 +313,8 @@ struct NativePhotoMap: View {
                 camera = NativeMapCamera(bounds: summary.bounds ?? .world, reportLevel: nil)
             }
         }
-        .task(id: galleryRequest) {
+        .task(id: panel == .media ? galleryRequest : nil) {
+            guard panel == .media else { return }
             await results.loadGallery(galleryRequest, debounce: viewport != nil && !showingUnlocated && selectedGroup == nil)
         }
         .onChange(of: filterQuery) { _ in
@@ -302,36 +323,29 @@ struct NativePhotoMap: View {
         }
         .onReceive(results.session.uploadsChanged) { _ in revision += 1 }
         .fullScreenCover(item: $preview) { item in
-            NativeMediaDetail(session: results.session, initial: item, profiles: filters.profiles,
-                              pagePosition: nil, previous: nil, next: nil,
-                              onSaved: refreshAfterEdit, onDeleted: refreshAfterEdit, onLocate: nil)
+            NativeMapMediaPreview(session: results.session, profiles: filters.profiles,
+                                  items: results.items, initial: item, onChanged: refreshAfterEdit)
         }
     }
 
     private var map: some View {
-        let groups = results.summary(for: summaryRequest)?.groups ?? []
-        return NativeMapCanvas(groups: groups, camera: camera, onSelect: selectGroup) { bounds, level in
+        NativeMapCanvas(groups: summary?.groups ?? [], selectedID: selectedGroup?.group.id,
+                        camera: camera, onSelect: selectGroup) { bounds, level in
             let next = NativeMapViewport(bounds: bounds, level: level)
             guard viewport != next else { return }
             viewport = next
-            if level == nil { selectedGroup = nil; showingUnlocated = false }
+            if level == nil && panel == .places { selectedGroup = nil }
         }
         .overlay(alignment: .topTrailing) {
-            VStack(alignment: .trailing, spacing: 8) {
-                if viewport != nil || selectedGroup != nil {
-                    Button("显示全部", action: showOverview).buttonStyle(NativeActionStyle(compact: true))
+            HStack(spacing: 8) {
+                if !trail.isEmpty {
+                    Button("返回上一级", action: goBack)
+                        .buttonStyle(NativeActionStyle(compact: true))
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11))
                 }
-                if !groups.isEmpty {
-                    Menu {
-                        ForEach(groups) { group in
-                            Button(group.accessibilityTitle) { selectGroup(group) }
-                        }
-                    } label: {
-                        Label("地点列表", systemImage: "list.bullet")
-                    }
-                    .buttonStyle(NativeActionStyle(compact: true))
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11))
+                if viewport != nil || !trail.isEmpty {
+                    Button("显示全部", action: showOverview).buttonStyle(NativeActionStyle(compact: true))
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11))
                 }
             }.padding(12)
         }
@@ -351,65 +365,155 @@ struct NativePhotoMap: View {
         }
     }
 
-    private func gallery(alwaysExpanded: Bool) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ViewThatFits(in: .horizontal) {
-                    HStack { galleryHeading; Spacer(minLength: 8); unlocatedButton }
-                    VStack(alignment: .leading) { galleryHeading; unlocatedButton }
+    private func browser(wide: Bool) -> some View {
+        VStack(spacing: 0) {
+            Picker("地图浏览方式", selection: $panel) {
+                Text("地点").tag(NativeMapPanel.places)
+                Text("影像").tag(NativeMapPanel.media)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("photo-map-panel")
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if panel == .places {
+                        places
+                    } else {
+                        gallery(wide: wide)
+                    }
                 }
+                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .id(panel == .places ? "places" : galleryRequest.path)
+        }
+        .background(NativeTheme.surface)
+    }
 
-                if !results.galleryError.isEmpty {
-                    Text(results.galleryError).font(.footnote).foregroundStyle(NativeTheme.secondaryText)
-                    Button("重试影像") {
-                        let more = !results.items.isEmpty
-                        Task { await results.loadGallery(galleryRequest, more: more) }
-                    }.buttonStyle(NativeActionStyle())
-                }
-                if results.items.isEmpty {
-                    if results.galleryLoading {
-                        ProgressView("正在读取影像…")
-                    } else if results.galleryError.isEmpty {
-                        Text(showingUnlocated ? "筛选范围内的影像都有坐标。" :
-                                (viewport == nil ? "筛选范围内没有带坐标的影像。" : "当前地图范围没有影像。"))
-                            .font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
-                    }
-                } else {
-                    let showAll = alwaysExpanded || expanded
-                    let visible = showAll ? results.items : Array(results.items.prefix(3))
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: showAll ? 84 : 76), spacing: 8)], spacing: 12) {
-                        ForEach(visible) { item in mediaTile(item) }
-                    }
-                    if results.total > 3 && !alwaysExpanded {
-                        Button(expanded ? "收起影像" : "查看全部影像") { expanded.toggle() }
-                            .buttonStyle(NativeActionStyle(compact: true))
-                    }
-                    if showAll && results.items.count < results.total {
-                        Button(results.galleryLoading ? "正在加载…" : "加载更多") {
-                            Task { await results.loadGallery(galleryRequest, more: true) }
-                        }.buttonStyle(NativeActionStyle(compact: true)).disabled(results.galleryLoading)
+    @ViewBuilder
+    private var places: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack { placesHeading; Spacer(minLength: 8); unlocatedButton }
+            VStack(alignment: .leading) { placesHeading; unlocatedButton }
+        }
+        if let summary {
+            if summary.groups.isEmpty {
+                Text(viewport == nil ? "筛选范围内没有带坐标的影像。" : "当前地图范围没有影像。")
+                    .font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(summary.groups) { group in
+                        Button { selectGroup(group) } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "mappin.circle").foregroundStyle(NativeTheme.accent)
+                                Text(group.title).font(.body.weight(.medium))
+                                Spacer(minLength: 8)
+                                Text("\(group.count) 项").font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                                Image(systemName: "chevron.right").font(.caption)
+                                    .foregroundStyle(NativeTheme.secondaryText)
+                            }.frame(minHeight: 52).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(group.accessibilityTitle)
+                        .accessibilityIdentifier("photo-map-place-\(group.id)")
+                        Divider()
                     }
                 }
             }
-            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        } else if results.mapError.isEmpty {
+            ProgressView("正在读取地点…")
         }
-        .background(NativeTheme.surface)
+    }
+
+    private var placesHeading: some View {
+        Text(viewport == nil ? "全部地点" : "当前范围地点").font(.headline).accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder
+    private func gallery(wide: Bool) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack { galleryHeading; Spacer(minLength: 8); galleryAction(wide: wide) }
+            VStack(alignment: .leading) { galleryHeading; galleryAction(wide: wide) }
+        }
+        if let selection = selectedGroup, !showingUnlocated {
+            ViewThatFits(in: .horizontal) {
+                HStack { selectionActions(selection) }
+                VStack(alignment: .leading) { selectionActions(selection) }
+            }
+        }
+        if !results.hasGallery(for: galleryRequest) {
+            ProgressView("正在读取影像…")
+        } else {
+            if !results.galleryError.isEmpty {
+                Text(results.galleryError).font(.footnote).foregroundStyle(NativeTheme.secondaryText)
+                Button("重试影像") {
+                    Task { await results.loadGallery(galleryRequest, more: !results.items.isEmpty) }
+                }.buttonStyle(NativeActionStyle(compact: true))
+            }
+            if results.items.isEmpty {
+                if results.galleryLoading {
+                    ProgressView("正在读取影像…")
+                } else if results.galleryError.isEmpty {
+                    Text(showingUnlocated ? "筛选范围内的影像都有坐标。" : "此范围内没有影像。")
+                        .font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                }
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 8)], spacing: 12) {
+                    ForEach(results.items) { item in mediaTile(item) }
+                    if let next = results.nextPage, results.galleryError.isEmpty {
+                        Button(results.galleryLoading ? "正在加载…" : "加载更多") {
+                            Task { await results.loadGallery(galleryRequest, more: true) }
+                        }
+                        .buttonStyle(NativeActionStyle(compact: true)).disabled(results.galleryLoading)
+                        .task(id: next) { await results.loadGallery(galleryRequest, more: true) }
+                    }
+                }
+            }
+        }
     }
 
     private var galleryHeading: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(galleryTitle).font(.headline).accessibilityAddTraits(.isHeader)
-            if !results.galleryLoading || !results.items.isEmpty {
+            if results.hasGallery(for: galleryRequest) && (!results.galleryLoading || !results.items.isEmpty) {
                 Text("\(results.total) 项影像").font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+            } else if let count = selectedGroup?.group.count {
+                Text("\(count) 项影像").font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
             }
         }
     }
 
+    @ViewBuilder
+    private func galleryAction(wide: Bool) -> some View {
+        if showingUnlocated {
+            Button("返回地图影像") { showingUnlocated = false }
+                .buttonStyle(NativeActionStyle(compact: true))
+        } else if !wide {
+            Button(expanded ? "收起影像" : "展开影像") {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { expanded.toggle() }
+            }.buttonStyle(NativeActionStyle(compact: true))
+        }
+    }
+
     private var unlocatedButton: some View {
-        Button(showingUnlocated ? "返回地图影像" : "无坐标 \(results.unlocated)") {
-            showingUnlocated.toggle()
-            if !showingUnlocated { selectedGroup = nil }
-        }.buttonStyle(NativeActionStyle(compact: true))
+        Button("无坐标 \(results.unlocated)") {
+            showingUnlocated = true
+            selectedGroup = nil
+            panel = .media
+        }
+        .buttonStyle(NativeActionStyle(compact: true))
+        .accessibilityIdentifier("photo-map-unlocated")
+    }
+
+    @ViewBuilder
+    private func selectionActions(_ selection: NativeMapSelection) -> some View {
+        if selection.canDrillDown {
+            Button("放大看地点") { drillDown(selection) }
+                .buttonStyle(NativeActionStyle(kind: .primary, compact: true))
+                .accessibilityIdentifier("photo-map-drill-down")
+        }
+        Button("查看当前范围") { selectedGroup = nil }
+            .buttonStyle(NativeActionStyle(kind: .quiet, compact: true))
     }
 
     private func mediaTile(_ item: NativeTimelineItem) -> some View {
@@ -443,26 +547,79 @@ struct NativePhotoMap: View {
     }
 
     private func selectGroup(_ group: NativeMapGroup) {
-        guard let summary = results.summary(for: summaryRequest) else { return }
+        guard let summary else { return }
         showingUnlocated = false
         selectedGroup = NativeMapSelection(group: group, level: summary.level, viewport: viewport)
-        if summary.level == .local && group.bounds.longitudeSpan < 0.002 && group.bounds.north - group.bounds.south < 0.002 {
-            return
+        panel = .media
+    }
+
+    private func drillDown(_ selection: NativeMapSelection) {
+        trail.append(viewport)
+        panel = .places
+        selectedGroup = nil
+        expanded = false
+        camera = NativeMapCamera(bounds: selection.group.bounds, reportLevel: selection.group.next_level)
+    }
+
+    private func goBack() {
+        guard !trail.isEmpty else { return }
+        let prior = trail.removeLast()
+        selectedGroup = nil
+        showingUnlocated = false
+        panel = .places
+        viewport = prior
+        if let prior {
+            camera = NativeMapCamera(bounds: prior.bounds, reportLevel: nil, padded: false)
         }
-        camera = NativeMapCamera(bounds: group.bounds, reportLevel: group.next_level)
     }
 
     private func showOverview() {
+        trail.removeAll()
         selectedGroup = nil
         showingUnlocated = false
+        panel = .places
+        expanded = false
         viewport = nil
         revision += 1
     }
 
     private func refreshAfterEdit() {
-        selectedGroup = nil
         revision += 1
         onMediaChanged()
+    }
+}
+
+private struct NativeMapMediaPreview: View {
+    let session: NativeSession
+    let profiles: [UploadProfile]
+    let items: [NativeTimelineItem]
+    let onChanged: () -> Void
+    @NativeDismiss private var dismiss
+    @State private var index: Int
+
+    init(session: NativeSession, profiles: [UploadProfile], items: [NativeTimelineItem],
+         initial: NativeTimelineItem, onChanged: @escaping () -> Void) {
+        self.session = session
+        self.profiles = profiles
+        self.onChanged = onChanged
+        if let index = items.firstIndex(where: { $0.id == initial.id }) {
+            self.items = items
+            _index = State(initialValue: index)
+        } else {
+            self.items = [initial]
+            _index = State(initialValue: 0)
+        }
+    }
+
+    var body: some View {
+        let item = items[index]
+        let position = NativePreviewPosition(day: item.day, withinDay: "已加载", overall: "\(index + 1) / \(items.count)")
+        NativeMediaDetail(session: session, initial: item, profiles: profiles, pagePosition: position,
+                          previous: index > 0 ? { index -= 1 } : nil,
+                          next: index + 1 < items.count ? { index += 1 } : nil,
+                          onSaved: onChanged, onDeleted: { onChanged(); dismiss() }, onLocate: nil)
+            .id(item.stableID)
+            .preferredColorScheme(.dark)
     }
 }
 
@@ -477,6 +634,7 @@ private final class NativeMapAnnotation: NSObject, MKAnnotation {
 
 private struct NativeMapCanvas: UIViewRepresentable {
     let groups: [NativeMapGroup]
+    let selectedID: String?
     let camera: NativeMapCamera?
     let onSelect: (NativeMapGroup) -> Void
     let onMove: (NativeMapBounds, NativeMapLevel?) -> Void
@@ -498,6 +656,7 @@ private struct NativeMapCanvas: UIViewRepresentable {
         let coordinator = context.coordinator
         coordinator.onSelect = onSelect
         coordinator.onMove = onMove
+        coordinator.updateSelection(selectedID, in: view)
         coordinator.updateGroups(groups, in: view)
         if let camera, coordinator.cameraID != camera.id { coordinator.move(camera, in: view) }
     }
@@ -508,7 +667,19 @@ private struct NativeMapCanvas: UIViewRepresentable {
         var cameraID: UUID?
         private var changingCamera = false
         private var ready = false
+        private var reportedSize: CGSize?
         private var annotations: [String: NativeMapAnnotation] = [:]
+        private var selectedID: String?
+
+        func updateSelection(_ id: String?, in view: MKMapView) {
+            guard selectedID != id else { return }
+            let previous = selectedID
+            selectedID = id
+            for key in [previous, id].compactMap({ $0 }) {
+                guard let annotation = annotations[key], let marker = view.view(for: annotation) as? MKMarkerAnnotationView else { continue }
+                style(marker, for: annotation.group)
+            }
+        }
 
         func updateGroups(_ groups: [NativeMapGroup], in view: MKMapView) {
             let active = Set(groups.map(\.id))
@@ -528,12 +699,13 @@ private struct NativeMapCanvas: UIViewRepresentable {
             changingCamera = true
             DispatchQueue.main.async { [weak self, weak view] in
                 guard let self, let view, self.cameraID == camera.id else { return }
-                view.setRegion(camera.bounds.cameraRegion, animated: false)
+                view.setRegion(camera.bounds.cameraRegion(padded: camera.padded), animated: false)
                 DispatchQueue.main.async { [weak self, weak view] in
                     guard let self, let view, self.cameraID == camera.id else { return }
                     if let level = camera.reportLevel, let bounds = NativeMapBounds(visibleRect: view.visibleMapRect) {
                         self.onMove?(bounds, level)
                     }
+                    self.reportedSize = view.bounds.size
                     self.changingCamera = false
                     self.ready = true
                 }
@@ -541,21 +713,35 @@ private struct NativeMapCanvas: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
-            guard ready, !changingCamera, let bounds = NativeMapBounds(visibleRect: mapView.visibleMapRect) else { return }
+            guard ready, !changingCamera else { return }
+            let size = mapView.bounds.size
+            if reportedSize != size {
+                reportedSize = size
+                return
+            }
+            guard let bounds = NativeMapBounds(visibleRect: mapView.visibleMapRect) else { return }
             onMove?(bounds, nil)
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: any MKAnnotation) -> MKAnnotationView? {
             guard let annotation = annotation as? NativeMapAnnotation,
                   let marker = mapView.dequeueReusableAnnotationView(withIdentifier: "media", for: annotation) as? MKMarkerAnnotationView else { return nil }
-            marker.glyphText = String(annotation.group.count)
+            style(marker, for: annotation.group)
+            return marker
+        }
+
+        private func style(_ marker: MKMarkerAnnotationView, for group: NativeMapGroup) {
+            let isSelected = group.id == selectedID
+            marker.glyphText = isSelected ? nil : String(group.count)
+            marker.glyphImage = isSelected ? UIImage(systemName: "checkmark") : nil
             marker.markerTintColor = UIColor(NativeTheme.accent)
             marker.glyphTintColor = UIColor(NativeTheme.onAccent)
-            marker.titleVisibility = annotation.group.name == nil ? .hidden : .visible
+            marker.titleVisibility = group.name == nil && !isSelected ? .hidden : .visible
             marker.subtitleVisibility = .hidden
+            marker.displayPriority = isSelected ? .required : .defaultHigh
             marker.canShowCallout = false
-            marker.accessibilityLabel = annotation.group.accessibilityTitle
-            return marker
+            marker.accessibilityLabel = group.accessibilityTitle
+            marker.accessibilityTraits = isSelected ? [.button, .selected] : .button
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
