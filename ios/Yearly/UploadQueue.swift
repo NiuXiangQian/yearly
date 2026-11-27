@@ -72,6 +72,14 @@ import Photos
         self.site = session.site
         self.session = session
     }
+
+    func previewFile(for item: UploadItem, role: String = "original") -> URL? {
+        guard let resource = item.resources.first(where: { $0.role == role }),
+              let url = try? store?.file(resource, itemID: item.id),
+              FileManager.default.isReadableFile(atPath: url.path) else { return nil }
+        return url
+    }
+
     private func persist() throws {
         guard let store else { throw UploadFailure(message: "队列存储不可用。") }
         do { try store.save(items) }

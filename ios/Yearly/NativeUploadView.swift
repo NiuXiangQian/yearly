@@ -6,6 +6,7 @@ struct NativeUploadView: View {
     @ObservedObject var queue: UploadQueue
     @ObservedObject var session: NativeSession
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var site: SiteOrigin { session.site }
     let profileRevision: Int
     @Binding var requestedDay: Date?
@@ -34,6 +35,7 @@ struct NativeUploadView: View {
     @State private var showFinished = false
     @State private var showAllPending = false
     @State private var expandedTaskID: UUID?
+    @State private var previewItem: UploadItem?
     @State private var confirmingIDs: Set<UUID> = []
     @State private var cancelling: UploadItem?
     private var chosenNames: String {
@@ -308,35 +310,53 @@ struct NativeUploadView: View {
         let detail = isActive
             ? progress?.fraction?.formatted(.percent.precision(.fractionLength(0)))
             : size.map(bytesLabel)
-        return DisclosureGroup(isExpanded: Binding(
-            get: { expandedTaskID == item.id },
-            set: { expanded in
-                if expanded { expandedTaskID = item.id }
-                else if expandedTaskID == item.id { expandedTaskID = nil }
-            }
-        )) {
-            taskDetails(item, progress: progress)
-        } label: {
+        let expanded = expandedTaskID == item.id
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                AssetThumbnail(identifier: item.assetIdentifier, mediaType: item.mediaType)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
-                    Text(detail.map { "\(status) · \($0)" } ?? status)
-                        .font(.caption)
-                        .foregroundStyle(NativeTheme.secondaryText)
+                Button { previewItem = item } label: {
+                    UploadTaskThumbnail(item: item, queue: queue, session: session)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                if !item.warning.isEmpty {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 14))
-                        .foregroundStyle(NativeTheme.secondaryText)
-                        .accessibilityLabel("有原件说明")
+                .buttonStyle(.plain)
+                .accessibilityLabel("预览 \(item.name)")
+                Button {
+                    withAnimation(reduceMotion ? nil : NativeMotion.spring) {
+                        expandedTaskID = expanded ? nil : item.id
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.name)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                            Text(detail.map { "\(status) · \($0)" } ?? status)
+                                .font(.caption)
+                                .foregroundStyle(NativeTheme.secondaryText)
+                        }
+                        if !item.warning.isEmpty {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 14))
+                                .foregroundStyle(NativeTheme.secondaryText)
+                                .accessibilityLabel("有原件说明")
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.subheadline.weight(.semibold))
+                            .accessibilityHidden(true)
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityValue(expanded ? "已展开" : "已收起")
+                .accessibilityHint(expanded ? "收起任务详情" : "展开任务详情")
             }
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
+            if expanded {
+                Divider()
+                taskDetails(item, progress: progress)
+                    .padding(.leading, 52)
+            }
         }
         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
     }
@@ -453,6 +473,9 @@ struct NativeUploadView: View {
                 }
             }
             .refreshable { await loadAccount() }
+            .nativeSheet(item: $previewItem) { item in
+                UploadTaskPreview(item: items.first { $0.id == item.id } ?? item, queue: queue, session: session)
+            }
             .nativeSheet(isPresented: $showingPeople, onDismiss: {
                 choosingPeopleForUpload = false
                 if confirmingAfterPeople {
@@ -636,43 +659,6 @@ private struct NativePhotoPicker: UIViewControllerRepresentable {
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             let identifiers = results.compactMap(\.assetIdentifier)
             onFinish(identifiers, results.count - identifiers.count)
-        }
-    }
-}
-
-private struct AssetThumbnail: View {
-    let identifier: String
-    let mediaType: String
-    private let side: CGFloat = 36
-    @Environment(\.displayScale) private var displayScale
-    @State private var image: UIImage?
-    @State private var requestID: PHImageRequestID?
-    var body: some View {
-        Group {
-            if let image { Image(uiImage: image).resizable().scaledToFill() }
-            else {
-                Image(systemName: mediaType == "video" ? "video" : mediaType == "live_photo" ? "livephoto" : "photo")
-                    .font(.system(size: 16))
-                    .foregroundStyle(NativeTheme.secondaryText)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(.secondarySystemBackground))
-            }
-        }
-        .frame(width: side, height: side).clipShape(RoundedRectangle(cornerRadius: 6))
-        .onAppear {
-            let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-            guard access == .authorized || access == .limited,
-                  let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject else { return }
-            let options = PHImageRequestOptions()
-            options.isNetworkAccessAllowed = false
-            let pixels = side * displayScale
-            requestID = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: pixels, height: pixels), contentMode: .aspectFill, options: options) { value, _ in
-                Task { @MainActor in image = value }
-            }
-        }
-        .onDisappear {
-            if let requestID { PHImageManager.default().cancelImageRequest(requestID) }
-            image = nil
         }
     }
 }
