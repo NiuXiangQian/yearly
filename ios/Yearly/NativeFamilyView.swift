@@ -25,9 +25,7 @@ struct NativeFamilyView: View {
     let showTimeline: (UploadProfile) -> Void
     let onProfileUpdated: () -> Void
     @Environment(\.dynamicTypeSize) private var textSize
-    @State private var editing: UploadProfile?
     @State private var auditing: UploadProfile?
-    @State private var savedProfileID: Int?
 
     private var columns: [GridItem] {
         textSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 144), spacing: 16)]
@@ -67,13 +65,16 @@ struct NativeFamilyView: View {
             .navigationTitle("家人与宠物")
             .navigationDestination(for: Int.self) { profileID in
                 if let profile = store.profiles.first(where: { $0.id == profileID }) {
-                    NativeFamilyDetail(profile: profile, session: store.session, saved: savedProfileID == profile.id) {
+                    NativeFamilyDetail(profile: profile, session: store.session) {
                         showTimeline(profile)
-                    } edit: {
-                        savedProfileID = nil
-                        editing = profile
                     } audit: {
                         auditing = profile
+                    } onSaved: { updated in
+                        if let index = store.profiles.firstIndex(where: { $0.id == updated.id }) {
+                            store.profiles[index] = updated
+                            store.profiles.sort { ($0.sort_order ?? 0, $0.id) < ($1.sort_order ?? 0, $1.id) }
+                        }
+                        onProfileUpdated()
                     }
                 } else {
                     Text("此档案已不可用。").foregroundStyle(NativeTheme.secondaryText)
@@ -86,16 +87,6 @@ struct NativeFamilyView: View {
                 NavigationStack {
                     NativeAuditView(session: store.session, resourceType: "child", resourceID: String(profile.id))
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { auditing = nil } } }
-                }
-            }
-            .nativeSheet(item: $editing) { profile in
-                NativeFamilyEditor(session: store.session, profile: profile) { updated in
-                    if let index = store.profiles.firstIndex(where: { $0.id == updated.id }) {
-                        store.profiles[index] = updated
-                        store.profiles.sort { ($0.sort_order ?? 0, $0.id) < ($1.sort_order ?? 0, $1.id) }
-                    }
-                    savedProfileID = updated.id
-                    onProfileUpdated()
                 }
             }
         }
@@ -139,12 +130,13 @@ struct NativeFamilyView: View {
 private struct NativeFamilyDetail: View {
     let profile: UploadProfile
     @ObservedObject var session: NativeSession
-    let saved: Bool
     let showTimeline: () -> Void
-    let edit: () -> Void
     let audit: () -> Void
+    let onSaved: (UploadProfile) -> Void
     @Environment(\.dynamicTypeSize) private var textSize
     @State private var showingPortrait = false
+    @State private var editing: UploadProfile?
+    @State private var saved = false
 
     private var facts: [(title: String, value: String)] {
         let values: [(String, String?)] = [
@@ -165,11 +157,7 @@ private struct NativeFamilyDetail: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 header
-                Button(action: showTimeline) {
-                    Label("查看时间线", systemImage: "photo.on.rectangle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(NativeActionStyle(kind: .primary))
+                actions
 
                 if saved {
                     Label("资料已保存", systemImage: "checkmark.circle")
@@ -211,22 +199,47 @@ private struct NativeFamilyDetail: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    if profile.editable(by: session.account) {
-                        Button("编辑资料", systemImage: "square.and.pencil", action: edit)
-                    }
-                    Button("修改记录", systemImage: "clock.arrow.circlepath", action: audit)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                Button(action: audit) {
+                    Image(systemName: "clock.arrow.circlepath")
                         .frame(minWidth: 44, minHeight: 44)
                 }
-                .accessibilityLabel("档案操作")
+                .accessibilityLabel("修改记录")
             }
         }
         .fullScreenCover(isPresented: $showingPortrait) {
             if let mediaID = profile.avatar_media_id {
                 NativeFamilyAvatarViewer(session: session, mediaID: mediaID, name: profile.displayName)
             }
+        }
+        .sheet(item: $editing) { editingProfile in
+            NativeFamilyEditor(session: session, profile: editingProfile) { updated in
+                saved = true
+                onSaved(updated)
+            }
+            .tint(NativeTheme.accent)
+        }
+    }
+
+    private var actions: some View {
+        let layout = textSize >= .xxxLarge
+            ? AnyLayout(VStackLayout(spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+            if profile.editable(by: session.account) {
+                Button {
+                    saved = false
+                    editing = profile
+                } label: {
+                    Label("编辑资料", systemImage: "square.and.pencil")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(NativeActionStyle())
+            }
+            Button(action: showTimeline) {
+                Label("查看时间线", systemImage: "photo.on.rectangle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(NativeActionStyle(kind: .primary))
         }
     }
 
@@ -300,7 +313,7 @@ private struct NativeFamilyEditor: View {
     @ObservedObject var session: NativeSession
     let profile: UploadProfile
     let onSaved: (UploadProfile) -> Void
-    @NativeDismiss private var dismiss
+    @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var nickname: String
     @State private var type: String
@@ -348,8 +361,9 @@ private struct NativeFamilyEditor: View {
         _breed = State(initialValue: profile.breed ?? "")
         _gender = State(initialValue: profile.gender ?? "")
         _customGender = State(initialValue: !Self.genders.contains(profile.gender ?? ""))
-        _birthday = State(initialValue: profile.birthday.flatMap(NativeDay.date) ?? .now)
-        _hasBirthday = State(initialValue: profile.birthday.flatMap(NativeDay.date) != nil)
+        let date = profile.birthday.flatMap(NativeDay.date)
+        _birthday = State(initialValue: date ?? .now)
+        _hasBirthday = State(initialValue: date != nil)
         let clock = Self.clock(profile.birth_time)
         _birthTime = State(initialValue: clock ?? NativeLocalDateTime.date("2000-01-01T12:00:00")!)
         _birthSecond = State(initialValue: clock.flatMap { Int(NativeLocalDateTime.string($0).suffix(2)) } ?? 0)
@@ -463,7 +477,6 @@ private struct NativeFamilyEditor: View {
             }
             .disabled(saving || preparingAvatar)
             .scrollDismissesKeyboard(.interactively)
-            .nativeInteractiveDismissDisabled(saving)
             .scrollContentBackground(.hidden).background(NativeTheme.background)
             .navigationTitle("编辑家人资料")
             .navigationBarTitleDisplayMode(.inline)
@@ -497,6 +510,7 @@ private struct NativeFamilyEditor: View {
                 Button("知道了", role: .cancel) { error = "" }
             } message: { Text(error) }
         }
+        .interactiveDismissDisabled(saving)
     }
 
     private var avatarSection: some View {
