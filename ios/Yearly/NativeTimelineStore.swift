@@ -77,8 +77,7 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var media_position: NativeMediaPosition?
     var stableID: String { "\(kind ?? "media")-\(id)" }
     var label: String { [title, batch_name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "珍藏的瞬间" }
-    var childPhotoAgeCaption: String {
-        guard media_type == "photo" || media_type == "live_photo" else { return "" }
+    var childAgeCaption: String {
         return (children ?? []).compactMap { child in
             let isChild = child.profile_type == "child" ||
                 (child.profile_type == "person" && child.relationship == "孩子")

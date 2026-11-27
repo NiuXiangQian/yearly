@@ -498,7 +498,7 @@ struct NativeTimelineView: View {
                             }
                         }
                         if item.kind == "media" {
-                            let ageCaption = item.childPhotoAgeCaption
+                            let ageCaption = item.childAgeCaption
                             if !ageCaption.isEmpty {
                                 Text(verbatim: ageCaption)
                                     .font(.caption).foregroundStyle(NativeTheme.secondaryText)
