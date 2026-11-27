@@ -35,7 +35,7 @@
 
 
 /* Begin PBXBuildFile section */
-		B00000000000000000000037 /* NativePhotoMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000037 /* NativePhotoMap.swift */; };
+		FB2D1427BCC340CC86179BD6 /* NativePhotoMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9150787B56D54EF8AE7A1850 /* NativePhotoMap.swift */; };
 		B00000000000000000000036 /* NativeMemoryReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* NativeMemoryReviewView.swift */; };
 		B00000000000000000000035 /* NativeMemoryReviewStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000035 /* NativeMemoryReviewStore.swift */; };
         D10000000000000000000001 /* SharedLivePhoto.m in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000003; };
@@ -113,7 +113,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		A00000000000000000000037 /* NativePhotoMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePhotoMap.swift; sourceTree = "<group>"; };
+		9150787B56D54EF8AE7A1850 /* NativePhotoMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePhotoMap.swift; sourceTree = "<group>"; };
 		A00000000000000000000036 /* NativeMemoryReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMemoryReviewView.swift; sourceTree = "<group>"; };
 		A00000000000000000000035 /* NativeMemoryReviewStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMemoryReviewStore.swift; sourceTree = "<group>"; };
         D10000000000000000000003 /* SharedLivePhoto.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SharedLivePhoto.m; sourceTree = "<group>"; };
@@ -202,7 +202,7 @@
 				A00000000000000000000032 /* ShareDestinationStore.swift */,
 				A00000000000000000000033 /* SharedPhotoImport.swift */,
 				A00000000000000000000022 /* NativeTimelineFilters.swift */,
-				A00000000000000000000037 /* NativePhotoMap.swift */,
+				9150787B56D54EF8AE7A1850 /* NativePhotoMap.swift */,
 				A00000000000000000000031 /* NativeMotion.swift */,
 				A00000000000000000000036 /* NativeMemoryReviewView.swift */,
 				A00000000000000000000035 /* NativeMemoryReviewStore.swift */,
@@ -363,7 +363,7 @@
 				B00000000000000000000032 /* ShareDestinationStore.swift in Sources */,
 				B00000000000000000000033 /* SharedPhotoImport.swift in Sources */,
 				B00000000000000000000022 /* NativeTimelineFilters.swift in Sources */,
-				B00000000000000000000037 /* NativePhotoMap.swift in Sources */,
+				FB2D1427BCC340CC86179BD6 /* NativePhotoMap.swift in Sources */,
 				B00000000000000000000031 /* NativeMotion.swift in Sources */,
 				B00000000000000000000036 /* NativeMemoryReviewView.swift in Sources */,
 				B00000000000000000000035 /* NativeMemoryReviewStore.swift in Sources */,
