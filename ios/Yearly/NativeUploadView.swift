@@ -5,6 +5,7 @@ struct NativeUploadView: View {
     enum Destination { case timeline, recentUploads, batch([Int]) }
     @ObservedObject var queue: UploadQueue
     @ObservedObject var session: NativeSession
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var site: SiteOrigin { session.site }
     let profileRevision: Int
     @Binding var requestedDay: Date?
@@ -32,6 +33,7 @@ struct NativeUploadView: View {
     @State private var profileSearch = ""
     @State private var showFinished = false
     @State private var showAllPending = false
+    @State private var expandedTaskID: UUID?
     @State private var confirmingIDs: Set<UUID> = []
     @State private var cancelling: UploadItem?
     private var chosenNames: String {
@@ -48,10 +50,10 @@ struct NativeUploadView: View {
     private var failedCount: Int { items.filter { $0.phase == .failed }.count }
     private var canPause: Bool { items.contains { $0.phase.canPause } }
     private var hasPaused: Bool { items.contains { $0.phase == .paused } }
-    private var visibleItems: [UploadItem] {
+    private var pendingPreview: [UploadItem] {
         let active = pending.filter { [.preparing, .uploading].contains($0.phase) }
         let waiting = pending.filter { ![.preparing, .uploading].contains($0.phase) }
-        return (showAllPending ? pending : active + Array(waiting.prefix(3))) + (showFinished ? finished : [])
+        return active + Array(waiting.prefix(3))
     }
     private var preparing: [UploadItem] { items.filter { [.selected, .preparing].contains($0.phase) } }
     private var readyItems: [UploadItem] { items.filter { $0.phase == .ready } }
@@ -287,6 +289,105 @@ struct NativeUploadView: View {
         }
     }
 
+    private func taskProgress(_ item: UploadItem) -> ByteProgress? {
+        if item.phase == .preparing {
+            let sample = queue.preparation
+            let bytesRead = sample?.itemID == item.id ? sample?.bytesRead ?? 0 : 0
+            return ByteProgress(processed: bytesRead, total: item.sourceByteCount)
+        }
+        guard item.confirmed, !item.duplicate, item.phase != .cancelled, item.size > 0 else { return nil }
+        return ByteProgress(processed: bytesSent(item), total: item.size)
+    }
+
+    private func taskRow(_ item: UploadItem) -> some View {
+        let size = item.resources.isEmpty ? item.sourceByteCount : item.size
+        let progress = taskProgress(item)
+        let isActive = item.phase == .preparing || item.phase == .uploading
+        let isExcluded = item.phase == .ready && excluded.contains(item.id)
+        let status = isExcluded ? "不在本批上传" : item.phase.label
+        let detail = isActive
+            ? progress?.fraction?.formatted(.percent.precision(.fractionLength(0)))
+            : size.map(bytesLabel)
+        return DisclosureGroup(isExpanded: Binding(
+            get: { expandedTaskID == item.id },
+            set: { expanded in
+                if expanded { expandedTaskID = item.id }
+                else if expandedTaskID == item.id { expandedTaskID = nil }
+            }
+        )) {
+            taskDetails(item, progress: progress)
+        } label: {
+            HStack(spacing: 8) {
+                AssetThumbnail(identifier: item.assetIdentifier, mediaType: item.mediaType)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.name)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                    Text(detail.map { "\(status) · \($0)" } ?? status)
+                        .font(.caption)
+                        .foregroundStyle(NativeTheme.secondaryText)
+                }
+                if !item.warning.isEmpty {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(NativeTheme.secondaryText)
+                        .accessibilityLabel("有原件说明")
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+    }
+
+    @ViewBuilder private func taskDetails(_ item: UploadItem, progress: ByteProgress?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(item.name).font(.subheadline.weight(.semibold))
+            if item.mediaType == "live_photo" {
+                Label("实况照片", systemImage: "livephoto").font(.caption)
+            } else if item.mediaType == "video" {
+                Label("视频", systemImage: "video").font(.caption)
+            }
+            let size = item.resources.isEmpty ? item.sourceByteCount : item.size
+            Text(size.map(bytesLabel) ?? "大小：待读取").font(.caption)
+            Text("拍摄：\(item.captureDate ?? "未知")").font(.caption)
+            if let day = item.albumArchiveDay() {
+                Text("相册日期：\(day)").font(.caption).foregroundStyle(.secondary)
+            }
+            if !item.warning.isEmpty { Text(item.warning).font(.caption).foregroundStyle(.orange) }
+            if let progress {
+                if let fraction = progress.fraction { ProgressView(value: fraction) }
+                else { ProgressView() }
+                Text(item.phase == .preparing ? "已读取 \(progressLabel(progress))" : "已上传 \(progressLabel(progress))")
+                    .font(.caption)
+            }
+            if !item.message.isEmpty {
+                Text(item.message).font(.caption).foregroundStyle(item.phase == .failed ? .red : .secondary)
+            }
+            if item.phase == .ready {
+                Toggle("选择此项上传", isOn: Binding(
+                    get: { !excluded.contains(item.id) },
+                    set: { if $0 { excluded.remove(item.id) } else { excluded.insert(item.id) } }
+                ))
+                .frame(minHeight: 44)
+            }
+            if !item.isTerminal {
+                HStack {
+                    if [.paused, .failed].contains(item.phase) {
+                        Button(item.phase == .failed ? "重试" : "继续") { queue.resume(item.id) }.disabled(account == nil)
+                    } else if item.phase != .ready {
+                        Button("暂停") { queue.pause(item.id) }
+                    }
+                    Spacer(minLength: 8)
+                    Button("取消", role: .destructive) { cancelling = item }
+                }
+                .buttonStyle(NativeActionStyle(compact: true))
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -294,6 +395,8 @@ struct NativeUploadView: View {
                 batchSettings
                 transferStatus
                 if !items.isEmpty {
+                    let preview = pendingPreview
+                    let visibleItems = (showAllPending ? pending : preview) + (showFinished ? finished : [])
                     Section {
                         Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .skipped }.count) 重复已跳过 · \(failedCount) 失败 · \(items.count) 项")
                         Text("照片 \(items.filter { $0.mediaType == "photo" }.count) · Live Photo \(items.filter { $0.mediaType == "live_photo" }.count) · 视频 \(items.filter { $0.mediaType == "video" }.count)")
@@ -305,59 +408,16 @@ struct NativeUploadView: View {
                                 if hasPaused { Button("继续暂停任务") { queue.resumeAll() }.disabled(account == nil) }
                             }.buttonStyle(NativeActionStyle(compact: true))
                         }
-                        if pending.count > 3 {
+                        if preview.count < pending.count {
                             Button(showAllPending ? "收起任务列表" : "展开全部 \(pending.count) 项任务") { showAllPending.toggle() }
                         }
                         if !finished.isEmpty { Toggle("显示已结束记录（\(finished.count) 项）", isOn: $showFinished) }
                         Text("系统允许时可在后台继续上传；暂停后可从已完成的分片继续。")
                             .font(.caption).foregroundStyle(.secondary)
+                        ForEach(visibleItems) { item in
+                            taskRow(item)
+                        }
                     } header: { Text("任务列表") }
-                }
-                ForEach(visibleItems) { item in
-                    Section {
-                        HStack(alignment: .top, spacing: 12) {
-                            AssetThumbnail(identifier: item.assetIdentifier)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(item.name).font(.subheadline.bold()).lineLimit(2)
-                                if item.mediaType == "live_photo" { Label("实况照片", systemImage: "livephoto").font(.caption) }
-                                let size = item.resources.isEmpty ? item.sourceByteCount : item.size
-                                Text(size.map(bytesLabel) ?? "大小：待读取").font(.caption)
-                                Text("拍摄：\(item.captureDate ?? "未知")").font(.caption)
-                                if let day = item.albumArchiveDay() {
-                                    Text("相册日期：\(day)")
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        if item.phase == .ready {
-                            Toggle("选择此项上传", isOn: Binding(get: { !excluded.contains(item.id) }, set: { if $0 { excluded.remove(item.id) } else { excluded.insert(item.id) } }))
-                        }
-                        if !item.warning.isEmpty { Text(item.warning).font(.caption).foregroundStyle(.orange) }
-                        Text(item.phase.label).font(.caption.bold())
-                        if item.phase == .preparing {
-                            let progress = ByteProgress(processed: preparation?.bytesRead ?? 0, total: item.sourceByteCount)
-                            if let fraction = progress.fraction { ProgressView(value: fraction) }
-                            else { ProgressView() }
-                            Text("已读取 \(progressLabel(progress))").font(.caption)
-                        }
-                        if item.confirmed && !item.duplicate && item.phase != .cancelled && item.size > 0 {
-                            let progress = ByteProgress(processed: bytesSent(item), total: item.size)
-                            ProgressView(value: progress.fraction ?? 0)
-                            Text("已上传 \(progressLabel(progress))").font(.caption)
-                        }
-                        if !item.message.isEmpty { Text(item.message).font(.caption).foregroundStyle(item.phase == .failed ? .red : .secondary) }
-                        if !item.isTerminal {
-                            HStack {
-                                if [.paused, .failed].contains(item.phase) {
-                                    Button(item.phase == .failed ? "重试" : "继续") { queue.resume(item.id) }.disabled(account == nil)
-                                } else if item.phase != .ready {
-                                    Button("暂停") { queue.pause(item.id) }
-                                }
-                                Spacer()
-                                Button("取消", role: .destructive) { cancelling = item }
-                            }.buttonStyle(NativeActionStyle(compact: true))
-                        }
-                    }
                 }
                 Section {
                     Button("查看家庭时间线") { onTimeline(.timeline) }
@@ -582,19 +642,31 @@ private struct NativePhotoPicker: UIViewControllerRepresentable {
 
 private struct AssetThumbnail: View {
     let identifier: String
+    let mediaType: String
+    private let side: CGFloat = 36
+    @Environment(\.displayScale) private var displayScale
     @State private var image: UIImage?
     @State private var requestID: PHImageRequestID?
     var body: some View {
         Group {
             if let image { Image(uiImage: image).resizable().scaledToFill() }
-            else { Image(systemName: "photo").frame(maxWidth: .infinity, maxHeight: .infinity).background(Color(.secondarySystemBackground)) }
+            else {
+                Image(systemName: mediaType == "video" ? "video" : mediaType == "live_photo" ? "livephoto" : "photo")
+                    .font(.system(size: 16))
+                    .foregroundStyle(NativeTheme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(.secondarySystemBackground))
+            }
         }
-        .frame(width: 64, height: 64).clipped().cornerRadius(8)
+        .frame(width: side, height: side).clipShape(RoundedRectangle(cornerRadius: 6))
         .onAppear {
-            guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject else { return }
+            let access = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            guard access == .authorized || access == .limited,
+                  let asset = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject else { return }
             let options = PHImageRequestOptions()
             options.isNetworkAccessAllowed = false
-            requestID = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: 128, height: 128), contentMode: .aspectFill, options: options) { value, _ in
+            let pixels = side * displayScale
+            requestID = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: pixels, height: pixels), contentMode: .aspectFill, options: options) { value, _ in
                 Task { @MainActor in image = value }
             }
         }
