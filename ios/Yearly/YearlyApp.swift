@@ -2,13 +2,45 @@ import SwiftUI
 
 @main
 struct YearlyApp: App {
+    @UIApplicationDelegateAdaptor(YearlyAppDelegate.self) private var appDelegate
     var body: some Scene { WindowGroup { YearlyRootView() } }
+}
+
+final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        _ = BackgroundUploadTransport.shared // Reconnect the stable daemon session on every launch.
+        return true
+    }
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard identifier == BackgroundUploadTransport.identifier else { completionHandler(); return }
+        BackgroundUploadTransport.shared.handleEvents(completion: completionHandler)
+    }
+}
+
+@MainActor final class IOSUploadBackgroundExecution: UploadBackgroundExecution {
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+    func begin(expiration: @escaping @MainActor () -> Void) {
+        guard identifier == .invalid else { return }
+        identifier = UIApplication.shared.beginBackgroundTask(withName: "保存上传进度与准备下一分片") { [weak self] in
+            MainActor.assumeIsolated {
+                self?.end()
+                expiration()
+            }
+        }
+        if identifier == .invalid { expiration() }
+    }
+    func end() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
+    }
 }
 
 struct YearlyRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("yearlySite") private var address = AppConfiguration.defaultSite
-    @StateObject private var uploads = UploadQueue()
+    @StateObject private var uploads = UploadQueue(backgroundExecution: IOSUploadBackgroundExecution())
     @State private var editingSite = false
     @State private var shareSetupError = ""
     var body: some View {

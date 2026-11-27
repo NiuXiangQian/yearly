@@ -223,7 +223,7 @@ iPhone（iOS 16+）原生客户端与网页使用同一套后端和家庭账户�
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build
 ```
 
-当前提供源码与自行构建安装方式，未提供 App Store / TestFlight 下载入口。上传进入后台会暂停，返回前台或下次打开后可以继续；具体限制、安装续签和真实验收范围见 [iOS 指南](ios/README.md)。
+当前提供源码与自行构建安装方式，未提供 App Store / TestFlight 下载入口。主 App 切到后台后由 iOS 接续传输分片。后台调度限制、安装续签和真机验收范围见 [iOS 指南](ios/README.md)。
 
 ## Android App
 

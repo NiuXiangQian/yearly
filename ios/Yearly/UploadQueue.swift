@@ -1,8 +1,9 @@
 import SwiftUI
 import Photos
-#if YEARLY_HOST_APP
-import BackgroundTasks
-#endif
+@MainActor protocol UploadBackgroundExecution: AnyObject {
+    func begin(expiration: @escaping @MainActor () -> Void)
+    func end()
+}
 
 @MainActor final class UploadQueue: ObservableObject {
     struct Transfer {
@@ -30,21 +31,29 @@ import BackgroundTasks
     private var activeID: UUID?
     private var suspended = true
     private var backgroundResume: Set<UUID> = []
-    #if YEARLY_HOST_APP
-    private var backgroundTime: UIBackgroundTaskIdentifier = .invalid
-    private var continuedTask: BGTask?
-    private var continuedID: String?
-    private var uploadTaskPrefix: String { (Bundle.main.bundleIdentifier ?? "") + ".upload." }
-    #endif
     private var pendingResumes: Set<UUID> = []
     private var site: SiteOrigin?
     private weak var session: NativeSession?
     private var configuredOwnerID: Int?
 
-    init() {
+    private weak var activeService: UploadAPI?
+    private var inBackground = false
+    private var recoveredTransfersCleared = false
+    private let backgroundExecution: UploadBackgroundExecution?
+    private let backgroundTransport: BackgroundUploadTransport?
+    private let serviceFactory: @MainActor (NativeSession, Int, BackgroundUploadTransport?) -> UploadAPI
+
+    init(store suppliedStore: UploadStore? = nil, backgroundExecution: UploadBackgroundExecution? = nil,
+         backgroundTransport: BackgroundUploadTransport? = nil,
+         serviceFactory: @escaping @MainActor (NativeSession, Int, BackgroundUploadTransport?) -> UploadAPI = { session, owner, transport in
+             session.uploadAPI(ownerID: owner, backgroundTransport: transport)
+         }) {
+        self.backgroundExecution = backgroundExecution
+        self.backgroundTransport = backgroundExecution == nil ? nil : (backgroundTransport ?? .shared)
+        self.serviceFactory = serviceFactory
         do {
             let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            let store = try UploadStore(directory: root.appendingPathComponent("NativeUploads", isDirectory: true))
+            let store = try suppliedStore ?? UploadStore(directory: root.appendingPathComponent("NativeUploads", isDirectory: true))
             items = try store.load()
             self.store = store
             for item in items where item.isTerminal { try? store.removeFiles(item.id) }
@@ -157,7 +166,6 @@ import BackgroundTasks
             try persist()
             for id in skipped { try store?.removeFiles(id) }
             suspended = false
-            requestBackgroundUpload()
             start()
         } catch { }
     }
@@ -196,7 +204,6 @@ import BackgroundTasks
         do {
             try persist()
             suspended = false
-            if !uploads.isEmpty { requestBackgroundUpload() }
             start()
         } catch { }
     }
@@ -229,7 +236,7 @@ import BackgroundTasks
         preparation = nil
         for i in items.indices where items[i].phase.canPause { items[i].phase = .paused }
         if store != nil { do { try persist() } catch { } }
-        finishBackgroundUpload(success: false)
+        backgroundExecution?.end()
     }
     func cancel(_ id: UUID) {
         backgroundResume.remove(id)
@@ -244,96 +251,28 @@ import BackgroundTasks
         } catch { self.error = error.localizedDescription }
     }
     func enteredBackground() {
-        #if YEARLY_HOST_APP
-        guard running, continuedTask == nil, backgroundTime == .invalid else { return }
-        // Bridge the transition while the system grants the continued task, or use
-        // the standard short grace period on systems without continued processing.
-        backgroundTime = UIApplication.shared.beginBackgroundTask(withName: "Yearly Upload") { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let ids = Set(self.items.filter { $0.phase.canPause }.map(\.id))
-                self.pauseAll(resumingOnForeground: ids)
-            }
-        }
-        #endif
+        guard backgroundExecution != nil, !inBackground else { return }
+        inBackground = true
+        beginBackgroundExecution()
+        activeService?.setBackground(true)
     }
     func enteredForeground() {
-        #if YEARLY_HOST_APP
-        endBackgroundTime()
-        #endif
+        inBackground = false
+        activeService?.setBackground(false)
+        backgroundExecution?.end()
         guard !backgroundResume.isEmpty else { return }
         let ids = backgroundResume
         backgroundResume = []
         resume(phases: [.paused], ids: ids)
     }
 
-    private func requestBackgroundUpload() {
-        #if YEARLY_HOST_APP
-        guard #available(iOS 26.0, *), continuedID == nil,
-              items.contains(where: { uploadGroup.contains($0.id) && [.queued, .uploading, .paused, .failed].contains($0.phase) }) else { return }
-        let scheduler = BGTaskScheduler.shared
-        let identifier = uploadTaskPrefix + UUID().uuidString
-        let registered = scheduler.register(forTaskWithIdentifier: identifier, using: .main) { [weak self] task in
-            MainActor.assumeIsolated {
-                guard let self, self.continuedID == identifier else {
-                    task.setTaskCompleted(success: false)
-                    return
-                }
-                self.continuedTask = task
-                task.expirationHandler = { [weak self] in
-                    Task { @MainActor in
-                        guard let self, self.continuedID == identifier else { return }
-                        self.pauseAll()
-                    }
-                }
-                self.reportBackgroundProgress()
-                self.endBackgroundTime()
-            }
+    private func beginBackgroundExecution() {
+        guard inBackground, worker != nil, !suspended else { return }
+        backgroundExecution?.begin { [weak self] in
+            guard let self, self.backgroundTransport?.hasPendingTransfers != true else { return }
+            let ids = Set(self.items.filter { $0.phase.canPause }.map(\.id))
+            self.pauseAll(resumingOnForeground: ids)
         }
-        guard registered else { return }
-        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: "上传照片与视频", subtitle: "完成后可在时间线查看")
-        do {
-            try scheduler.submit(request)
-            continuedID = identifier
-        } catch {
-            // Uploads can still run in the foreground when the scheduler denies a request.
-        }
-        #endif
-    }
-
-    private func reportBackgroundProgress() {
-        #if YEARLY_HOST_APP
-        guard #available(iOS 26.0, *), let task = continuedTask as? BGContinuedProcessingTask else { return }
-        let active = items.filter { uploadGroup.contains($0.id) && $0.phase != .cancelled }
-        let total = active.reduce(Int64(0)) { $0 + $1.size }
-        let uploaded = active.reduce(Int64(0)) { $0 + ($1.duplicate ? $1.size : $1.uploadedBytes) }
-        task.progress.totalUnitCount = max(1, total)
-        task.progress.completedUnitCount = min(total, uploaded + (transfer?.inFlightBytes ?? 0))
-        #endif
-    }
-
-    #if YEARLY_HOST_APP
-    private func endBackgroundTime() {
-        guard backgroundTime != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(backgroundTime)
-        backgroundTime = .invalid
-    }
-    #endif
-
-    private func finishBackgroundUpload(success: Bool) {
-        #if YEARLY_HOST_APP
-        if let identifier = continuedID {
-            continuedID = nil
-            if let task = continuedTask {
-                continuedTask = nil
-                task.expirationHandler = nil
-                task.setTaskCompleted(success: success)
-            } else {
-                BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
-            }
-        }
-        endBackgroundTime()
-        #endif
     }
     private func start() {
         guard worker == nil, !suspended, let site, let session, session.canEdit, store != nil else { return }
@@ -341,16 +280,17 @@ import BackgroundTasks
         worker = Task {
             await run(site: site, session: session)
             activeID = nil
+            activeService = nil
             preparation = nil
             worker = nil
             running = false
+            backgroundExecution?.end()
             // A per-item cancellation must not discard the other items in this batch.
             if !suspended && items.contains(where: { $0.site == self.site?.url.absoluteString && $0.ownerID == self.session?.account?.id && [.selected, .queued].contains($0.phase) }) {
                 start()
-            } else {
-                finishBackgroundUpload(success: items.filter { uploadGroup.contains($0.id) }.allSatisfy { $0.phase == .complete || $0.phase == .skipped })
             }
         }
+        beginBackgroundExecution()
     }
     private func run(site: SiteOrigin, session: NativeSession) async {
         guard let store else { return }
@@ -383,14 +323,22 @@ import BackgroundTasks
                     try persist()
                 } else {
                     uploadGroup.insert(id)
-                    let service = session.uploadAPI(ownerID: items[index].ownerID)
+                    if let backgroundTransport, !recoveredTransfersCleared {
+                        // Use server status when restarting a queue after process termination.
+                        await backgroundTransport.cancelRecoveredTransfers()
+                        recoveredTransfersCleared = true
+                        try Task.checkCancellation()
+                    }
+                    let service = serviceFactory(session, items[index].ownerID, backgroundTransport)
+                    activeService = service
+                    service.setBackground(inBackground)
+                    service.onBackgroundWake = { [weak self] in self?.beginBackgroundExecution() }
                     service.onPartProgress = { [weak self] bytes, rate in
                         guard let self, self.activeID == id, self.items[index].phase == .uploading else { return }
                         if rate > 0 {
                             self.uploadRate = self.uploadRate.map { $0 * 0.75 + rate * 0.25 } ?? rate
                         }
                         self.transfer = rate > 0 ? Transfer(itemID: id, inFlightBytes: bytes) : nil
-                        self.reportBackgroundProgress()
                     }
                     items[index].phase = .uploading
                     items[index].message = "正在核对原件与上传任务…"
@@ -437,7 +385,6 @@ import BackgroundTasks
                                 self.items[index].resources[r].uploadedBytes = bytes
                                 self.items[index].resources[r].complete = complete
                                 self.transfer = nil
-                                self.reportBackgroundProgress()
                                 if bytes == resource.size && !complete { self.items[index].message = "分片已传完，等待服务端完整性校验…" }
                                 try self.persist()
                             }
@@ -478,9 +425,9 @@ import BackgroundTasks
                 do { try persist() } catch { return }
             }
             activeID = nil
+            activeService = nil
             preparation = nil
             transfer = nil
-            reportBackgroundProgress()
         }
     }
 }

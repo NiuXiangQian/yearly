@@ -99,15 +99,27 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
     private let cookieProvider: () async -> [HTTPCookie]
     private let session: URLSession
     private let unauthorized: ((String) -> Void)?
+    private let backgroundTransport: BackgroundUploadTransport?
+    var onBackgroundWake: (@MainActor () -> Void)?
+    private var usesBackgroundSession = false
+    private var transferTask: Task<URLResponse, Error>?
+
+    func setBackground(_ background: Bool) {
+        guard backgroundTransport != nil, background != usesBackgroundSession else { return }
+        usesBackgroundSession = background
+        transferTask?.cancel()
+    }
+
     var onPartProgress: ((Int64, Double) -> Void)?
     private var activePart: UUID?
 
     // Injectable boundaries let tests prove credential isolation without a real account or network.
-    init(site: SiteOrigin, ownerID: Int? = nil, cookieProvider: @escaping () async -> [HTTPCookie], session: URLSession? = nil, unauthorized: ((String) -> Void)? = nil) {
+    init(site: SiteOrigin, ownerID: Int? = nil, cookieProvider: @escaping () async -> [HTTPCookie], session: URLSession? = nil, backgroundTransport: BackgroundUploadTransport? = nil, unauthorized: ((String) -> Void)? = nil) {
         self.site = site
         self.cookieProvider = cookieProvider
         self.ownerID = ownerID
         self.unauthorized = unauthorized
+        self.backgroundTransport = backgroundTransport
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
@@ -185,35 +197,190 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         // Never send Cookie, Origin, CSRF or Authorization to OSS.
-        let part = UUID()
-        activePart = part
-        let started = Date()
-        let partSize = Int64(data.count)
-        var lastProgress = started
-        var succeeded = false
         defer {
             activePart = nil
-            if !succeeded { onPartProgress?(0, 0) }
+            transferTask = nil
         }
-        let delegate = onPartProgress == nil ? nil : UploadRedirectPolicy { [weak self] bytes in
-            let sampledAt = Date()
-            Task { @MainActor in
-                guard let self, self.activePart == part, sampledAt.timeIntervalSince(lastProgress) >= 0.25 else { return }
-                lastProgress = sampledAt
-                self.onPartProgress?(min(bytes, partSize), Double(bytes) / sampledAt.timeIntervalSince(started))
+        while true {
+            try Task.checkCancellation()
+            let part = UUID()
+            activePart = part
+            let started = Date()
+            let partSize = Int64(data.count)
+            var lastProgress = started
+            let delegate = UploadRedirectPolicy { [weak self] bytes in
+                let sampledAt = Date()
+                Task { @MainActor in
+                    guard let self, self.activePart == part, sampledAt.timeIntervalSince(lastProgress) >= 0.25 else { return }
+                    lastProgress = sampledAt
+                    self.onPartProgress?(min(bytes, partSize), Double(bytes) / sampledAt.timeIntervalSince(started))
+                }
+            }
+            let background = usesBackgroundSession ? backgroundTransport : nil
+            let attempt = Task { () throws -> URLResponse in
+                try Task.checkCancellation()
+                if let background {
+                    return try await background.put(data, to: url, progress: { delegate.progress?($0) }, wake: onBackgroundWake)
+                }
+                return try await session.upload(for: request, from: data, delegate: delegate).1
+            }
+            transferTask = attempt
+            do {
+                let response = try await withTaskCancellationHandler { try await attempt.value } onCancel: { attempt.cancel() }
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    throw UploadHTTPError(status: (response as? HTTPURLResponse)?.statusCode ?? 0, isOSS: true)
+                }
+                onPartProgress?(partSize, Double(partSize) / max(Date().timeIntervalSince(started), 0.05))
+                return
+            } catch {
+                activePart = nil
+                onPartProgress?(0, 0)
+                try Task.checkCancellation()
+                // A scene transition restarts the same PUT with identical bytes and part number.
+                if attempt.isCancelled { continue }
+                throw error
             }
         }
-        let (_, response) = try await session.upload(for: request, from: data, delegate: delegate)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw UploadHTTPError(status: (response as? HTTPURLResponse)?.statusCode ?? 0, isOSS: true)
-        }
-        let elapsed = max(Date().timeIntervalSince(started), 0.05)
-        succeeded = true
-        onPartProgress?(partSize, Double(partSize) / elapsed)
     }
     func complete(_ task: RemoteUpload) async throws {
         struct Completed: Decodable { let status: String }
         let result = try JSONDecoder().decode(Completed.self, from: await request("/uploads/\(task.id)/complete", body: Data("{}".utf8)))
         guard result.status == "complete" else { throw UploadFailure(message: "服务端尚未确认完整性。") }
+    }
+}
+
+// Only signed OSS PUTs use this session. Authenticated API calls retain the ephemeral,
+// no-redirect session above: background sessions always follow redirects on iOS.
+// The daemon owns file-backed transfers while the app is suspended. Continuations are
+// deliberately process-local; after termination the persisted queue reconciles OSS parts.
+final class BackgroundUploadTransport: NSObject, URLSessionTaskDelegate {
+    static let identifier = "family.yearly.original-parts"
+    static let shared = BackgroundUploadTransport()
+
+    private final class Pending: @unchecked Sendable {
+        private let lock = NSLock()
+        private var task: URLSessionTask?
+        private var cancelled = false
+        var continuation: CheckedContinuation<URLResponse, Error>?
+        let progress: @Sendable (Int64) -> Void
+        let wake: (@MainActor () -> Void)?
+        init(progress: @escaping @Sendable (Int64) -> Void, wake: (@MainActor () -> Void)?) {
+            self.progress = progress; self.wake = wake
+        }
+        func start(_ task: URLSessionTask) {
+            lock.lock()
+            self.task = task
+            if cancelled { task.cancel() }
+            task.resume()
+            lock.unlock()
+        }
+        func cancel() {
+            lock.lock(); defer { lock.unlock() }
+            cancelled = true; task?.cancel()
+        }
+    }
+
+    private let lock = NSLock()
+    private var pending: [Int: Pending] = [:]
+    private var eventsCompletion: (() -> Void)?
+    private let directory: URL
+    private var session: URLSession!
+    var hasPendingTransfers: Bool { lock.lock(); defer { lock.unlock() }; return !pending.isEmpty }
+
+    // An injected configuration permits offline URLProtocol tests of the real file path.
+    init(configuration: URLSessionConfiguration? = nil, directory: URL? = nil) {
+        self.directory = directory ?? FileManager.default.temporaryDirectory.appendingPathComponent("YearlyBackgroundParts", isDirectory: true)
+        super.init()
+        let config: URLSessionConfiguration
+        if let configuration { config = configuration }
+        else {
+            config = .background(withIdentifier: Self.identifier)
+            config.isDiscretionary = false
+            #if os(iOS)
+            config.sessionSendsLaunchEvents = true
+            #endif
+        }
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
+        config.urlCredentialStorage = nil
+        config.urlCache = nil
+        config.timeoutIntervalForRequest = 180
+        config.timeoutIntervalForResource = 7 * 24 * 60 * 60
+        session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        // Remove staging files abandoned before task creation, without touching files
+        // referenced by reconnected daemon tasks or requests staged after this launch.
+        let launched = Date(), root = self.directory
+        session.getAllTasks { tasks in
+            let active = Set(tasks.compactMap(\.taskDescription))
+            for file in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.creationDateKey])) ?? [] {
+                guard !active.contains(file.lastPathComponent),
+                      let created = try? file.resourceValues(forKeys: [.creationDateKey]).creationDate,
+                      created < launched else { continue }
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+    }
+
+    func put(_ data: Data, to url: URL, progress: @escaping @Sendable (Int64) -> Void,
+             wake: (@MainActor () -> Void)? = nil) async throws -> URLResponse {
+        let file = directory.appendingPathComponent(UUID().uuidString + ".part")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try await Task.detached(priority: .utility) { [directory] in
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            #if os(iOS)
+            try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            #else
+            try data.write(to: file, options: .atomic)
+            #endif
+        }.value
+        let record = Pending(progress: progress, wake: wake)
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                var request = URLRequest(url: url)
+                request.httpMethod = "PUT"
+                record.continuation = continuation
+                lock.lock()
+                let task = session.uploadTask(with: request, fromFile: file)
+                task.taskDescription = file.lastPathComponent
+                pending[task.taskIdentifier] = record
+                lock.unlock()
+                record.start(task)
+            }
+        } onCancel: { record.cancel() }
+    }
+
+    func handleEvents(completion: @escaping () -> Void) {
+        lock.lock(); eventsCompletion = completion; lock.unlock()
+    }
+    func invalidate() { session.invalidateAndCancel() }
+    func cancelRecoveredTransfers() async {
+        for task in await session.allTasks {
+            if lock.withLock({ pending[task.taskIdentifier] == nil }) { task.cancel() }
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        lock.lock(); let record = pending[task.taskIdentifier]; lock.unlock()
+        record?.progress(totalBytesSent)
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let response = task.response
+        if let name = task.taskDescription, UUID(uuidString: String(name.dropLast(5))) != nil, name.hasSuffix(".part") {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
+        DispatchQueue.main.async { [self] in
+            // Keep the transfer visible to the expiration handler until its callback runs.
+            guard let record = lock.withLock({ pending.removeValue(forKey: task.taskIdentifier) }) else { return }
+            record.wake?() // Obtain execution time for sign/checkpoint/complete before resuming the queue.
+            if let error { record.continuation?.resume(throwing: error) }
+            else if let response { record.continuation?.resume(returning: response) }
+            else { record.continuation?.resume(throwing: URLError(.badServerResponse)) }
+        }
+    }
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        lock.lock(); let completion = eventsCompletion; eventsCompletion = nil; lock.unlock()
+        if let completion { DispatchQueue.main.async(execute: completion) }
     }
 }

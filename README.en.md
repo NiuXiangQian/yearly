@@ -221,7 +221,7 @@ The iPhone app (iOS 16+) uses the same backend and family accounts as the web cl
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build
 ```
 
-The repository provides source and self-build installation instructions; no App Store or TestFlight download is offered. Uploads pause in the background and can resume in the foreground or after reopening. See the [iOS guide](ios/README.md) for installation, re-signing, behavior, and device-validation limits.
+The repository provides source and self-build installation instructions; no App Store or TestFlight download is offered. When the main app moves to the background, iOS can continue transferring upload parts. See the [iOS guide](ios/README.md) for installation, re-signing, behavior, and device-validation limits.
 
 ## Android app
 

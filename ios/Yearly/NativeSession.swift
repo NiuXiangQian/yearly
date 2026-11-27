@@ -284,8 +284,8 @@ struct LoginCaptcha: Decodable {
         do { try store.write(nil, site: site.url.absoluteString) }
         catch { self.error = friendly(error) }
     }
-    func uploadAPI(ownerID: Int? = nil) -> UploadAPI {
-        UploadAPI(site: site, ownerID: ownerID, cookieProvider: { [weak self] in self?.cookies() ?? [] }, unauthorized: { [weak self] rejected in
+    func uploadAPI(ownerID: Int? = nil, backgroundTransport: BackgroundUploadTransport? = nil) -> UploadAPI {
+        UploadAPI(site: site, ownerID: ownerID, cookieProvider: { [weak self] in self?.cookies() ?? [] }, backgroundTransport: backgroundTransport, unauthorized: { [weak self] rejected in
             guard let self, let credential = self.credential,
                   rejected == "yearly_session=\(credential.value)" else { return }
             self.expire()
