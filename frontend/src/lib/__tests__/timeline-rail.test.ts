@@ -40,18 +40,18 @@ it("scrubs continuously between nodes while a click selects a date", async () =>
   pointer("pointerdown", 100);
   pointer("pointermove", 205);
   await nextTick();
-  expect(host.querySelector(".rail-date-year")?.textContent).toBe("2024");
-  expect(host.querySelector(".rail-date-day")?.textContent).toBe("02.01");
+  expect(host.querySelector(".rail-bubble")?.textContent).toBe("2024.02.01");
+  expect(host.querySelector(".rail-date")?.textContent).toBe("02.01");
   expect(select).not.toHaveBeenCalled();
   pointer("pointerup", 205);
   await nextTick();
   expect(select).not.toHaveBeenCalled();
-  expect(scrub).toHaveBeenLastCalledWith("2024-02-01", expect.closeTo(0.575));
+  expect(scrub).toHaveBeenLastCalledWith("2024-02-01");
   pointer("pointerdown", 170);
   pointer("pointerup", 170);
   expect(select).toHaveBeenCalledExactlyOnceWith("2024-02-01");
   expect(host.querySelector("output")?.textContent).toBe("03.01");
-  expect(host.querySelector("output")?.classList.contains("expanded")).toBe(false);
+  expect(host.querySelector(".rail-bubble")).toBeNull();
   pointer("pointerdown", 100);
   pointer("pointermove", 900);
   await nextTick();
@@ -74,9 +74,9 @@ it("keeps the current date visible and follows reading position changes", async 
   current.value = "2024-02-20";
   await nextTick();
   expect(host.querySelector("output")?.textContent).toBe("02.20");
-  expect(host.querySelector<HTMLElement>("output")?.style.top).toBe("50%");
+  expect(host.querySelector<HTMLElement>("output")?.style.top).toBe("100%");
 });
-it("supports a single date and keyboard endpoints without invalid values", async () => {
+it("hides the rail if the timeline has one date", async () => {
   const select = vi.fn();
   const host = document.createElement("div");
   document.body.append(host);
@@ -89,12 +89,8 @@ it("supports a single date and keyboard endpoints without invalid values", async
       }),
   });
   app.mount(host);
-  const track = host.querySelector('[role="slider"]')!;
-  track.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "End", bubbles: true }),
-  );
-  expect(select).toHaveBeenCalledWith("2024-01-01");
-  expect(host.querySelector<HTMLElement>(".rail-thumb")?.style.top).toBe("0%");
+  expect(host.querySelector('[role="slider"]')).toBeNull();
+  expect(select).not.toHaveBeenCalled();
 });
 
 it("spaces nodes apart while retaining every date for drag browsing and keeps the held output mounted", async () => {
@@ -111,12 +107,12 @@ it("spaces nodes apart while retaining every date for drag browsing and keeps th
   await nextTick();
   const output = host.querySelector("output");
   const dots = [...host.querySelectorAll<HTMLElement>(".rail-dot")];
-  expect(dots.length).toBe(7);
-  expect(parseFloat(dots[1].style.top) / 100 * 200).toBeGreaterThanOrEqual(32);
-  track.dispatchEvent(new PointerEvent("pointermove", { clientY: 10, pointerId: 1 }));
+  expect(dots.length).toBe(4);
+  expect(parseFloat(dots[1].style.top) / 100 * 168).toBeGreaterThanOrEqual(44);
+  track.dispatchEvent(new PointerEvent("pointermove", { clientY: 32, pointerId: 1 }));
   await nextTick();
-  expect(scrub).toHaveBeenLastCalledWith(dates[3], expect.closeTo(0.35));
+  expect(scrub).toHaveBeenLastCalledWith(dates[6]);
   expect(host.querySelector("output")).toBe(output);
-  expect(output?.querySelector(".rail-date-year")?.textContent).toBe("2024");
-  expect(output?.querySelector(".rail-date-day")?.textContent).toBe("01.04");
+  expect(host.querySelector(".rail-bubble")?.textContent).toBe("2024.01.07");
+  expect(output?.textContent).toBe("01.07");
 });

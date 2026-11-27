@@ -3,7 +3,9 @@ import { t } from "../lib/i18n";
 import { ref, watch } from "vue";
 import { ZoomIn, ZoomOut, Scan } from "lucide-vue-next";
 import CompatibleImage from "./CompatibleImage.vue";
-const props = defineProps<{ src: string; originalFile?: any; alt?: string }>();
+const props = withDefaults(defineProps<{
+  src: string; originalFile?: any; alt?: string; minZoom?: number; maxZoom?: number;
+}>(), { minZoom: 0.5, maxZoom: 6 });
 const emit = defineEmits(["error"]);
 const scale = ref(1),
   x = ref(0),
@@ -17,7 +19,7 @@ function reset() {
 }
 watch(() => props.src, reset);
 function zoom(value: number) {
-  scale.value = Math.max(0.5, Math.min(6, value));
+  scale.value = Math.max(props.minZoom, Math.min(props.maxZoom, value));
   if (scale.value <= 1) {
     x.value = 0;
     y.value = 0;
@@ -70,7 +72,7 @@ function move(e: PointerEvent) {
     <div class="image-tools">
       <button
         :aria-label="t('缩小')"
-        :disabled="scale <= 0.5"
+        :disabled="scale <= minZoom"
         @click="zoom(scale / 1.25)"
       >
         <ZoomOut :size="18" />
@@ -78,7 +80,7 @@ function move(e: PointerEvent) {
       <span aria-live="polite">{{ Math.round(scale * 100) }}%</span>
       <button
         :aria-label="t('放大')"
-        :disabled="scale >= 6"
+        :disabled="scale >= maxZoom"
         @click="zoom(scale * 1.25)"
       >
         <ZoomIn :size="18" />

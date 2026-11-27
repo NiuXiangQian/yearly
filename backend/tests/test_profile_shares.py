@@ -18,7 +18,7 @@ def test_person_share_filters_folders_events_and_direct_media_access(context):
     chosen = upload(context, [person["id"], second["id"]], folder_id=parent["id"])["media_id"]
     second_only = upload(context, [second["id"]], folder_id=parent["id"])["media_id"]
     sibling = upload(context, [other["id"]], folder_id=parent["id"])["media_id"]
-    upload(context, [other["id"]], folder_id=unrelated["id"])
+    elsewhere = upload(context, [other["id"]], folder_id=unrelated["id"])["media_id"]
     event = context.client.post("/api/events", json={"title": "小满的记录", "start_at": "2024-03-31T12:00:00", "child_ids": [second["id"]]}).json()
     context.client.post("/api/events", json={"title": "其他记录", "start_at": "2024-03-31T13:00:00", "child_ids": [other["id"]]})
     data = share(context, profile_ids=[person["id"], second["id"], person["id"]])
@@ -29,10 +29,11 @@ def test_person_share_filters_folders_events_and_direct_media_access(context):
     base = "/api/public/shares/" + data["token"]
     context.client.cookies.clear()
     items = context.client.get(base).json()["days"][0]["items"]
-    assert {(item["kind"], item["id"]) for item in items} == {("folder", parent["id"]), ("event", event["id"])}
-    assert next(item for item in items if item["kind"] == "folder")["media_count"] == 2
-    assert {item["id"] for item in context.client.get(f'{base}/folders/{parent["id"]}').json()["items"]} == {chosen, second_only}
-    assert context.client.get(f'{base}/folders/{unrelated["id"]}').status_code == 404
+    assert {(item["kind"], item["id"]) for item in items} == {
+        ("media", chosen), ("media", second_only), ("event", event["id"]),
+    }
+    assert len(items) == 3
+    assert context.client.get(f"{base}/media/{elsewhere}/url").status_code == 404
     assert context.client.get(f"{base}/media/{sibling}/url").status_code == 404
     assert context.client.get(f"{base}/media/{chosen}/url").status_code == 200
 
@@ -81,10 +82,10 @@ def test_public_cards_show_capture_ages_for_tagged_children(context):
             "kind": "media", "id": root, "title": "", "media_type": "photo", "child_ages": expected,
         }
         assert "child_ages" not in by_id[unknown]
-    folder_items = client.get(f"{base}/folders/{album['id']}").json()["items"]
+    archived = client.get(base + "/days/2024-03-31").json()["items"]
     selected_items = client.get("/api/public/shares/" + selection["token"]).json()["days"][0]["items"]
-    assert folder_items[0]["id"] == nested
-    assert selected_items[0] == folder_items[0]
+    assert archived[0]["id"] == nested
+    assert selected_items[0] == archived[0]
     assert selected_items[0]["child_ages"] == expected[:1]
     assert "child_ages" not in selected_items[1]
 

@@ -2,239 +2,201 @@
 import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { t } from "../lib/i18n";
 
-const props = defineProps<{
-  dates: string[];
-  current: string;
-  disabled?: boolean;
-  fraction?: number;
+const props = defineProps<{ dates: string[]; current: string; disabled?: boolean }>();
+const emit = defineEmits<{
+  select: [date: string];
+  scrub: [date: string];
+  hold: [active: boolean];
+  cancel: [];
 }>();
-const emit = defineEmits<{ select: [date: string]; scrub: [date: string, fraction: number]; hold: [active: boolean] }>();
+const inset = 16;
 const track = ref<HTMLElement>();
-const dragging = ref<number | null>(null);
-const focused = ref(false);
 const height = ref(400);
-let startY = 0;
-let moved = false;
+const dragRatio = ref<number>();
+let pointer: { id: number; y: number } | undefined;
 let observer: ResizeObserver | undefined;
 watch(track, element => {
   observer?.disconnect();
   if (!element) return;
   observer = new ResizeObserver(([entry]) => {
-    if (dragging.value === null && entry.contentRect.height > 0) height.value = entry.contentRect.height;
+    if (entry.contentRect.height) height.value = entry.contentRect.height;
   });
   observer.observe(element);
 }, { flush: "post" });
 onBeforeUnmount(() => observer?.disconnect());
-const ratio = computed(() => dragging.value ??
-  (Math.max(0, props.dates.indexOf(props.current)) + (props.fraction || 0)) / props.dates.length);
-const index = computed(() => Math.min(props.dates.length - 1, Math.floor(ratio.value * props.dates.length)));
-const position = computed(() => ratio.value * 100);
+
+const span = computed(() => Math.max(1, props.dates.length - 1));
+const currentIndex = computed(() => Math.max(0, props.dates.indexOf(props.current)));
+const ratio = computed(() => dragRatio.value ?? currentIndex.value / span.value);
+const index = computed(() => Math.max(0, Math.ceil(ratio.value * span.value - .5)));
+const date = computed(() => props.dates[index.value] || "");
 const markers = computed(() => {
-  const step = Math.max(1, Math.ceil(props.dates.length * 32 / height.value));
-  const count = Math.floor((props.dates.length - 1) / step) + 1;
-  return Array.from({ length: count }, (_, i) => count === 1 ? 0 : Math.round(i / (count - 1) * (props.dates.length - 1)));
+  const last = props.dates.length - 1;
+  const step = Math.max(1, Math.ceil(44 * last / Math.max(1, height.value - inset * 2)));
+  const count = Math.min(props.dates.length, Math.max(2, Math.floor(last / step) + 1));
+  return count > 1 ? Array.from({ length: count }, (_, i) => Math.round(i * last / (count - 1))) : [0];
 });
-function move(event: PointerEvent) {
-  if (dragging.value === null) return;
+function top(i: number) { return `${(i / span.value) * 100}%`; }
+function dayText(day: string) { return day.slice(5).replace("-", "."); }
+function pointerRatio(event: PointerEvent) {
   const rect = track.value!.getBoundingClientRect();
-  dragging.value = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
-  if (Math.abs(event.clientY - startY) > 6) moved = true;
-  if (moved) emit("scrub", props.dates[index.value], dragging.value * props.dates.length - index.value);
+  return Math.max(0, Math.min(1, (event.clientY - rect.top - inset) / Math.max(1, rect.height - inset * 2)));
 }
 function start(event: PointerEvent) {
-  if (props.disabled || !event.isPrimary || event.button !== 0) return;
-  track.value!.setPointerCapture(event.pointerId);
+  if (props.disabled || !event.isPrimary || event.button !== 0 || pointer) return;
   height.value = track.value!.getBoundingClientRect().height;
-  startY = event.clientY;
-  moved = false;
-  emit("hold", true);
-  dragging.value = ratio.value;
-  move(event);
+  pointer = { id: event.pointerId, y: event.clientY };
+  track.value!.setPointerCapture(event.pointerId);
 }
-function cancel() {
-  dragging.value = null;
-  emit("hold", false);
+function move(event: PointerEvent) {
+  if (pointer?.id !== event.pointerId) return;
+  if (dragRatio.value === undefined) {
+    if (Math.abs(event.clientY - pointer.y) <= 6) return;
+    emit("hold", true);
+  }
+  dragRatio.value = pointerRatio(event);
+  if (date.value) emit("scrub", date.value);
 }
 function finish(event: PointerEvent) {
-  if (dragging.value === null) return;
+  if (pointer?.id !== event.pointerId) return;
   move(event);
-  if (!moved) {
-    const offset = dragging.value * props.dates.length;
-    const nearest = markers.value.reduce((best, value) => Math.abs(value - offset) < Math.abs(best - offset) ? value : best);
+  if (dragRatio.value === undefined) {
+    const target = pointerRatio(event) * span.value;
+    const nearest = markers.value.reduce((best, marker) =>
+      Math.abs(marker - target) < Math.abs(best - target) ? marker : best);
     emit("select", props.dates[nearest]);
+  } else {
+    dragRatio.value = undefined;
+    emit("hold", false);
   }
-  cancel();
+  pointer = undefined;
   if (track.value?.hasPointerCapture(event.pointerId)) track.value.releasePointerCapture(event.pointerId);
+}
+function cancel(event: PointerEvent) {
+  if (pointer?.id !== event.pointerId) return;
+  pointer = undefined;
+  if (dragRatio.value === undefined) return;
+  dragRatio.value = undefined;
+  emit("cancel");
+  emit("hold", false);
 }
 function keydown(event: KeyboardEvent) {
   if (props.disabled) return;
-  let target = index.value;
+  let target = currentIndex.value;
   if (event.key === "ArrowDown" || event.key === "ArrowRight") target++;
   else if (event.key === "ArrowUp" || event.key === "ArrowLeft") target--;
   else if (event.key === "Home") target = 0;
   else if (event.key === "End") target = props.dates.length - 1;
   else return;
   event.preventDefault();
-  emit(
-    "select",
-    props.dates[Math.max(0, Math.min(props.dates.length - 1, target))],
-  );
+  emit("select", props.dates[Math.max(0, Math.min(props.dates.length - 1, target))]);
 }
 </script>
 
 <template>
-  <aside v-if="dates.length" class="timeline-rail">
-    <span class="rail-edge" aria-hidden="true">{{
-      dates[0].slice(0, 7).replace("-", ".")
-    }}</span>
-    <div
-      ref="track"
-      class="rail-track"
-      :class="{ dragging: dragging !== null }"
-      role="slider"
-      :tabindex="disabled ? -1 : 0"
-      :aria-label="t('拖动时间轴定位日期')"
-      aria-orientation="vertical"
-      :aria-valuemin="0"
-      :aria-valuemax="dates.length - 1"
-      :aria-valuenow="index"
-      :aria-valuetext="dates[index]"
-      :aria-disabled="disabled || undefined"
-      @pointerdown.prevent="start"
-      @pointermove="move"
-      @pointerup="finish"
-      @pointercancel="cancel"
-      @lostpointercapture="dragging !== null && cancel()"
-      @keydown="keydown"
-      @focus="focused = true"
-      @blur="focused = false"
-    >
-      <span class="rail-line" aria-hidden="true"></span>
-      <span
-        v-for="i in markers"
-        :key="dates[i]"
-        class="rail-dot"
-        :style="{
-          top: `${dates.length > 1 ? (i / dates.length) * 100 : 0}%`,
-        }"
-        aria-hidden="true"
-      ></span>
-      <span
-        class="rail-thumb"
-        :style="{ top: `${position}%` }"
-        aria-hidden="true"
-      ></span>
-      <output
-        class="rail-date"
-        :class="{ expanded: dragging !== null || focused }"
-        :style="{ top: `${position}%` }"
-        aria-hidden="true"
-      >
-        <span v-if="dragging !== null || focused" class="rail-date-year">{{ dates[index].slice(0, 4) }}</span>
-        <span class="rail-date-day">{{ dates[index].slice(5).replace("-", ".") }}</span>
-      </output>
+  <aside v-if="dates.length > 1" class="timeline-rail">
+    <span class="rail-year" aria-hidden="true">{{ date.slice(0, 4) }}</span>
+    <div ref="track" class="rail-track" :class="{ dragging: dragRatio !== undefined }"
+      role="slider" :tabindex="disabled ? -1 : 0" :aria-label="t('拖动时间轴定位日期')"
+      aria-orientation="vertical" aria-valuemin="0" :aria-valuemax="dates.length - 1"
+      :aria-valuenow="index" :aria-valuetext="date" :aria-disabled="disabled || undefined"
+      @pointerdown.prevent="start" @pointermove="move" @pointerup="finish"
+      @pointercancel="cancel" @lostpointercapture="cancel" @keydown="keydown">
+      <div class="rail-scale" aria-hidden="true">
+        <span class="rail-line"></span>
+        <template v-for="(marker, i) in markers" :key="dates[marker]">
+          <span class="rail-dot" :style="{ top: top(marker) }"></span>
+          <span v-if="Math.abs(marker / span - ratio) * (height - inset * 2) > 26"
+            class="rail-node" :style="{ top: top(marker) }">
+            <b v-if="i === 0 || dates[marker].slice(0, 4) !== dates[markers[i - 1]].slice(0, 4)">{{ dates[marker].slice(0, 4) }}</b>
+            {{ dayText(dates[marker]) }}
+          </span>
+        </template>
+        <span class="rail-thumb" :style="{ top: `${ratio * 100}%` }"></span>
+        <output class="rail-date" :style="{ top: `${ratio * 100}%` }">{{ dayText(date) }}</output>
+        <span v-if="dragRatio !== undefined" class="rail-bubble" :style="{ top: `${ratio * 100}%` }">{{ date.replaceAll("-", ".") }}</span>
+      </div>
     </div>
-    <span class="rail-edge" aria-hidden="true">{{
-      dates[dates.length - 1].slice(0, 7).replace("-", ".")
-    }}</span>
   </aside>
 </template>
 
 <style scoped>
 .timeline-rail {
   position: sticky;
-  top: 28px;
+  top: calc(var(--shared-bar-height, 54px) + 10px);
   align-self: start;
-  display: flex;
-  align-items: center;
-  flex-direction: column;
-  gap: 18px;
-  padding-top: 8px;
+  width: 44px;
+  display: grid;
+  gap: 12px;
   z-index: 5;
-}
-.rail-edge {
-  color: var(--muted);
-  font-size: 10px;
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+.rail-year {
+  display: grid;
+  place-content: center;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--sage);
+  background: color-mix(in srgb, var(--sage) 10%, var(--bg));
+  font-size: 11px;
+  font-weight: 650;
 }
 .rail-track {
   position: relative;
-  width: 44px;
-  height: clamp(180px, 56dvh, 520px);
+  height: clamp(150px, calc(100dvh - var(--shared-bar-height, 54px) - 65px), 760px);
   touch-action: none;
   user-select: none;
   cursor: grab;
-  outline-offset: 6px;
-  border-radius: 12px;
+  border-radius: 6px;
 }
-.rail-track.dragging {
-  cursor: grabbing;
-}
-.rail-track[aria-disabled="true"] {
-  cursor: wait;
-}
+.rail-track.dragging { cursor: grabbing; }
+.rail-track[aria-disabled="true"] { cursor: wait; }
+.rail-scale { position: absolute; inset: 16px 0; pointer-events: none; }
 .rail-line {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(50% - 1px);
-  width: 2px;
+  inset: 0 4px 0 auto;
+  width: 1.5px;
   background: var(--line);
 }
-.rail-dot,
-.rail-thumb {
+.rail-dot, .rail-thumb {
   position: absolute;
-  left: 50%;
+  left: 39px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: var(--sage);
-  pointer-events: none;
 }
-.rail-dot {
-  width: 6px;
-  height: 6px;
-  opacity: 0.65;
-}
-.rail-thumb {
-  transition: none;
-  width: 14px;
-  height: 14px;
-  box-shadow: 0 0 0 5px var(--sage-light);
-}
-.rail-date {
+.rail-dot { width: 5px; height: 5px; opacity: .55; }
+.rail-thumb { width: 9px; height: 9px; box-shadow: 0 0 0 4.5px color-mix(in srgb, var(--sage) 15%, transparent); }
+.rail-node, .rail-date {
   position: absolute;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  box-sizing: border-box;
-  width: min(36px, 100%);
-  padding: 2px 0;
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--sage);
-  box-shadow: 0 0 0 1px var(--line);
+  inset-inline-start: 0;
+  width: 34px;
+  transform: translateY(-50%);
+  color: var(--muted);
   font-size: 10px;
-  line-height: 12px;
+  line-height: 1.1;
   text-align: center;
-  font-variant-numeric: tabular-nums;
+}
+.rail-node b { display: block; margin-bottom: 2px; color: var(--text); }
+.rail-date {
+  display: grid;
+  place-content: center;
+  min-height: 22px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--sage) 12%, var(--bg));
+  color: var(--sage);
+  font-weight: 650;
+}
+.rail-bubble {
+  position: absolute;
+  left: 60px;
+  transform: translateY(-100%);
+  padding: 7px 12px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 1px 5px #0003;
+  border-radius: 999px;
+  font-weight: 650;
   white-space: nowrap;
-  pointer-events: none;
-}
-.rail-date.expanded {
-  font-size: 11px;
-  line-height: 14px;
-}
-.rail-date-year {
-  display: block;
-  font-size: 9px;
-  line-height: 10px;
-}
-@media (max-width: 700px) {
-  .rail-edge {
-    font-size: 8px;
-  }
-  .rail-track {
-    width: 32px;
-  }
 }
 </style>

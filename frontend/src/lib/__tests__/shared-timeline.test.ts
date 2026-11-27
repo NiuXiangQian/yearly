@@ -35,6 +35,8 @@ const childAges = [{ name: "小禾", age: "出生当天" }, { name: "小满", ag
 function response() {
   return {
     dates: ["2024-01-01", "2024-01-02"],
+    total: 13,
+    media_counts: { "2024-01-01": 1, "2024-01-02": 12 },
     share: {
       title: "Family",
       start_date: "2024-01-01",
@@ -288,7 +290,7 @@ it("folds months without fetching media and preserves the fold when loading anot
   await vi.waitFor(() =>
     expect(host.querySelectorAll(".shared-card")).toHaveLength(9),
   );
-  button("全部收起").click();
+  button("收起全部回忆").click();
   await vi.waitFor(() =>
     expect(host.querySelectorAll(".shared-card")).toHaveLength(0),
   );
@@ -324,7 +326,7 @@ it("reveals a folded date and fetches an unloaded date only on navigation", asyn
     await vi.waitFor(() =>
       expect(host.querySelectorAll(".shared-day")).toHaveLength(2),
     );
-    button("全部收起").click();
+    button("收起全部回忆").click();
     await vi.waitFor(() =>
       expect(host.querySelectorAll(".shared-day")).toHaveLength(0),
     );
@@ -339,9 +341,17 @@ it("reveals a folded date and fetches an unloaded date only on navigation", asyn
       ...data,
       days: [{ day: "2023-12-31", total: 1, items: [items[0]] }],
     });
-    rail.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "End", bubbles: true }),
-    );
+    const track = rail as HTMLElement;
+    track.getBoundingClientRect = () => ({ top: 0, height: 300 }) as DOMRect;
+    track.setPointerCapture = vi.fn();
+    const pointer = (type: string, y: number) => track.dispatchEvent(new PointerEvent(type, {
+      clientY: y, pointerId: 1, isPrimary: true, button: 0, bubbles: true,
+    }));
+    pointer("pointerdown", 16);
+    pointer("pointermove", 284);
+    await nextTick();
+    expect(api).toHaveBeenCalledTimes(2);
+    pointer("pointerup", 284);
     await vi.waitFor(() => expect(
       [...host.querySelectorAll(".shared-day")].map((day) => day.getAttribute("data-day")),
     ).toEqual(["2024-01-02", "2024-01-01", "2023-12-31"]));
@@ -404,7 +414,8 @@ it("shows exact selection without implying a date range or month grouping, and k
   await mount();
   await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(8));
   expect(host.textContent).toContain("指定影像分享");
-  expect(host.querySelector(".shared-day h2")?.textContent).toBe("所选影像");
+  expect(host.querySelector(".reading-toolbar")?.textContent).toContain("所选影像");
+  expect(host.querySelector(".shared-day h2")).toBeNull();
   expect(host.querySelector(".month-controls")).toBeNull();
   expect(host.querySelector(".shared-sort")).toBeNull();
   expect(host.querySelector(".rail-hint")).toBeNull();
@@ -430,25 +441,55 @@ it("fills unfinished days when a fast scroll reaches the footer before loading l
   ]);
 });
 
-it("automatically appends shared folder contents when its end becomes visible", async () => {
+it("opens a full-screen diary with its archive date and keeps the timeline position", async () => {
   const data = response();
   data.days = [{ day: "2024-01-02", total: 1, items: [{
-    id: 90, kind: "folder", name: "合成文件夹", previews: [], media_count: 12,
+    id: 90, kind: "event", title: "第一篇日记", content: "第一段。\n第二段。",
   } as any] }];
   vi.mocked(api).mockResolvedValue(data);
   await mount();
   await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(1));
-  vi.mocked(api).mockResolvedValueOnce({ id: 90, name: "合成文件夹", items: items.slice(0, 8), total: 12 });
-  (host.querySelector(".shared-card") as HTMLButtonElement).click();
-  await vi.waitFor(() => expect(document.querySelectorAll(".shared-folder-dialog .shared-card")).toHaveLength(8));
-  const laterItems = items.slice(8).map(item => ({ ...item, child_ages: childAges }));
-  vi.mocked(api).mockResolvedValueOnce({ id: 90, name: "合成文件夹", items: laterItems, total: 12 });
-  intersect(document.querySelector(".shared-folder-dialog .scroll-loader")!);
-  await vi.waitFor(() => expect(document.querySelectorAll(".shared-folder-dialog .shared-card")).toHaveLength(12));
-  expect(document.querySelector(".shared-folder-dialog .shared-child-ages")?.textContent).toContain("小禾 · 出生当天");
-  expect(api).toHaveBeenLastCalledWith("/public/shares/virtual/folders/90?offset=8&order=desc");
+  button("第一篇日记").click();
+  await vi.waitFor(() => expect(document.querySelector(".shared-diary-fullscreen .shared-story h2")?.textContent).toBe("第一篇日记"));
+  expect(document.querySelector(".shared-story time")?.getAttribute("datetime")).toBe("2024-01-02");
+  expect(document.querySelector(".story-content")?.textContent).toBe("第一段。\n第二段。");
+  expect(api).toHaveBeenCalledTimes(2);
+  (document.querySelector(".shared-diary-fullscreen .el-dialog__headerbtn") as HTMLButtonElement).click();
+  await vi.waitFor(() => expect(document.querySelector(".shared-story")).toBeNull());
+  expect(host.querySelectorAll(".shared-card")).toHaveLength(1);
 });
 
+it("continues fullscreen browsing past the day fold and into the next day", async () => {
+  const base = "/public/shares/virtual";
+  const previousDay = { id: 17, kind: "media", media_type: "photo", title: "Previous day" };
+  const data = {
+    ...response(), total: 10, media_counts: { "2024-01-02": 9, "2024-01-01": 1 },
+    days: [
+      { day: "2024-01-02", total: 9, items: items.slice(0, 8) },
+      { day: "2024-01-01", total: 1, items: [previousDay] },
+    ],
+  };
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path.includes("/url?")) return { url: "/preview.jpg", status: "ready" };
+    if (path.includes("/days/")) return { total: 9, items: [items[8]] };
+    return data;
+  });
+  await mount();
+  await vi.waitFor(() => expect(host.querySelectorAll(".shared-card")).toHaveLength(9));
+  button("Memory 7").click();
+  const nav = (name: string) => document.querySelector<HTMLButtonElement>(`.shared-preview-navigation button[aria-label="${name}"]`)!;
+  const position = () => document.querySelector(".shared-preview-position")?.textContent;
+  await vi.waitFor(() => expect(position()).toContain("全部 8 / 10"));
+  nav("下一项").click();
+  await vi.waitFor(() => expect(position()).toContain("全部 9 / 10"));
+  expect(api).toHaveBeenCalledWith(base + "/days/2024-01-02?offset=8&order=desc");
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  await vi.waitFor(() => expect(position()).toContain("当天 1 / 1"));
+  expect(position()).toContain("全部 10 / 10");
+  expect(nav("下一项").disabled).toBe(true);
+  nav("上一项").click();
+  await vi.waitFor(() => expect(position()).toContain("全部 9 / 10"));
+});
 
 it.each(["desc", "asc"])("continues backward automatically after a date jump (%s), preserving the reading anchor", async (order) => {
   localStorage.setItem("yearly-shared-order", order);

@@ -161,7 +161,9 @@ def test_content_permissions_and_direct_access(context):
     assert response.status_code == 200
     assert "no-store" in response.headers["cache-control"]
     assert "noindex" in response.headers["x-robots-tag"]
-    assert context.client.get(base + "/dates").json() == {"dates": ["2024-03-31"]}
+    assert context.client.get(base + "/dates").json() == {
+        "dates": ["2024-03-31"], "total": 1, "media_counts": {"2024-03-31": 1},
+    }
     items = response.json()["days"][0]["items"]
     assert [m["id"] for m in items] == [visible]
     assert set(items[0]) == {"kind", "id", "title", "media_type"}
@@ -189,7 +191,7 @@ def test_content_permissions_and_direct_access(context):
         assert context.client.get(path).status_code == 401
 
 
-def test_folder_previews_counts_paging_and_event_cover_exclusion(context):
+def test_folder_members_are_flattened_and_keep_sharing_permissions(context):
     f = folder(context)
     ids = [upload(context)["media_id"] for _ in range(5)]
     context.client.post(
@@ -216,22 +218,23 @@ def test_folder_previews_counts_paging_and_event_cover_exclusion(context):
     data = share(context)
     base = public(context, data)
     items = context.client.get(base).json()["days"][0]["items"]
-    folder_item = next(m for m in items if m["kind"] == "folder")
-    assert folder_item["media_count"] == 3
-    assert {m["id"] for m in folder_item["previews"]} == set(ids[2:])
+    assert {m["id"] for m in items if m["kind"] == "media"} == set(ids[2:])
+    assert len(items) == 4
     diary = next(m for m in items if m["kind"] == "event")
     assert set(diary) == {"id", "kind", "title", "content"}
-    inside = context.client.get(f'{base}/folders/{f["id"]}').json()
-    assert {m["id"] for m in inside["items"]} == set(ids[2:])
-    assert inside["total"] == 3
+    indexed = context.client.get(base + "/dates").json()
+    assert indexed["total"] == 4 and indexed["media_counts"] == {"2024-03-31": 3}
     assert (
-        context.client.get(f'{base}/folders/{f["id"]}?offset=3').json()["items"] == []
+        context.client.get(base + "/days/2024-03-31?offset=4").json()["items"] == []
     )
 
 
 def test_day_fold_and_mixed_order(context):
     ids = [upload(context)["media_id"] for _ in range(10)]
-    f = folder(context)
+    folder(context)
+    diary = context.client.post("/api/events", json={
+        "title": "Diary", "start_at": "2024-03-31T12:00:00",
+    }).json()
     with context.db() as db:
         db.get(Media, ids[0]).sort_order = 20
         db.commit()
@@ -240,7 +243,7 @@ def test_day_fold_and_mixed_order(context):
     day = context.client.get(base).json()["days"][0]
     assert day["total"] == 11 and len(day["items"]) == 8
     assert day["items"][0]["id"] == ids[0]
-    assert day["items"][1]["kind"] == "folder"
+    assert (day["items"][1]["kind"], day["items"][1]["id"]) == ("event", diary["id"])
     more = context.client.get(base + "/days/2024-03-31?offset=8").json()["items"]
     assert len(more) == 3
     keys = [(m["kind"], m["id"]) for m in day["items"] + more]
@@ -441,8 +444,7 @@ def test_permissions_apply_to_existing_links_and_survive_other_edits(context):
     )
     for base in bases:
         assert context.client.get(f"{base}/media/{mid}/url").status_code == 404
-        data = context.client.get(f'{base}/folders/{f["id"]}').json()
-        assert data["total"] == 0 and data["items"] == []
+        assert context.client.get(base).json()["days"] == []
     assert context.client.get(f"/api/media/{mid}").status_code == 200
     context.client.put(f"/api/media/{mid}", json={"share_allowed": True})
     context.client.put(
@@ -456,7 +458,7 @@ def test_permissions_apply_to_existing_links_and_survive_other_edits(context):
     )
     for base in bases:
         assert context.client.get(f"{base}/media/{mid}/url").status_code == 404
-        assert context.client.get(f'{base}/folders/{f["id"]}').status_code == 404
+        assert context.client.get(base).json()["days"] == []
     context.client.put(
         f'/api/folders/{f["id"]}', json={"name": f["name"], "share_allowed": True}
     )

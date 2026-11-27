@@ -21,19 +21,21 @@ Click **Share timeline**:
 
 Shares update with the timeline and saved permissions, including new content allowed for sharing. To change a link's date range, revoke it and create a new link.
 
-Media cards in both date-range and selected-media shares show each tagged child's display name and age at capture, including on cards inside folders. Ages use the capture date, including any correction. A missing capture date, missing birthday, or disabled growth tracking omits the corresponding age.
+Media cards in both date-range and selected-media shares show each tagged child's display name and age at capture. Ages use the capture date, including any correction. A missing capture date, missing birthday, or disabled growth tracking omits the corresponding age.
 
-Recipients need no account and read a separate, read-only timeline. Each day initially shows eight entries, with more available on demand. Folders and media retain their mixed order. Readers can open folders and diaries, zoom images, and play compressed videos and Live Photos. Undated files are outside date-range shares. The signed-in mobile timeline also folds entries beyond eight per day; selection and sorting modes show all entries for editing.
+Recipients need no account. The shared timeline follows the iOS archive layout. Authorized media from folders appear directly under their date, and folder sharing permissions still apply. Each day shows eight items at first and expands on demand. Selected-media links keep their chosen order in a flat list.
 
-Both family and shared timelines offer **Newest first / Oldest first**. Newest first is the default; each view remembers its preference in this browser. Dates and capture times follow the selected direction while manual mixed ordering retains priority. Undated family entries stay last. Switching resets pagination so cursors from the previous direction are not reused.
+The **Archive** menu switches between newest first and oldest first. The browser remembers the choice. Changing direction reloads from that end while preserving manual item priority.
 
-For long timelines, click a month heading to collapse or expand it, or use **Collapse all / Expand all**. Days remain individually readable, including the existing eight-entry limit. Additional pages merge into their months and retain the current collapsed state. Counts refer to loaded days, not full-month totals. The family timeline supports the same controls; selection and sorting temporarily expand months, then restore the previous state.
+Tap a month to expand or collapse it. The top-right menu refreshes the timeline or expands and collapses both the months and the extra items within each day. Month headers show the number of loaded days.
 
-The shared view includes a draggable timeline on the left, with one dot per visible date. Drag to preview a date and release to jump, or focus the rail and use arrow keys, Home, or End. Collapsed months open automatically; unloaded dates are fetched directly without walking through intermediate pages. The rail follows chronological order and highlights the current date while scrolling. Dragging does not request media. Both the date index and jump endpoint enforce the same share scope and content permissions.
+The left rail appears when the share has multiple dates. Dragging follows dates already loaded, and releasing fetches an unloaded target date and opens its month. Tap a marker or use the arrow keys, Home, or End to jump. Ordinary scrolling updates the date marker.
+
+Open media fullscreen and use swipes, arrow keys, or the previous and next buttons to browse across days. The viewer shows the item’s position within its day and the share. Journals open in a separate fullscreen reader.
 
 ## Preview
 
-These 2× lossless PNGs use fictional data only. The creation dialog only asks for dates and lifetime; file permissions belong in their editors. The interface also supports English.
+These 2× lossless PNGs use fictional data. Set file permissions in their editors.
 
 ![Fictional example: date-only sharing dialog](../images/demo-share-create.png)
 
@@ -46,7 +48,7 @@ These 2× lossless PNGs use fictional data only. The creation dialog only asks f
 ## Privacy and bandwidth
 
 - Anyone with a link can read it. Share only with trusted recipients. This does not prevent screenshots or saving visible content.
-- Public lists, folder thumbnails, counts, and media URLs enforce scope, content permissions, expiry, revocation, and creator permissions on the server. The server selects the signed object from the authorized media record; client-supplied object paths, other file IDs, or download flags cannot expand access. Share tokens do not authenticate private original-download endpoints.
+- Public lists, date indexes, counts, and media URLs enforce scope, content permissions, expiry, revocation, and creator permissions on the server. The server selects the signed object from the authorized media record; client-supplied object paths, other file IDs, or download flags cannot expand access. Share tokens do not authenticate private original-download endpoints.
 - Only compressed thumbnails and previews are served. There is no original-download entry point. Unavailable video previews ask readers to retry; they never fall back to originals.
 - Media cards may include `child_ages`, with each child's display `name` and capture `age`. Regular list payloads omit accounts, child profile IDs, birthdays, original filenames, GPS, EXIF, and storage details. OSS previews use short-lived signed URLs; recipients can see the domain and object path, with the signature limited to that preview.
 - **Custom titles and diary text are shared content.** Review private writing before sharing. Diaries do not expose original media associations or covers that could reveal excluded files.

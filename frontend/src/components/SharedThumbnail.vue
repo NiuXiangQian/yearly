@@ -56,7 +56,7 @@ onBeforeUnmount(() => {
     >
       <ImageOff v-if="failed" :size="24" />
     </div>
-    <Play v-if="media.media_type === 'video'" class="type-icon" :size="22" />
+    <span v-if="media.media_type === 'video'" class="type-icon shared-video-badge" :aria-label="t('视频')" role="img"><Play :size="13" fill="currentColor" /></span>
     <span
       v-else-if="media.media_type === 'live_photo'"
       class="type-icon shared-live-badge"
@@ -70,8 +70,8 @@ onBeforeUnmount(() => {
   aspect-ratio: 4/3;
   position: relative;
   overflow: hidden;
-  border-radius: 10px;
-  background: var(--sage-light);
+  border-radius: 14px;
+  background: var(--surface-soft);
 }
 .shared-thumb img {
   position: absolute;
@@ -90,11 +90,15 @@ onBeforeUnmount(() => {
 }
 .type-icon {
   position: absolute;
-  bottom: 10px;
-  right: 10px;
-  color: white;
-  filter: drop-shadow(0 1px 3px #0008);
+  bottom: 7px;
+  right: 7px;
+  z-index: 1;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
 }
+.shared-video-badge { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; }
 .shared-live-badge {
   right: auto;
   left: 7px;
@@ -105,10 +109,6 @@ onBeforeUnmount(() => {
   gap: 4px;
   padding: 4px 7px;
   border-radius: 999px;
-  color: #25332b;
-  background: #fffdeef0;
-  backdrop-filter: blur(8px);
-  filter: none;
   font-size: 10px;
   line-height: 1;
   font-weight: 600;

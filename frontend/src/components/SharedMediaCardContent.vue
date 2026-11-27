@@ -17,9 +17,9 @@ defineProps<{
   <div class="shared-media-image">
     <SharedThumbnail :base="base" :media="media" />
     <span
-      v-if="media.title"
+      v-if="media.title.trim()"
       class="shared-caption"
-      :class="{ 'with-live-badge': media.media_type === 'live_photo' }"
+      :class="{ 'with-live-badge': media.media_type === 'live_photo', 'with-video-badge': media.media_type === 'video' }"
     >{{ media.title }}</span>
   </div>
   <span v-if="media.child_ages?.length" class="shared-child-ages">
@@ -40,8 +40,8 @@ defineProps<{
   left: 0;
   right: 0;
   bottom: 0;
-  border-radius: 0 0 10px 10px;
-  background: linear-gradient(transparent, #15261acc);
+  border-radius: 0 0 14px 14px;
+  background: linear-gradient(transparent, #000b);
   color: white;
   pointer-events: none;
   padding: 24px 10px 10px;
@@ -53,9 +53,10 @@ defineProps<{
 .shared-caption.with-live-badge {
   padding-left: 68px;
 }
+.shared-caption.with-video-badge { padding-right: 44px; }
 .shared-child-ages {
   display: block;
-  padding: 4px 2px 0;
+  padding: 5px 0 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;

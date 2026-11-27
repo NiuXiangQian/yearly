@@ -129,7 +129,7 @@ def save_share(data, response, db, user, owner_scope_id):
     if data.media_ids is not None:
         # Validate the same permissions used by all public endpoints. Never silently
         # replace missing/hidden items with a broader date or folder scope.
-        selected, _, _ = shared_queries(SimpleNamespace(media_ids=data.media_ids, owner_scope_id=owner_scope_id))
+        selected, _ = shared_queries(SimpleNamespace(media_ids=data.media_ids, owner_scope_id=owner_scope_id))
         visible = set(db.scalars(selected.with_only_columns(Media.id)))
         if visible != set(data.media_ids):
             raise HTTPException(422, "部分影像不存在、已删除或不允许分享，请重新选择")
@@ -282,18 +282,24 @@ def share_page(token: str, response: Response, db=Depends(get_db)):
   <link rel="icon" href="{image}">
   <style>
     body:has(.share-cover) {{ margin: 0; background: #f3f5f7; color: #202d3c; }}
-    .share-cover {{ box-sizing: border-box; max-width: 1040px; margin: auto; padding: 0 28px; font: 14px/1.7 system-ui, sans-serif; }}
-    .share-cover header {{ display: flex; align-items: center; gap: 9px; padding: 24px 0; border-bottom: 1px solid #d6dfe8; font: 27px Georgia, serif; color: #2e567e; }}
-    .share-cover section {{ margin: 22px 0; padding: clamp(17px, 4vw, 30px); border-radius: 12px; background: #e9eff5; }}
-    .share-cover h1 {{ margin: 0 0 7px; font: 600 clamp(26px, 4vw, 42px)/1.27 "Songti SC", Georgia, serif; overflow-wrap: anywhere; }}
+    .share-cover {{ box-sizing: border-box; max-width: 1040px; margin: auto; padding: 0 16px; font: 14px/1.6 system-ui, sans-serif; }}
+    .share-cover header {{ position: relative; display: grid; place-content: center; min-height: 54px; border-bottom: 1px solid #d6dfe8; font-weight: 650; font-size: 16px; }}
+    .share-cover header img {{ position: absolute; left: 0; top: 14px; border-radius: 6px; }}
+    .share-cover section {{ padding: 14px 0; border-bottom: 1px solid #d6dfe8; }}
+    .share-cover h1 {{ margin: 0 0 3px; font: 650 clamp(21px, 4vw, 27px)/1.25 "Songti SC", Georgia, serif; overflow-wrap: anywhere; }}
     .share-cover p {{ margin: 0; color: #526478; }}
-    @media (max-width: 700px) {{ .share-cover {{ padding: 0 16px; }} }}
+    @media (max-width: 540px) {{ .share-cover {{ padding: 0 12px; }} }}
+    @media (prefers-color-scheme: dark) {{
+      body:has(.share-cover) {{ background: #141c27; color: #edf3fa; }}
+      .share-cover header, .share-cover section {{ border-color: #354559; }}
+      .share-cover p {{ color: #a6b7cb; }}
+    }}
   </style>
 </head>
 <body>
   <div id="app">
     <main class="share-cover">
-      <header><img src="{logo}" alt="" width="22" height="22"> yearly</header>
+      <header><img src="{logo}" alt="yearly" width="26" height="26">成长时间线</header>
       <section>
         <h1>{title}</h1>
         <p>{description}</p>
@@ -377,7 +383,7 @@ def update_day_sharing(
 
 
 def shared_queries(share):
-    """Apply the same scope to listing, folder previews and direct media access."""
+    """Apply the same scope to the flat timeline and direct media access."""
     day = func.date(timeline_time())
 
     selection = share is not None and share.media_ids is not None
@@ -408,52 +414,38 @@ def shared_queries(share):
     )
     if share is not None and getattr(share, "owner_scope_id", None) is not None:
         media = media.where(Media.owner_id == share.owner_scope_id)
-        folders = folders.where(TimelineFolder.owner_id == share.owner_scope_id)
         events = events.where(Event.created_by == share.owner_scope_id)
     profile_ids = getattr(share, "profile_ids", ())
     if profile_ids:
         media = filter_children(media, MediaChild, Media, profile_ids, "any")
-        folders = folders.where(TimelineFolder.id.in_(media.with_only_columns(Media.folder_id)))
         events = filter_children(events, EventChild, Event, profile_ids, "any")
     if selection:
         media = media.where(Media.id.in_(share.media_ids))
-        # Selected folder members are flattened; never expose their unselected siblings.
-        folders = folders.where(literal(False))
         events = events.where(literal(False))
-    return media, folders, events
+    return media, events
 
 
 def root_query(share):
-    media, folders, events = shared_queries(share)
+    media, events = shared_queries(share)
     if share is not None and share.media_ids is not None:
         return media.with_only_columns(
             literal("media").label("kind"), Media.id.label("id"),
             literal(share.start_date).label("day"),
             (-case({mid: index for index, mid in enumerate(share.media_ids)}, value=Media.id, else_=0)).label("position"),
-            literal(0).label("group_order"), Media.taken_at_local.label("taken"),
+            Media.taken_at_local.label("taken"),
         ).subquery()
     return union_all(
-        media.where(Media.folder_id.is_(None)).with_only_columns(
+        media.with_only_columns(
             literal("media").label("kind"),
             Media.id.label("id"),
             func.date(timeline_time()).label("day"),
             Media.sort_order.label("position"),
-            literal(0).label("group_order"),
             Media.taken_at_local.label("taken"),
-        ),
-        folders.with_only_columns(
-            literal("folder"),
-            TimelineFolder.id,
-            TimelineFolder.timeline_date,
-            TimelineFolder.sort_order,
-            literal(1),
-            literal(None),
         ),
         events.with_only_columns(
             literal("event"),
             Event.id,
             func.date(Event.start_at),
-            literal(0),
             literal(0),
             Event.start_at,
         ),
@@ -524,7 +516,6 @@ def entries(db, share, day, offset=0, limit=8, order="desc"):
         db.execute(
             query.order_by(
                 root.c.position.desc(),
-                root.c.group_order.desc(),
                 root.c.taken.is_(None).asc(),
                 root.c.taken.asc() if order == "asc" else root.c.taken.desc(),
                 root.c.id.desc(),
@@ -536,7 +527,6 @@ def entries(db, share, day, offset=0, limit=8, order="desc"):
         .mappings()
         .all()
     )
-    media_query, _, _ = shared_queries(share)
     media_ids = [r["id"] for r in rows if r["kind"] == "media"]
     event_ids = [r["id"] for r in rows if r["kind"] == "event"]
     # Read card fields without hydrating child/EXIF/file relationships.
@@ -560,7 +550,7 @@ def entries(db, share, day, offset=0, limit=8, order="desc"):
         if row["kind"] == "media":
             media_id = row["id"]
             items.append(public_media(media_map[media_id], child_ages.get(media_id)))
-        elif row["kind"] == "event":
+        else:
             event = event_map[row["id"]]
             items.append(
                 {
@@ -570,37 +560,21 @@ def entries(db, share, day, offset=0, limit=8, order="desc"):
                     "content": event.content,
                 }
             )
-        else:
-            folder = db.get(TimelineFolder, row["id"])
-            visible = media_query.where(Media.folder_id == folder.id)
-            previews = db.execute(
-                visible.with_only_columns(Media.id, Media.title, Media.media_type)
-                .order_by(
-                    Media.sort_order.desc(),
-                    Media.taken_at_local.desc(),
-                    Media.id.desc(),
-                )
-                .limit(4)
-            )
-            items.append(
-                {
-                    "kind": "folder",
-                    "id": folder.id,
-                    "name": folder.name,
-                    "media_count": db.scalar(
-                        select(func.count()).select_from(visible.subquery())
-                    ),
-                    "previews": [public_media(m) for m in previews],
-                }
-            )
     return {"day": day, "items": items, "total": total}
 
 
 @router.get("/public/shares/{token}/dates")
 def share_dates(share=Depends(public_share), db=Depends(get_db)):
     root = root_query(share)
+    rows = db.execute(
+        select(root.c.day, func.count(), func.sum(case((root.c.kind == "media", 1), else_=0)))
+        .group_by(root.c.day)
+        .order_by(root.c.day)
+    ).all()
     return {
-        "dates": db.scalars(select(root.c.day).distinct().order_by(root.c.day)).all()
+        "dates": [day for day, _, _ in rows],
+        "total": sum(total for _, total, _ in rows),
+        "media_counts": {str(day): int(count) for day, _, count in rows},
     }
 
 
@@ -652,42 +626,6 @@ def read_day(
     return entries(db, share, day, offset, 40, order=order)
 
 
-@router.get("/public/shares/{token}/folders/{fid}")
-def read_folder(
-    fid: int,
-    offset: int = Query(default=0, ge=0, le=1000000),
-    order: Literal["asc", "desc"] = "desc",
-    share=Depends(public_share),
-    db=Depends(get_db),
-):
-    media, folders, _ = shared_queries(share)
-    folder = db.scalar(folders.where(TimelineFolder.id == fid))
-    if not folder:
-        raise HTTPException(404, "文件夹不存在")
-    query = media.where(Media.folder_id == fid)
-    total = db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = db.execute(
-        query.with_only_columns(Media.id, Media.title, Media.media_type)
-        .order_by(
-            Media.sort_order.desc(),
-            Media.taken_at_local.is_(None).asc(),
-            Media.taken_at_local.asc()
-            if order == "asc"
-            else Media.taken_at_local.desc(),
-            Media.id.desc(),
-        )
-        .offset(offset)
-        .limit(40)
-    ).all()
-    child_ages = public_child_ages(db, [m.id for m in rows])
-    return {
-        "id": folder.id,
-        "name": folder.name,
-        "items": [public_media(m, child_ages.get(m.id)) for m in rows],
-        "total": total,
-    }
-
-
 @router.get("/public/shares/{token}/media/{mid}/url")
 def preview_url(
     mid: int,
@@ -697,7 +635,7 @@ def preview_url(
     db=Depends(get_db),
     storage=Depends(get_storage),
 ):
-    media_query, _, _ = shared_queries(share)
+    media_query, _ = shared_queries(share)
     media = db.scalar(media_query.where(Media.id == mid))
     if not media:
         raise HTTPException(404, "影像不存在")

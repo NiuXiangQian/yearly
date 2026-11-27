@@ -331,7 +331,9 @@ def test_share_date_index_and_anchor_keep_scope_and_permissions(context, order):
     data = share(context, start_date="2024-04-01", end_date="2024-04-09")
     base = public(context, data)
     assert context.client.get(base + "/dates").json() == {
-        "dates": ["2024-04-01", "2024-04-09"]
+        "dates": ["2024-04-01", "2024-04-09"],
+        "total": 2,
+        "media_counts": {"2024-04-01": 0, "2024-04-09": 0},
     }
     anchor = "2024-04-09" if order == "asc" else "2024-04-01"
     rows = context.client.get(f"{base}?order={order}&anchor={anchor}").json()

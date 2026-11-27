@@ -3,7 +3,7 @@ import { computed, ref, useId } from "vue";
 import { ChevronDown } from "lucide-vue-next";
 import { t, locale } from "../lib/i18n";
 
-const props = defineProps<{ days: T[]; disabled?: boolean; ungrouped?: boolean }>();
+const props = defineProps<{ days: T[]; disabled?: boolean; ungrouped?: boolean; compact?: boolean }>();
 defineSlots<{ default(props: { day: T }): any }>();
 const id = useId();
 const defaultCollapsed = ref(false);
@@ -37,6 +37,7 @@ function setAll(value: boolean) {
   collapsed.value = {};
 }
 defineExpose({
+  setAll,
   reveal(date: string) {
     collapsed.value[date.slice(0, 7)] = false;
   },
@@ -47,8 +48,8 @@ defineExpose({
   <div v-if="ungrouped">
     <template v-for="day in days" :key="day.date || day.day"><slot :day="day" /></template>
   </div>
-  <div v-else-if="months.length" class="timeline-months">
-    <div class="month-controls">
+  <div v-else-if="months.length" class="timeline-months" :class="{ 'compact-months': compact }">
+    <div v-if="!compact" class="month-controls">
       <span>{{ t("按月浏览") }}</span>
       <div>
         <button
@@ -82,7 +83,7 @@ defineExpose({
           <ChevronDown :size="18" :class="{ closed: month.closed }" />
           <span class="month-title">{{ month.title }}</span>
           <small v-if="month.key !== 'unknown'">{{
-            t("已加载 {p0} 天", { p0: month.days.length })
+            t(compact ? "{p0} 天" : "已加载 {p0} 天", { p0: month.days.length })
           }}</small>
         </button>
       </h2>
@@ -151,6 +152,20 @@ defineExpose({
 .month-title {
   min-width: 0;
 }
+.compact-months .timeline-month { margin-bottom: 14px; }
+.compact-months .month-heading { margin-bottom: 14px; }
+.compact-months .month-toggle {
+  min-height: 44px;
+  padding: 8px 2px;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  font-size: 16px;
+}
+.compact-months .month-toggle svg { width: 14px; color: var(--sage); }
+.compact-months .month-days { animation: none; }
 @media (max-width: 700px) {
   .month-toggle {
     gap: 10px;
