@@ -71,7 +71,8 @@ struct UploadProfile: Decodable, Identifiable {
     var updated_by_name: String?
     var updated_at: String?
     func editable(by account: UploadAccount?) -> Bool { account?.canEdit(ownerID: owner_id, allowed: can_edit) ?? false }
-    var label: String { (nickname.isEmpty ? name : nickname) + (profile_type == "pet" ? " · 宠物" : profile_type == "child" ? " · 孩子" : " · 人物") }
+    var isChild: Bool { profile_type == "child" || (profile_type == "person" && relationship == "孩子") }
+    var label: String { (nickname.isEmpty ? name : nickname) + (profile_type == "pet" ? " · 宠物" : isChild ? " · 孩子" : " · 人物") }
 }
 
 // No redirects, disk cookies, shared credential storage or response cache in native networking.

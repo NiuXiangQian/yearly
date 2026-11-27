@@ -8,8 +8,12 @@ import { t, locale } from "../lib/i18n";
 import DateField from "./DateField.vue";
 const props = defineProps<{ open: boolean; initialDate?: string }>();
 const emit = defineEmits(["close"]);
-const profiles = ref<any[]>([]);
-const profileID = ref<number | null>(null);
+const profiles = ref<{ id: number; name: string; nickname: string; profile_type: string; relationship?: string }[]>([]);
+const profileIDs = ref<number[]>([]);
+const allProfiles = ref(false);
+const profilesLoaded = ref(false);
+const loadError = ref("");
+let loadGeneration = 0;
 const startMode = ref("earliest"),
   earliest = ref("");
 function dateString(date: Date) {
@@ -46,6 +50,8 @@ function showLink(id: number, token: string) {
 }
 const valid = computed(
   () =>
+    profilesLoaded.value &&
+    (allProfiles.value || profileIDs.value.length > 0) &&
     start.value &&
     end.value &&
     start.value <= end.value &&
@@ -55,42 +61,64 @@ const valid = computed(
 );
 watch(
   () => props.open,
-  async (open) => {
+  (open) => {
     if (!open) {
+      loadGeneration++;
       link.value = "";
       activeLinkID.value = undefined;
       return;
     }
     creatingError.value = "";
     startMode.value = props.initialDate ? "custom" : "earliest";
+    earliest.value = "";
     start.value = props.initialDate || "";
     end.value = props.initialDate || dateString(new Date());
-    try {
-      const [links, bounds, people] = await Promise.all([
-        api("/shares"),
-        api("/shares/bounds"),
-        api("/children"),
-      ]);
-      profiles.value = people;
-      history.value = links;
-      earliest.value = bounds.earliest || "";
-      chooseStart();
-    } catch (e) {
-      notify(e);
-    }
+    void load();
   },
+  { immediate: true },
 );
+async function load() {
+  const generation = ++loadGeneration;
+  profilesLoaded.value = false;
+  loadError.value = "";
+  try {
+    const [links, bounds, people] = await Promise.all([
+      api("/shares"),
+      api("/shares/bounds"),
+      api<typeof profiles.value>("/children"),
+    ]);
+    if (generation !== loadGeneration) return;
+    profiles.value = people;
+    profileIDs.value = people.filter(profile =>
+      profile.profile_type === "child" ||
+      (profile.profile_type === "person" && profile.relationship === "孩子"),
+    ).map(profile => profile.id);
+    allProfiles.value = profileIDs.value.length === 0;
+    profilesLoaded.value = true;
+    history.value = links;
+    earliest.value = bounds.earliest || "";
+    chooseStart();
+  } catch (e) {
+    if (generation === loadGeneration) loadError.value = e instanceof Error ? e.message : t("操作失败");
+  }
+}
 async function create() {
   if (!valid.value || busy.value) return;
   busy.value = true;
   creatingError.value = "";
+  const selected = [...profileIDs.value];
   try {
     const data = await post("/shares", {
       start_date: start.value,
       end_date: end.value,
       hours: hours.value,
-      profile_id: profileID.value,
+      profile_ids: selected,
     });
+    if (!Array.isArray(data.profile_ids) || data.profile_ids.length !== selected.length ||
+        !selected.every(id => data.profile_ids.includes(id))) {
+      await del(`/shares/${data.id}`);
+      throw new Error(t("服务端返回的分享范围有误，分享已撤销。"));
+    }
     showLink(data.id, data.token);
     history.value.unshift(data);
     ElMessage.success(t("分享链接已创建"));
@@ -157,10 +185,23 @@ async function copyRecord(item: any) {
     <form @submit.prevent="create" @keydown.enter="$event.isComposing && $event.preventDefault()">
       <fieldset class="share-form-section" :disabled="busy">
         <legend>{{ t("分享范围") }}</legend>
-      <label>{{ t("分享人物") }}<select v-model="profileID">
-        <option :value="null">{{ t("全部家庭成员") }}</option>
-        <option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profile.nickname || profile.name }}</option>
-      </select></label>
+      <fieldset v-if="profilesLoaded" class="share-profiles">
+        <legend>{{ t("分享人物") }}</legend>
+        <label class="checkbox-label">
+          <input type="radio" :checked="allProfiles" @change="allProfiles = true; profileIDs = []" />
+          {{ t("全部内容") }}
+        </label>
+        <label v-for="profile in profiles" :key="profile.id" class="checkbox-label">
+          <input type="checkbox" :value="profile.id" v-model="profileIDs" @change="allProfiles = false" />
+          {{ profile.nickname || profile.name }}
+        </label>
+        <p v-if="!allProfiles" class="muted">{{ t(profileIDs.length ? "包含关联任一所选人物的内容。" : "请选择至少一位人物，或选择全部内容。") }}</p>
+      </fieldset>
+      <template v-else-if="loadError">
+        <p role="alert">{{ loadError }}</p>
+        <button type="button" class="text-button" @click="load">{{ t("重新加载人物") }}</button>
+      </template>
+      <p v-else role="status">{{ t("正在加载人物…") }}</p>
       <label
         >{{ t("开始时间")
         }}<select
@@ -219,13 +260,6 @@ async function copyRecord(item: any) {
           {{
             t(
               "是否允许分享，请在文件、文件夹或当天时间线中设置。关闭后，仅管理员可见，已有和新建的分享也会隐藏对应内容。",
-            )
-          }}
-        </p>
-        <p>
-          {{
-            t(
-              profileID ? "仅分享关联所选人物且允许分享的影像与日记，卡片使用此人物的名字和头像。" : "范围包含全部孩子的内容，并随时间线更新；仅展示允许分享的影像与日记。",
             )
           }}
         </p>
@@ -303,6 +337,21 @@ async function copyRecord(item: any) {
 }
 .share-form-section label {
   margin-block: 10px;
+}
+.share-profiles {
+  border: 0;
+  padding: 0;
+  margin: 10px 0;
+  min-width: 0;
+}
+.share-profiles legend {
+  padding: 0;
+}
+.share-profiles .checkbox-label {
+  margin: 0;
+  min-height: 44px;
+  color: var(--text);
+  font-size: 14px;
 }
 
 .share-fields {

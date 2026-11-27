@@ -1,6 +1,8 @@
 from datetime import date, datetime, time
 from decimal import Decimal
 from sqlalchemy import (
+    Column,
+    Table,
     String,
     Text,
     ForeignKey,
@@ -373,9 +375,18 @@ class TimelineDay(Base):
     )
 
 
+timeline_share_profile = Table(
+    "timeline_share_profile",
+    Base.metadata,
+    Column("share_id", ID, ForeignKey("timeline_share.id", ondelete="CASCADE"), primary_key=True),
+    Column("profile_id", ID, ForeignKey("child.id"), primary_key=True),
+)
+
+
 class TimelineShare(Base):
-    profile_id: Mapped[int | None] = mapped_column(ForeignKey("child.id"))
-    profile: Mapped[Child | None] = relationship(lazy="joined")
+    profiles: Mapped[list[Child]] = relationship(
+        secondary=timeline_share_profile, lazy="selectin", order_by=Child.id
+    )
     owner_scope_id: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
     updated_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"))
     updated_at: Mapped[datetime] = mapped_column(DT, default=now, onupdate=now)
@@ -390,6 +401,10 @@ class TimelineShare(Base):
     expires_at: Mapped[datetime] = mapped_column(DT)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DT, default=now)
+
+    @property
+    def profile_ids(self):
+        return [profile.id for profile in self.profiles]
 
 
 class AuditLog(Base):

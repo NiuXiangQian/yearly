@@ -68,7 +68,7 @@ private final class SessionHTTP: URLProtocol {
         case "/yearly/api/media/44": status = 404
         case "/yearly/api/shares/42/link": body = #"{"token":"saved_share_token"}"#
         case "/yearly/api/shares/42/copy":
-            body = #"{"id":43,"title":"synthetic share","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T12:00:00Z","revoked":false,"expired":false,"token":"copy_share_token","link_available":true,"can_copy":true}"#
+            body = #"{"id":43,"title":"synthetic share","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T12:00:00Z","revoked":false,"expired":false,"token":"copy_share_token","link_available":true,"can_copy":true,"profile_ids":[]}"#
         case "/yearly/api/shares", "/yearly/api/shares/42":
             if Self.sharesFail { status = 503; break }
             if request.httpMethod == "DELETE" { Self.shareRevoked = true; break }
@@ -79,7 +79,8 @@ private final class SessionHTTP: URLProtocol {
             let selected = Self.ignoreSelection ? nil : Self.lastShareBody["media_ids"] as? [Int]
             let scope = selected == nil ? "date_range" : "selection"
             let scopeJSON = ",\"scope\":\"\(scope)\",\"selected_count\":\(selected.map { String(Set($0).count) } ?? "null")"
-            let record = "{\"id\":42,\"title\":\"synthetic share\",\"start_date\":\"2026-11-08\",\"end_date\":\"2026-11-09\",\"expires_at\":\"2099-01-01T12:00:00.123456Z\",\"revoked\":\(Self.shareRevoked),\"expired\":false"
+            let profileIDs = Self.lastShareBody["profile_ids"] as? [Int] ?? []
+            let record = "{\"id\":42,\"title\":\"synthetic share\",\"start_date\":\"2026-11-08\",\"end_date\":\"2026-11-09\",\"expires_at\":\"2099-01-01T12:00:00.123456Z\",\"revoked\":\(Self.shareRevoked),\"expired\":false,\"profile_ids\":\(profileIDs)"
             body = request.httpMethod == "POST" ? record + scopeJSON + ",\"token\":\"synthetic_share_token\"}" : "[" + record + "}]"
         case "/yearly/api/timeline":
             if Self.timelineFails { status = 503; body = "{}"; break }
@@ -495,24 +496,24 @@ private final class SessionHTTP: URLProtocol {
         let beforeEmpty = SessionHTTP.requests.count
         await selection.create(title: "Empty", start: startDate, end: endDate, hours: 24, mediaIDs: [])
         precondition(SessionHTTP.requests.count == beforeEmpty && selection.created == nil)
-        await selection.create(title: "Selected", start: endDate, end: startDate, hours: 24, mediaIDs: [7, 8], profileID: 1)
+        await selection.create(title: "Selected", start: endDate, end: startDate, hours: 24, mediaIDs: [7, 8], profileIDs: [1, 3])
         precondition(selection.created?.scope == "selection" && selection.created?.selected_count == 2)
         precondition(SessionHTTP.lastShareBody["media_ids"] as? [Int] == [7, 8])
-        precondition(SessionHTTP.lastShareBody["profile_id"] as? Int == 1)
+        precondition(SessionHTTP.lastShareBody["profile_ids"] as? [Int] == [1, 3])
         precondition(SessionHTTP.lastShareBody["start_date"] == nil && SessionHTTP.lastShareBody["end_date"] == nil)
         SessionHTTP.ignoreSelection = true
         let incompatible = NativeSharingStore(session: session)
         await incompatible.create(title: "Must not broaden", start: startDate, end: endDate, hours: 24, mediaIDs: [7])
         precondition(incompatible.created == nil && !incompatible.error.isEmpty && SessionHTTP.shareRevoked)
         SessionHTTP.ignoreSelection = false
-        let unsafe = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T00:00:00Z","expired":false,"revoked":false,"token":"../../outside?secret"}"#.utf8))
+        let unsafe = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T00:00:00Z","expired":false,"revoked":false,"token":"../../outside?secret","profile_ids":[]}"#.utf8))
         precondition(unsafe.link(site: site) == nil)
-        let savedShare = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":42,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T00:00:00Z","expired":false,"revoked":false,"link_available":true}"#.utf8))
+        let savedShare = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":42,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2099-01-01T00:00:00Z","expired":false,"revoked":false,"link_available":true,"profile_ids":[]}"#.utf8))
         let savedURL = await sharing.link(for: savedShare)
         precondition(savedURL?.absoluteString == "https://native.invalid/yearly/share/saved_share_token")
         await sharing.createCopy(of: savedShare, hours: 18)
         precondition(sharing.created?.link(site: site)?.absoluteString == "https://native.invalid/yearly/share/copy_share_token")
-        let expiredLink = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2020-01-01T00:00:00Z","expired":false,"revoked":false,"token":"synthetic_expired"}"#.utf8))
+        let expiredLink = try JSONDecoder().decode(NativeShare.self, from: Data(#"{"id":1,"title":"","start_date":"2026-11-08","end_date":"2026-11-09","expires_at":"2020-01-01T00:00:00Z","expired":false,"revoked":false,"token":"synthetic_expired","profile_ids":[]}"#.utf8))
         precondition(expiredLink.link(site: site) == nil && !expiredLink.usable)
         let own = try JSONDecoder().decode(NativeTimelineItem.self, from: Data(#"{"id":9,"owner_id":1,"can_edit":true}"#.utf8))
         let locked = try JSONDecoder().decode(NativeTimelineItem.self, from: Data(#"{"id":10,"owner_id":2,"can_edit":false}"#.utf8))

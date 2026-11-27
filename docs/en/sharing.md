@@ -2,7 +2,7 @@
 
 [简体中文](../sharing.md) | **English** · [Home](../../README.en.md)
 
-Set **Allow sharing** during normal content editing. Creating a link only requires a timeline date range and a lifetime.
+Set **Allow sharing** during normal content editing. When creating a link, choose the profiles, date range, and lifetime.
 
 - **File:** open its details, change **Allow sharing** in the existing edit form, and save.
 - **Folder:** open it, choose **Edit folder**, change **Allow sharing**, and save. Disabling a folder hides all its contents too.
@@ -14,9 +14,10 @@ Sharing is allowed by default. These persistent settings apply to **all existing
 Click **Share timeline**:
 
 1. Choose **Earliest, One year ago, Six months ago, or Custom date** for the start. Earliest uses the first archive date among currently shareable content. Relative dates use the local calendar and clamp to valid month-end dates (February 29 becomes February 28 one year earlier). The end date is inclusive, with a Today shortcut. Main-page child, search, and media-type filters do not scope the share.
-2. Choose **1–168 hours (up to 7 days)** from successful creation.
-3. Create, copy, or preview the link. There is no file picker: the server automatically filters content using its saved permissions. Save the full link before closing the dialog.
-4. Revoke links under **Manage recent shares**. Members manage their own links and can share their own content. Administrators manage all links and may share all authorized content. Day-wide sharing settings require an administrator. The list shows the latest 100. Viewers cannot create or modify sharing settings.
+2. **People to share** preselects child profiles. You can add other people or pets. Media and diaries linked to any selected profile appear once. Choose **All content** to include untagged items in the range. Selected-media shares on mobile can also be filtered by profile.
+3. Choose **1–168 hours (up to 7 days)** from successful creation.
+4. Create, copy, or preview the link. The server filters content using its saved sharing permissions.
+5. Revoke links under **Manage recent shares**. Members manage their own links and can share their own content. Administrators manage all links and may share all authorized content. Day-wide sharing settings require an administrator. The list shows the latest 100. Viewers cannot create or modify sharing settings.
 
 Shares update with the timeline and saved permissions, including new content allowed for sharing. To change a link's date range, revoke it and create a new link.
 
@@ -63,6 +64,6 @@ Alembic revision `0008` adds `share_allowed` to media, folders, and diaries, and
 ./scripts/manage.sh production migrate
 ```
 
-Ordering and date presets require no new migration; the current revision remains `0008`.
+Submit multiple profiles as the `profile_ids` array in `POST /api/shares`. An empty array includes all content in the selected range. Deploy with migration `0027` to preserve existing link tokens and profile scopes. For selected-media shares, the server applies the media selection, profiles, and sharing permissions together.
 
 Deploy the backend, frontend build, and Nginx changes together. A link pointing to your own localhost is not reachable by external recipients; use a publicly reachable HTTPS deployment domain for real sharing.

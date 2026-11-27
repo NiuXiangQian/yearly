@@ -79,9 +79,7 @@ struct NativeTimelineItem: Decodable, Identifiable {
     var label: String { [title, batch_name].compactMap { $0 }.first(where: { !$0.isEmpty }) ?? "珍藏的瞬间" }
     var childAgeCaption: String {
         return (children ?? []).compactMap { child in
-            let isChild = child.profile_type == "child" ||
-                (child.profile_type == "person" && child.relationship == "孩子")
-            guard isChild, let age = child.age else { return nil }
+            guard child.isChild, let age = child.age else { return nil }
             let name = child.nickname.isEmpty ? child.name : child.nickname
             return "\(name) · \(age)"
         }.joined(separator: "\n")

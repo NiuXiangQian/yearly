@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -16,9 +17,12 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -37,6 +41,11 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
     var link by remember { mutableStateOf("") }
     var revoke by remember { mutableStateOf<JSONObject?>(null) }
+    var profiles by remember { mutableStateOf<List<Profile>?>(null) }
+    var profileIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var allProfiles by remember { mutableStateOf(false) }
+    var profileError by remember { mutableStateOf("") }
+    var profileLoadAttempt by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(revision) { model.run { rows = model.api.getArray("/shares", true) } }
     LaunchedEffect(Unit) {
@@ -44,6 +53,23 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
             val bounds = model.api.getObject("/shares/bounds", true)
             bounds.text("earliest").takeIf(String::isNotBlank)?.let { start = it }
             bounds.text("latest").takeIf(String::isNotBlank)?.let { end = it }
+        }
+    }
+    LaunchedEffect(creating, profileLoadAttempt) {
+        if (!creating) return@LaunchedEffect
+        profiles = null
+        profileError = ""
+        try {
+            val loaded = model.api.getArray("/children", true).map(::Profile)
+            profileIds = loaded.filter {
+                it.type == "child" || (it.type == "person" && it.raw.text("relationship") == "孩子")
+            }.map { it.id }.toSet()
+            allProfiles = profileIds.isEmpty()
+            profiles = loaded
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            profileError = failure.message ?: "加载人物失败"
         }
     }
     suspend fun shareLink(row: JSONObject): String {
@@ -61,7 +87,7 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
             close,
             actions = {
                 IconButton({ revision++ }) { Icon(Icons.Outlined.Refresh, "刷新分享") }
-                IconButton({ creating = true }) { Icon(Icons.Outlined.Add, "创建分享") }
+                IconButton({ if (!creating) { profiles = null; creating = true } }) { Icon(Icons.Outlined.Add, "创建分享") }
             },
         )
         LazyColumn(
@@ -73,7 +99,7 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
             items(rows, key = { it.getInt("id") }) { row ->
                 val usable = !row.optBoolean("revoked") && !row.optBoolean("expired")
                 Text(
-                    row.text("title").ifBlank { "时光分享" },
+                    row.text("card_title").ifBlank { "时光分享" },
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
@@ -139,6 +165,48 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Field("分享标题", title) { title = it }
+                Text("分享人物", style = MaterialTheme.typography.titleSmall)
+                val people = profiles
+                if (people != null) {
+                    Column {
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .toggleable(allProfiles, enabled = !saving, role = Role.RadioButton) {
+                                    allProfiles = true
+                                    profileIds = emptySet()
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(allProfiles, null, enabled = !saving)
+                            Spacer(Modifier.width(12.dp))
+                            Text("全部内容")
+                        }
+                        people.forEach { profile ->
+                            val checked = profile.id in profileIds
+                            Row(
+                                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                    .toggleable(checked, enabled = !saving, role = Role.Checkbox) {
+                                        allProfiles = false
+                                        profileIds = if (it) profileIds + profile.id else profileIds - profile.id
+                                    },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(checked, null, enabled = !saving)
+                                Spacer(Modifier.width(12.dp))
+                                Text(profile.label)
+                            }
+                        }
+                    }
+                    if (!allProfiles) Text(
+                        if (profileIds.isEmpty()) "请选择至少一位人物，或选择全部内容。" else "包含关联任一所选人物的内容。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else if (profileError.isNotBlank()) {
+                    ErrorBanner(profileError)
+                    TextButton({ profileLoadAttempt++ }) { Text("重新加载人物") }
+                } else {
+                    Text("正在加载人物…", style = MaterialTheme.typography.bodySmall)
+                }
                 if (selection.isEmpty()) {
                     DateField("内容开始日期", start) { start = it }
                     DateField("内容结束日期", end) { end = it }
@@ -164,7 +232,7 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
                         error = ""
                         scope.launch {
                             try {
-                                val body = json("title" to title, "hours" to hours.toInt())
+                                val body = json("title" to title, "hours" to hours.toInt(), "profile_ids" to profileIds.toList())
                                 if (selection.isNotEmpty())
                                     body.put("media_ids", org.json.JSONArray(selection.toList()))
                                 else {
@@ -175,12 +243,13 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
                                 }
                                 val created = model.api.write("/shares", "POST", body)
                                 if (
-                                    selection.isNotEmpty() &&
+                                    !created.has("profile_ids") || created.ids("profile_ids") != profileIds ||
+                                    (selection.isNotEmpty() &&
                                         (created.text("scope") != "selection" ||
-                                            created.optInt("selected_count") != selection.size)
+                                            created.optInt("selected_count") != selection.size))
                                 ) {
                                     model.api.write("/shares/${created.getInt("id")}", "DELETE")
-                                    error("服务端未确认指定影像范围，分享已撤销。")
+                                    error("服务端返回的分享范围有误，分享已撤销。")
                                 }
                                 link = shareLink(created)
                                 revision++
@@ -193,7 +262,7 @@ fun SharesScreen(model: AppModel, selection: Set<Int>, close: () -> Unit) {
                         }
                     },
                     Modifier.fillMaxWidth(),
-                    enabled = !saving,
+                    enabled = !saving && people != null && (allProfiles || profileIds.isNotEmpty()),
                 ) {
                     Text(if (saving) "正在创建…" else "创建分享链接")
                 }

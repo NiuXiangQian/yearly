@@ -20,9 +20,12 @@ struct NativeSharingView: View {
     @NativeDismiss private var dismiss
     @State private var title = ""
     @State private var profiles: [UploadProfile] = []
-    @State private var profileID: Int?
+    @State private var profileIDs: Set<Int> = []
+    @State private var allProfiles = false
+    @State private var profilesLoaded = false
+    @State private var profilesError = ""
     @State private var preparingShare = false
-    private var selectedProfile: UploadProfile? { profiles.first { $0.id == profileID } }
+    private var selectedProfiles: [UploadProfile] { profiles.filter { profileIDs.contains($0.id) } }
     @State private var start: Date
     @State private var end: Date
     @State private var startMode: StartMode
@@ -57,7 +60,7 @@ struct NativeSharingView: View {
 
     private var valid: Bool {
         guard (1...168).contains(hours), title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count <= 120,
-              !store.busy, store.session.canEdit else { return false }
+              !store.busy, store.session.canEdit, profilesLoaded, allProfiles || !profileIDs.isEmpty else { return false }
         if let selectedItems { return (1...200).contains(selectedItems.count) }
         return resolvedStart.map { NativeDay.string($0) <= NativeDay.string(end) } == true
     }
@@ -65,19 +68,7 @@ struct NativeSharingView: View {
         NavigationStack {
             Form {
                 Section("分享范围") {
-                    Picker("分享人物", selection: $profileID) {
-                        Text("全部家庭成员").tag(nil as Int?)
-                        ForEach(profiles) { profile in Text(profile.label).tag(Optional(profile.id)) }
-                    }
-                    if let profile = selectedProfile {
-                        HStack {
-                            NativeFamilyAvatar(session: store.session, mediaID: profile.avatar_media_id,
-                                               name: profile.nickname.isEmpty ? profile.name : profile.nickname,
-                                               pet: profile.profile_type == "pet", color: NativeTheme.accent, size: 40)
-                            Text("仅分享关联此人物的内容，卡片使用其名字和头像。")
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
+                    profileChoices
                     NativeFormField(
                         title: "分享标题",
                         error: title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 120
@@ -113,7 +104,7 @@ struct NativeSharingView: View {
                             Text("请选择 1 至 200 项影像。").font(.caption).foregroundStyle(.red)
                         }
                     }
-                    Text(selectionMode ? "链接仅包含下方确认的影像，选定人物时进一步按此人物筛选。Live Photo 作为一项完整分享。" : profileID != nil ? "链接包含所选日期内关联此人物且允许分享的回忆。普通成员仅能分享自己添加的内容。" : store.session.isAdmin ? "链接包含所选日期内允许分享的全部家庭回忆，不受上传人、搜索和类型筛选影响。" : "链接仅包含所选日期内自己添加且允许分享的回忆，该日期内以后新增的本人内容也会出现。")
+                    Text(selectionMode ? "链接从下方所选影像中筛选，Live Photo 作为一项完整分享。" : "链接包含所选日期内允许分享的回忆。普通成员仅能分享自己添加的内容。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("链接有效期") {
@@ -199,17 +190,18 @@ struct NativeSharingView: View {
             .navigationTitle("分享管理")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .task { await store.load() }
-            .task {
-                do { profiles = try await store.session.get("/children") }
-                catch { store.error = friendly(error) }
-            }
+            .task { if !profilesLoaded { await loadProfiles() } }
             .task { if !selectionMode { await loadBounds() } }
             .refreshable { await store.load() }
             .scrollDismissesKeyboard(.interactively)
             .alert(selectionMode ? "确认分享所选影像" : "确认分享日期范围", isPresented: $confirming) {
-                Button("创建链接") { Task { await store.create(title: title, start: resolvedStart ?? start, end: end, hours: hours, mediaIDs: selectedItems?.map(\.id), profileID: profileID) } }
+                Button("创建链接") { Task { await store.create(title: title, start: resolvedStart ?? start, end: end, hours: hours, mediaIDs: selectedItems?.map(\.id), profileIDs: selectedProfiles.map(\.id)) } }
                 Button("返回检查", role: .cancel) { }
-            } message: { Text((selectionMode ? "分享所选 \(selectedItems?.count ?? 0) 项影像。" : "\(NativeDay.string(resolvedStart ?? start)) 至 \(NativeDay.string(end)) 的可分享回忆。") + (selectedProfile.map { "仅包含关联\($0.nickname.isEmpty ? $0.name : $0.nickname)的内容。" } ?? "") + "有效期 \(hours) 小时，持链接者可查看。") }
+            } message: {
+                let range = selectionMode ? "从所选 \(selectedItems?.count ?? 0) 项影像中分享。" : "\(NativeDay.string(resolvedStart ?? start)) 至 \(NativeDay.string(end)) 的可分享回忆。"
+                let names = selectedProfiles.map { $0.nickname.isEmpty ? $0.name : $0.nickname }.joined(separator: "、")
+                Text(range + (allProfiles ? "" : "包含关联以下任一人物的内容：\(names)。") + "有效期 \(hours) 小时，持链接者可查看。")
+            }
             .confirmationDialog("撤销后，收到链接的人将无法再打开", isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } }), titleVisibility: .visible) {
                 if let share = revoking { Button("撤销分享", role: .destructive) { Task { await store.revoke(share) }; revoking = nil } }
             }
@@ -219,6 +211,60 @@ struct NativeSharingView: View {
             .sheet(item: $systemShare) { item in
                 NativeShareActivityView(item: item)
             }
+        }
+    }
+
+    @ViewBuilder private var profileChoices: some View {
+        Text("分享人物").font(.headline)
+        if profilesLoaded {
+            profileChoice("全部内容", selected: allProfiles) {
+                allProfiles = true
+                profileIDs = []
+            }
+            ForEach(profiles) { profile in
+                profileChoice(profile.label, selected: profileIDs.contains(profile.id)) {
+                    allProfiles = false
+                    if profileIDs.contains(profile.id) { profileIDs.remove(profile.id) }
+                    else { profileIDs.insert(profile.id) }
+                }
+            }
+            if !allProfiles {
+                Text(profileIDs.isEmpty ? "请选择至少一位人物，或选择全部内容。" : "包含关联任一所选人物的内容。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        } else if !profilesError.isEmpty {
+            Text(profilesError).font(.footnote).foregroundStyle(.secondary)
+            Button("重新加载人物") { Task { await loadProfiles() } }
+        } else {
+            ProgressView("正在加载人物…")
+        }
+    }
+
+    private func profileChoice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected ? NativeTheme.accent : NativeTheme.secondaryText)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func loadProfiles() async {
+        profilesError = ""
+        do {
+            profiles = try await store.session.get("/children")
+            profileIDs = Set(profiles.filter(\.isChild).map(\.id))
+            allProfiles = profileIDs.isEmpty
+            profilesLoaded = true
+        } catch {
+            profilesError = friendly(error)
         }
     }
 

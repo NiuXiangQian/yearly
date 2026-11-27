@@ -27,19 +27,24 @@ afterEach(() => {
   document.body.innerHTML = "";
   vi.clearAllMocks();
 });
-it("creates a link from dates and lifetime without selecting or loading files", async () => {
+it("defaults to children and lets the user adjust the profile scope without loading files", async () => {
   vi.mocked(api).mockImplementation(async (path) =>
     path === "/shares/bounds"
       ? { earliest: "2020-01-01", latest: "2024-03-31" }
-      : path === "/children" ? [{ id: 42, name: "小禾", nickname: "" }] : [],
+      : path === "/children" ? [
+        { id: 42, name: "小禾", nickname: "", profile_type: "child" },
+        { id: 43, name: "小满", nickname: "", profile_type: "person", relationship: "孩子" },
+        { id: 44, name: "妈妈", nickname: "", profile_type: "person", relationship: "妈妈" },
+      ] : [],
   );
-  vi.mocked(post).mockResolvedValue({
+  vi.mocked(post).mockImplementation(async (_path, body) => ({
     id: 1,
     token: "demo",
     start_date: "2024-03-31",
     end_date: "2024-03-31",
     expires_at: "2028-01-01T00:00:00Z",
-  });
+    profile_ids: (body as { profile_ids: number[] }).profile_ids,
+  }));
   const open = ref(false),
     host = document.createElement("div");
   document.body.append(host);
@@ -51,19 +56,18 @@ it("creates a link from dates and lifetime without selecting or loading files", 
   app.mount(host);
   open.value = true;
   await nextTick();
-  await vi.waitFor(() =>
-    expect(document.querySelector('input[type="date"]')).not.toBeNull(),
-  );
+  const getChoices = () => [...document.querySelectorAll<HTMLInputElement>('.share-profiles input[type="checkbox"]')];
+  await vi.waitFor(() => expect(getChoices().map(choice => choice.checked)).toEqual([true, true, false]));
   const create = [...document.querySelectorAll("button")].find((b) =>
     b.textContent?.includes("创建分享链接"),
   )!;
+  const choices = getChoices();
   expect(create.disabled).toBe(false);
-  expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
   expect(document.body.textContent).not.toContain("查看范围内的内容");
   create.click();
   await vi.waitFor(() =>
     expect(post).toHaveBeenCalledWith("/shares", {
-      profile_id: null,
+      profile_ids: [42, 43],
       start_date: "2024-03-31",
       end_date: "2024-03-31",
       hours: 24,
@@ -73,15 +77,23 @@ it("creates a link from dates and lifetime without selecting or loading files", 
   expect(api).toHaveBeenCalledWith("/children");
   expect(api).toHaveBeenCalledWith("/shares/bounds");
   expect(api).toHaveBeenCalledWith("/shares");
-  const person = [...document.querySelectorAll("select")].find(select =>
-    [...select.options].some(option => option.textContent === "小禾"),
-  )!;
-  person.value = "42";
-  person.dispatchEvent(new Event("change", { bubbles: true }));
+  choices[0]!.click();
+  await nextTick();
+  choices[1]!.click();
+  await nextTick();
+  expect(create.disabled).toBe(true);
+  choices[2]!.click();
   await nextTick();
   create.click();
   await vi.waitFor(() => expect(post).toHaveBeenLastCalledWith("/shares", {
-    profile_id: 42, start_date: "2024-03-31", end_date: "2024-03-31", hours: 24,
+    profile_ids: [44], start_date: "2024-03-31", end_date: "2024-03-31", hours: 24,
+  }));
+  document.querySelector<HTMLInputElement>('.share-profiles input[type="radio"]')!.click();
+  await nextTick();
+  expect(choices.every(choice => !choice.checked)).toBe(true);
+  create.click();
+  await vi.waitFor(() => expect(post).toHaveBeenLastCalledWith("/shares", {
+    profile_ids: [], start_date: "2024-03-31", end_date: "2024-03-31", hours: 24,
   }));
 });
 
@@ -140,6 +152,7 @@ it("reveals an active record and creates a new link with the scope of an old rec
   };
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === "/shares/bounds") return { earliest: "2024-01-01" };
+    if (path === "/children") return [];
     if (path === "/shares/3/link") return { token: "current" };
     return [{ ...record, link_available: true }, { ...record, id: 2, link_available: false }];
   });

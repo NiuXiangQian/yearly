@@ -36,8 +36,7 @@ struct NativeShare: Decodable, Identifiable {
     let can_copy: Bool?
     let visit_count: Int?
     let visitor_count: Int?
-    let profile_id: Int?
-    let profile_name: String?
+    let profile_ids: [Int]
     let has_avatar: Bool?
     let card_title: String?
     var displayTitle: String { card_title ?? (title.isEmpty ? "我们的家庭时光" : title) }
@@ -68,7 +67,7 @@ struct NativeShare: Decodable, Identifiable {
         do { shares = try await session.get("/shares"); error = "" }
         catch { self.error = friendly(error) }
     }
-    func create(title: String, start: Date, end: Date, hours: Int, mediaIDs: [Int]? = nil, profileID: Int? = nil) async {
+    func create(title: String, start: Date, end: Date, hours: Int, mediaIDs: [Int]? = nil, profileIDs: [Int] = []) async {
         guard !busy else { return }
         if let mediaIDs, mediaIDs.isEmpty || mediaIDs.count > 200 || mediaIDs.contains(where: { $0 <= 0 }) {
             error = "请选择 1 至 200 项影像。"; return
@@ -81,15 +80,15 @@ struct NativeShare: Decodable, Identifiable {
         busy = true; error = ""
         defer { busy = false }
         do {
-            var payload: [String: Any] = ["title": title, "hours": hours]
-            if let profileID { payload["profile_id"] = profileID }
+            var payload: [String: Any] = ["title": title, "hours": hours, "profile_ids": profileIDs]
             if let mediaIDs { payload["media_ids"] = mediaIDs }
             else { payload["start_date"] = NativeDay.string(start); payload["end_date"] = NativeDay.string(end) }
             let result: NativeShare = try await session.post("/shares", json: payload)
-            if let mediaIDs, result.scope != "selection" || result.selected_count != Set(mediaIDs).count {
-                // Never expose a date-wide URL when the user selected specific media.
+            if Set(result.profile_ids) != Set(profileIDs) || mediaIDs.map({
+                result.scope != "selection" || result.selected_count != Set($0).count
+            }) == true {
                 try? await session.write("/shares/\(result.id)", method: "DELETE", json: [:])
-                throw UploadFailure(message: "服务端未确认指定影像范围，未提供链接。请刷新记录检查撤销状态。")
+                throw UploadFailure(message: "服务端返回的分享范围有误。请刷新记录检查撤销状态。")
             }
             created = result
             shares.insert(result, at: 0)
