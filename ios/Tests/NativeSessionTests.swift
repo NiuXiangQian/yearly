@@ -6,6 +6,7 @@ private final class MemoryCredentials: SessionCredentialStore {
     func write(_ credential: SessionCredential?, site: String) throws { values[site] = credential }
 }
 private final class SessionHTTP: URLProtocol {
+    private static let requestsLock = NSLock()
     static var requests: [URLRequest] = []
     static var role = "member"
     static var authorized = true
@@ -36,7 +37,9 @@ private final class SessionHTTP: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        Self.requestsLock.lock()
         Self.requests.append(request)
+        Self.requestsLock.unlock()
         var status = 200
         var headers = ["Content-Type": "application/json"]
         var body = "{}"
@@ -83,9 +86,15 @@ private final class SessionHTTP: URLProtocol {
             let params = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let more = params.contains { $0.name == "cursor" }
             if params.contains(URLQueryItem(name: "anchor_day", value: "2020-01-03")) {
-                body = params.contains(URLQueryItem(name: "before", value: "true"))
-                    ? #"{"items":[{"id":6,"kind":"media","timeline_day":"2020-01-04"}],"total":3}"#
-                    : #"{"items":[{"id":5,"kind":"media","timeline_day":"2020-01-03"}],"total":3,"next_cursor":"day+cursor/=="}"#
+                if params.contains(URLQueryItem(name: "before", value: "true")) {
+                    body = more
+                        ? #"{"items":[{"id":4,"kind":"media","timeline_day":"2020-01-01"}],"total":4}"#
+                        : #"{"items":[{"id":6,"kind":"media","timeline_day":"2020-01-02"}],"total":4,"previous_cursor":"before+cursor/=="}"#
+                } else {
+                    body = more
+                        ? #"{"items":[{"id":8,"kind":"media","timeline_day":"2020-01-04"}],"total":4}"#
+                        : #"{"items":[{"id":5,"kind":"media","timeline_day":"2020-01-03"}],"total":4,"next_cursor":"day+cursor/=="}"#
+                }
                 break
             }
             if params.contains(URLQueryItem(name: "anchor_media_id", value: "42")) {
@@ -334,16 +343,27 @@ private final class SessionHTTP: URLProtocol {
         timeline.jump(to: "2020-01-03")
         precondition(timeline.anchorDay == "2020-01-03", "dragging during loading keeps the latest requested date")
         timeline.loading = false
+        let beforeDateJump = SessionHTTP.requests.count
         await timeline.loadIfNeeded()
-        precondition(timeline.anchorDay == "2020-01-03" && timeline.items.contains { $0.id == 5 })
-        precondition(timeline.items.map(\.id) == [5] && timeline.cursor == "day+cursor/==" && timeline.hasNewer, "show the requested day before prepending newer dates")
-        let jumpParams = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
-        precondition(jumpParams.contains(URLQueryItem(name: "anchor_day", value: "2020-01-03")))
-        precondition(!jumpParams.contains(URLQueryItem(name: "before", value: "true")))
-        precondition(jumpParams.contains(URLQueryItem(name: "media_type", value: "photo")))
-        precondition(jumpParams.contains(URLQueryItem(name: "child_id", value: "2")))
+        precondition(timeline.anchorDay == "2020-01-03" && timeline.items.map(\.id) == [6, 5],
+                     "the initial date window shows the surrounding days in the selected order")
+        precondition(timeline.cursor == "day+cursor/==" && timeline.hasNewer)
+        let jumpRequests = SessionHTTP.requests.dropFirst(beforeDateJump).map {
+            URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        }
+        precondition(jumpRequests.count == 2)
+        let before = URLQueryItem(name: "before", value: "true")
+        let dates = URLQueryItem(name: "include_dates", value: "true")
+        precondition(jumpRequests.contains { $0.contains(before) && !$0.contains(dates) })
+        precondition(jumpRequests.contains { !$0.contains(before) && $0.contains(dates) })
+        for params in jumpRequests {
+            precondition(params.contains(URLQueryItem(name: "anchor_day", value: "2020-01-03")))
+            precondition(params.contains(URLQueryItem(name: "media_type", value: "photo")))
+            precondition(params.contains(URLQueryItem(name: "child_id", value: "2")))
+        }
         await timeline.loadNewer()
-        precondition(timeline.items.contains { $0.id == 6 } && !timeline.hasNewer)
+        await timeline.load(more: true)
+        precondition(timeline.items.map(\.id) == [4, 6, 5, 8] && !timeline.hasNewer && timeline.cursor == nil)
         timeline.selected = [7]
         precondition(timeline.anchorDay == nil, "changing filters clears the date anchor")
         await timeline.loadIfNeeded()

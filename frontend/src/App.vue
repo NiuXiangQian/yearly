@@ -51,11 +51,15 @@ const mobileItems = computed(() => [
   { path: "/settings", label: t("我的"), icon: Settings },
 ]);
 const title = computed(() => titles.value[route.path] || "yearly");
+const workspace = ref<HTMLElement | null>(null);
 const theme = ref(localStorage.getItem("yearly-theme") === "dark" ? "dark" : "light");
 watch(theme, (value) => {
   document.documentElement.dataset.theme = value;
   localStorage.setItem("yearly-theme", value);
 }, { immediate: true });
+watch(() => route.path, () => {
+  if (workspace.value) workspace.value.scrollTop = 0;
+}, { flush: "post" });
 watch(
   () => yearly.user,
   (user) => {
@@ -126,7 +130,7 @@ async function logout() {
           </RouterLink>
         </div>
       </aside>
-      <div class="workspace">
+      <div ref="workspace" class="workspace">
         <header class="topbar">
           <div class="topbar-context">
             <RouterLink to="/" class="mobile-brand" aria-label="yearly"><Leaf :size="19" /></RouterLink>

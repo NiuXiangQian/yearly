@@ -7,7 +7,7 @@ enum NativeMotion {
 }
 
 struct NativeLiquidNavigation: View {
-    static let height: CGFloat = 60
+    private static let height: CGFloat = 60
     @Binding var selection: Int
     var showsMemoryReview = false
     let repeatTimeline: () -> Void

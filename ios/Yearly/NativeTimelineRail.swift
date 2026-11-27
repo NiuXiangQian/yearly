@@ -129,6 +129,7 @@ struct NativeTimelineRail: View {
 struct NativeTimelineLayout: Equatable {
     var days: [String: CGRect] = [:]
     var height: CGFloat = 0
+    var firstItem: String?
 }
 
 struct NativeTimelineDayPositions: PreferenceKey {
@@ -137,6 +138,7 @@ struct NativeTimelineDayPositions: PreferenceKey {
         let next = nextValue()
         value.days.merge(next.days) { _, next in next }
         value.height = max(value.height, next.height)
+        if let firstItem = next.firstItem { value.firstItem = firstItem }
     }
 }
 
@@ -145,6 +147,7 @@ final class NativeTimelineViewport {
     weak var scroll: UIScrollView?
     var days: [String: CGRect] = [:]
     var height: CGFloat = 0
+    var firstItem: String?
 }
 
 struct NativeTimelineScrollReader: UIViewRepresentable {

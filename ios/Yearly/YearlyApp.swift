@@ -68,123 +68,125 @@ struct NativeAppShell: View {
             } else if session.account == nil {
                 NativeLoginView(session: session, editSite: editSite)
             } else {
-                TabView(selection: $tab) {
-                    NativeTimelineView(store: timeline, isActive: tab == 0, topRequest: timelineTopRequest) { day in
-                        uploadDay = NativeDay.date(day)
-                        tab = 1
-                    }
-                        .tabItem { Label("时间线", systemImage: "photo.on.rectangle") }.tag(0)
-                        .toolbar(.hidden, for: .tabBar)
-                    Group {
-                        if session.canEdit {
-                            NativeUploadView(queue: queue, session: session, profileRevision: profileRevision, requestedDay: $uploadDay) { destination in
-                                session.invalidateCachedLists()
-                                switch destination {
-                                case .timeline:
-                                    timeline.focusOnUploads([])
-                                case .batch(let mediaIDs):
-                                    timeline.focusOnUploads(mediaIDs)
-                                case .recentUploads:
-                                    timeline.showRecentUploads()
-                                }
-                                tab = 0
-                            }
-                        } else {
-                            NavigationStack { Text("此账号为只读账号，可以浏览家庭回忆。上传需要家庭编辑权限。").padding().navigationTitle("珍藏原片") }
+                VStack(spacing: 0) {
+                    TabView(selection: $tab) {
+                        NativeTimelineView(store: timeline, isActive: tab == 0, topRequest: timelineTopRequest) { day in
+                            uploadDay = NativeDay.date(day)
+                            tab = 1
                         }
-                    }.tabItem { Label("上传", systemImage: "square.and.arrow.up") }.tag(1)
-                        .toolbar(.hidden, for: .tabBar)
-                    NativeFamilyView(store: timeline, showTimeline: { profile in
-                        timeline.focusOnUploads([])
-                        timeline.selected = [profile.id]
-                        tab = 0
-                    }, onProfileUpdated: { profileRevision += 1 })
-                    .tabItem { Label("家人", systemImage: "person.2") }.tag(2)
-                        .toolbar(.hidden, for: .tabBar)
-                    NavigationStack {
-                        Form {
-                            Section {
-                                HStack(spacing: 18) {
-                                    Text(String((session.account?.displayName ?? "家").prefix(1)))
-                                        .font(.system(.title, design: .serif).weight(.semibold))
-                                        .foregroundStyle(NativeTheme.accent).frame(width: 64, height: 64)
-                                        .background(NativeTheme.background, in: RoundedRectangle(cornerRadius: 16))
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        Text(session.account?.displayName ?? "家庭成员")
-                                            .font(.system(.title2, design: .serif).weight(.semibold))
-                                            .accessibilityAddTraits(.isHeader)
-                                        HStack(spacing: 8) {
-                                            Text(session.account?.roleLabel ?? "只读访客")
-                                                .font(.caption.weight(.semibold)).foregroundStyle(NativeTheme.accent)
-                                                .padding(.horizontal, 9).padding(.vertical, 4)
-                                                .background(NativeTheme.accent.opacity(0.08), in: Capsule())
-                                            if let account = session.account {
-                                                Text("ID \(account.id)").font(.caption).foregroundStyle(.secondary)
+                            .tabItem { Label("时间线", systemImage: "photo.on.rectangle") }.tag(0)
+                            .toolbar(.hidden, for: .tabBar)
+                        Group {
+                            if session.canEdit {
+                                NativeUploadView(queue: queue, session: session, profileRevision: profileRevision, requestedDay: $uploadDay) { destination in
+                                    session.invalidateCachedLists()
+                                    switch destination {
+                                    case .timeline:
+                                        timeline.focusOnUploads([])
+                                    case .batch(let mediaIDs):
+                                        timeline.focusOnUploads(mediaIDs)
+                                    case .recentUploads:
+                                        timeline.showRecentUploads()
+                                    }
+                                    tab = 0
+                                }
+                            } else {
+                                NavigationStack { Text("此账号为只读账号，可以浏览家庭回忆。上传需要家庭编辑权限。").padding().navigationTitle("珍藏原片") }
+                            }
+                        }.tabItem { Label("上传", systemImage: "square.and.arrow.up") }.tag(1)
+                            .toolbar(.hidden, for: .tabBar)
+                        NativeFamilyView(store: timeline, showTimeline: { profile in
+                            timeline.focusOnUploads([])
+                            timeline.selected = [profile.id]
+                            tab = 0
+                        }, onProfileUpdated: { profileRevision += 1 })
+                        .tabItem { Label("家人", systemImage: "person.2") }.tag(2)
+                            .toolbar(.hidden, for: .tabBar)
+                        NavigationStack {
+                            Form {
+                                Section {
+                                    HStack(spacing: 18) {
+                                        Text(String((session.account?.displayName ?? "家").prefix(1)))
+                                            .font(.system(.title, design: .serif).weight(.semibold))
+                                            .foregroundStyle(NativeTheme.accent).frame(width: 64, height: 64)
+                                            .background(NativeTheme.background, in: RoundedRectangle(cornerRadius: 16))
+                                        VStack(alignment: .leading, spacing: 7) {
+                                            Text(session.account?.displayName ?? "家庭成员")
+                                                .font(.system(.title2, design: .serif).weight(.semibold))
+                                                .accessibilityAddTraits(.isHeader)
+                                            HStack(spacing: 8) {
+                                                Text(session.account?.roleLabel ?? "只读访客")
+                                                    .font(.caption.weight(.semibold)).foregroundStyle(NativeTheme.accent)
+                                                    .padding(.horizontal, 9).padding(.vertical, 4)
+                                                    .background(NativeTheme.accent.opacity(0.08), in: Capsule())
+                                                if let account = session.account {
+                                                    Text("ID \(account.id)").font(.caption).foregroundStyle(.secondary)
+                                                }
                                             }
                                         }
+                                        Spacer(minLength: 0)
+                                    }.padding(.vertical, 10)
+                                }
+                                Section("管理与记录") {
+                                    if session.isAdmin {
+                                        NavigationLink { NativeOrganizationHomeView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } }) } label: {
+                                            NativeSettingsLabel(title: "照片助手", symbol: "sparkles", detail: "整理家人相册 · 自动整理记录")
+                                        }
+                                        NavigationLink { NativeAccountsView(session: session) } label: {
+                                            NativeSettingsLabel(title: "账号管理", symbol: "person.2.badge.gearshape")
+                                        }
                                     }
-                                    Spacer(minLength: 0)
-                                }.padding(.vertical, 10)
-                            }
-                            Section("管理与记录") {
-                                if session.isAdmin {
-                                    NavigationLink { NativeOrganizationHomeView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } }) } label: {
-                                        NativeSettingsLabel(title: "照片助手", symbol: "sparkles", detail: "整理家人相册 · 自动整理记录")
+                                    NavigationLink { NativeAuditView(session: session) } label: {
+                                        NativeSettingsLabel(title: "修改记录", symbol: "clock.arrow.circlepath")
                                     }
-                                    NavigationLink { NativeAccountsView(session: session) } label: {
-                                        NativeSettingsLabel(title: "账号管理", symbol: "person.2.badge.gearshape")
+                                    if session.canEdit {
+                                        Button { showingShares = true } label: {
+                                            HStack {
+                                                NativeSettingsLabel(title: "分享管理", symbol: "link")
+                                                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                            }
+                                        }.buttonStyle(.plain)
                                     }
                                 }
-                                NavigationLink { NativeAuditView(session: session) } label: {
-                                    NativeSettingsLabel(title: "修改记录", symbol: "clock.arrow.circlepath")
-                                }
-                                if session.canEdit {
-                                    Button { showingShares = true } label: {
+                                Section {
+                                    NavigationLink { NativePasswordView(session: session) } label: {
+                                        NativeSettingsLabel(title: "修改密码", symbol: "lock.shield")
+                                    }
+                                    Button { queue.pauseAll(); editSite() } label: {
                                         HStack {
-                                            NativeSettingsLabel(title: "分享管理", symbol: "link")
+                                            NativeSettingsLabel(title: "站点与关于", symbol: "globe", detail: session.site.url.host)
                                             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                                         }
                                     }.buttonStyle(.plain)
-                                }
-                            }
-                            Section {
-                                NavigationLink { NativePasswordView(session: session) } label: {
-                                    NativeSettingsLabel(title: "修改密码", symbol: "lock.shield")
-                                }
-                                Button { queue.pauseAll(); editSite() } label: {
-                                    HStack {
-                                        NativeSettingsLabel(title: "站点与关于", symbol: "globe", detail: session.site.url.host)
-                                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                } header: { Text("安全与设置") }
+                                Section {
+                                    Button { loggingOut = true } label: {
+                                        Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right").frame(maxWidth: .infinity)
+                                    }.buttonStyle(NativeActionStyle(kind: .destructive))
+                                }.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+                                if !message.isEmpty { Text(message).foregroundStyle(.red) }
+                            }.scrollContentBackground(.hidden).background(NativeTheme.background)
+                                .navigationTitle("账号")
+                                .navigationBarTitleDisplayMode(.inline)
+                                .confirmationDialog("退出后上传将安全暂停", isPresented: $loggingOut, titleVisibility: .visible) {
+                                    Button("退出登录", role: .destructive) {
+                                        queue.pauseAll()
+                                        Task { do { try await session.logout() } catch { session.error = friendly(error) } }
                                     }
-                                }.buttonStyle(.plain)
-                            } header: { Text("安全与设置") }
-                            Section {
-                                Button { loggingOut = true } label: {
-                                    Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right").frame(maxWidth: .infinity)
-                                }.buttonStyle(NativeActionStyle(kind: .destructive))
-                            }.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
-                            if !message.isEmpty { Text(message).foregroundStyle(.red) }
-                        }.scrollContentBackground(.hidden).background(NativeTheme.background)
-                            .navigationTitle("账号")
-                            .navigationBarTitleDisplayMode(.inline)
-                            .confirmationDialog("退出后上传将安全暂停", isPresented: $loggingOut, titleVisibility: .visible) {
-                                Button("退出登录", role: .destructive) {
-                                    queue.pauseAll()
-                                    Task { do { try await session.logout() } catch { session.error = friendly(error) } }
                                 }
-                            }
-                    }.tabItem { Label("账号", systemImage: "person.crop.circle") }.tag(3)
-                        .toolbar(.hidden, for: .tabBar)
-                    if session.isAdmin {
-                        NavigationStack {
-                            NativeOrganizationHomeView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } })
-                        }.tabItem { Label("照片助手", systemImage: "sparkles") }.tag(4)
+                        }.tabItem { Label("账号", systemImage: "person.crop.circle") }.tag(3)
                             .toolbar(.hidden, for: .tabBar)
+                        if session.isAdmin {
+                            NavigationStack {
+                                NativeOrganizationHomeView(session: session, onUpdated: { Task { await timeline.load(refresh: true) } })
+                            }.tabItem { Label("照片助手", systemImage: "sparkles") }.tag(4)
+                                .toolbar(.hidden, for: .tabBar)
+                        }
                     }
-                }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    .clipped()
                     NativeLiquidNavigation(selection: $tab, showsMemoryReview: session.isAdmin) { timelineTopRequest += 1 }
                 }
+                .background(NativeTheme.background)
             }
         }
         .nativeSheet(isPresented: $showingShares) { NativeSharingView(session: session) }
