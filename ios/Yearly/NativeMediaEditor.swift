@@ -207,29 +207,7 @@ struct NativeMediaInfo: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("影像信息") {
-                    LabeledContent("拍摄时间", value: current.taken_at_local ?? "未知")
-                    LabeledContent("归档日期", value: current.day)
-                    if let source = current.time_source { LabeledContent("时间来源", value: source) }
-                    if let offset = current.taken_offset_minutes { LabeledContent("拍摄时区偏移", value: "\(offset) 分钟") }
-                    if let width = current.width, let height = current.height { LabeledContent("尺寸", value: "\(width) × \(height)") }
-                    let camera = [current.device_make, current.device_model].compactMap { $0 }.joined(separator: " ")
-                    if !camera.isEmpty { LabeledContent("拍摄设备", value: camera) }
-                    if let primary = current.primary {
-                        LabeledContent("原件", value: primary.original_filename)
-                        LabeledContent("原件大小", value: ByteCountFormatter.string(fromByteCount: primary.file_size + (current.motion?.file_size ?? 0), countStyle: .file))
-                    }
-                }
-                Section("归属与修改") {
-                    if !editable { Label("已锁定，只能编辑自己添加的内容", systemImage: "lock.fill") }
-                    LabeledContent("上传人", value: current.owner_name ?? "历史记录")
-                    LabeledContent("修改人", value: current.updated_by_name ?? "暂无记录")
-                    if let date = current.updated_at { LabeledContent("修改时间", value: NativeAuditLabels.time(date)) }
-                    NavigationLink("修改日志") {
-                        NativeAuditView(session: session, resourceType: item.kind == "event" ? "timeline_event" : "media", resourceID: String(item.id))
-                    }
-                }
-                if item.kind != "event" && editable {
+                if editable {
                     if draft != nil {
                         Section("整理回忆") {
                             NativeFormField(title: "标题") {
@@ -303,6 +281,13 @@ struct NativeMediaInfo: View {
                     if let remark = current.remark, !remark.isEmpty { Text(remark) }
                     if let place = current.location_name, !place.isEmpty { Text(place) }
                 }
+                Section("影像信息") {
+                    if editable {
+                        DisclosureGroup("拍摄与原件信息") { captureDetails }
+                    } else {
+                        captureDetails
+                    }
+                }
                 if let files = current.files, !files.isEmpty {
                     Section("文件完整性") {
                         ForEach(files) { file in
@@ -318,6 +303,15 @@ struct NativeMediaInfo: View {
                         if let metadata = current.metadata, let parser = metadata.parser_name {
                             LabeledContent("元数据解析", value: [parser, metadata.parser_version, metadata.parse_status].compactMap { $0 }.joined(separator: " · "))
                         }
+                    }
+                }
+                Section("归属与修改") {
+                    if !editable { Label("已锁定，只能编辑自己添加的内容", systemImage: "lock.fill") }
+                    LabeledContent("上传人", value: current.owner_name ?? "历史记录")
+                    LabeledContent("修改人", value: current.updated_by_name ?? "暂无记录")
+                    if let date = current.updated_at { LabeledContent("修改时间", value: NativeAuditLabels.time(date)) }
+                    NavigationLink("修改日志") {
+                        NativeAuditView(session: session, resourceType: "media", resourceID: String(item.id))
                     }
                 }
                 if !message.isEmpty { Text(message).foregroundStyle(.red) }
@@ -336,10 +330,25 @@ struct NativeMediaInfo: View {
                 }
             }
             .nativeInteractiveDismissDisabled(saving)
-            .task { if item.kind != "event" { await load() } }
+            .task { await load() }
             .nativeSheet(isPresented: $moving) {
                 NativeFolderMove(session: session, items: [current]) { onSaved() }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var captureDetails: some View {
+        LabeledContent("拍摄时间", value: current.time_unknown == true ? "未知" : (current.taken_at_local?.replacingOccurrences(of: "T", with: " ") ?? "未知"))
+        LabeledContent("归档日期", value: current.day)
+        if let source = current.time_source { LabeledContent("时间来源", value: source) }
+        if let offset = current.taken_offset_minutes { LabeledContent("拍摄时区偏移", value: "\(offset) 分钟") }
+        if let width = current.width, let height = current.height { LabeledContent("尺寸", value: "\(width) × \(height)") }
+        let camera = [current.device_make, current.device_model].compactMap { $0 }.joined(separator: " ")
+        if !camera.isEmpty { LabeledContent("拍摄设备", value: camera) }
+        if let primary = current.primary {
+            LabeledContent("原件", value: primary.original_filename)
+            LabeledContent("原件大小", value: ByteCountFormatter.string(fromByteCount: primary.file_size + (current.motion?.file_size ?? 0), countStyle: .file))
         }
     }
 
@@ -424,44 +433,98 @@ struct NativeMediaTrash: View {
     var body: some View {
         NavigationStack {
             List {
-                if items.isEmpty && !busy { Text("回收站是空的").foregroundStyle(.secondary) }
+                if items.isEmpty && !busy && message.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("回收站是空的", systemImage: "trash").font(.headline)
+                        Text("移到回收站的影像和日记会出现在这里。")
+                            .font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                    }
+                    .padding(.vertical, 12)
+                }
                 ForEach(items, id: \.stableID) { item in
                     Button {
                         selectedItem = item
                     } label: {
                         HStack(spacing: 12) {
+                            trashThumbnail(item)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(item.primary?.original_filename ?? item.label)
-                                Text(item.day).font(.caption).foregroundStyle(.secondary)
+                                Text(item.title.flatMap { $0.isEmpty ? nil : $0 } ?? item.primary?.original_filename ?? item.label)
+                                    .font(.headline)
+                                    .lineLimit(2)
+                                Text("\(typeLabel(item)) · \(item.day)")
+                                    .font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                                if !item.editable(by: store.session.account) {
+                                    Label("已锁定", systemImage: "lock").font(.caption)
+                                        .foregroundStyle(NativeTheme.secondaryText)
+                                }
                             }
-                            Spacer()
-                            if !item.editable(by: store.session.account) {
-                                Label("已锁定", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+                                .foregroundStyle(NativeTheme.accent)
                                 .accessibilityHidden(true)
                         }
-                        .frame(minHeight: 44)
+                        .frame(minHeight: 56)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .disabled(busy)
+                    .accessibilityElement(children: .combine)
                     .accessibilityHint("打开预览")
                 }
                 if busy { ProgressView() }
                 if cursor != nil { Button("加载更多") { Task { await load(more: true) } }.disabled(busy) }
-                if !message.isEmpty { Text(message).foregroundStyle(.red) }
+                if !message.isEmpty {
+                    Text(message).foregroundStyle(NativeTheme.inputError)
+                    Button("重试") { Task { await load() } }
+                }
             }
+            .scrollContentBackground(.hidden)
+            .background(NativeTheme.background)
             .navigationTitle("回收站")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .task { await load() }
             .refreshable { await load() }
             .nativeSheet(item: $selectedItem) { item in
-                NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
-                                  pagePosition: nil, previous: nil, next: nil, onSaved: {}, onDeleted: {},
-                                  onLocate: nil, restoreFromTrash: { try await restore(item) })
+                if item.kind == "event" {
+                    NativeDiaryPreview(session: store.session, initial: item, profiles: store.profiles,
+                                       onChanged: {}, restoreFromTrash: { try await restore(item) })
+                } else {
+                    NativeMediaDetail(session: store.session, initial: item, profiles: store.profiles,
+                                      pagePosition: nil, previous: nil, next: nil, onSaved: {}, onDeleted: {},
+                                      onLocate: nil, restoreFromTrash: { try await restore(item) })
+                }
             }
         }
+    }
+
+    private func typeLabel(_ item: NativeTimelineItem) -> String {
+        if item.kind == "event" { return "日记" }
+        switch item.media_type {
+        case "video": return "视频"
+        case "live_photo": return "实况照片"
+        default: return "照片"
+        }
+    }
+
+    private func trashThumbnail(_ item: NativeTimelineItem) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            RoundedRectangle(cornerRadius: 10).fill(NativeTheme.accent.opacity(0.09))
+            if let file = item.primary {
+                NativeMediaImage(session: store.session, mediaID: item.id, fileID: file.id, inTrash: true)
+                if item.media_type == "video" {
+                    Image(systemName: "play.circle.fill").font(.system(size: 14))
+                        .foregroundStyle(.white).shadow(radius: 2).padding(4)
+                }
+            } else {
+                Image(systemName: item.kind == "event" ? "book.closed" : "photo")
+                    .foregroundStyle(NativeTheme.accent)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(width: 56, height: 56)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func load(more: Bool = false) async {

@@ -87,12 +87,13 @@ struct NativeMediaImage: View {
     let fileID: Int
     var purpose = "thumbnail"
     var inTrash = false
+    var background = Color(.secondarySystemBackground)
     @State private var image: UIImage?
     @State private var failure = ""
     @State private var attempt = 0
     var body: some View {
         ZStack {
-            Color(.secondarySystemBackground)
+            background
             if let image { Image(uiImage: image).resizable().scaledToFit() }
             else if !failure.isEmpty {
                 VStack(spacing: 8) {
@@ -917,7 +918,12 @@ struct NativeTimelineView: View {
                 }
             }
             .fullScreenCover(item: $selectedItem) { item in
-                NativeMediaPager(store: store, initial: item)
+                if item.kind == "event" {
+                    NativeDiaryPreview(session: store.session, initial: item, profiles: store.profiles,
+                                       onChanged: { Task { await store.load(refresh: true) } })
+                } else {
+                    NativeMediaPager(store: store, initial: item)
+                }
             }
         }
     }
@@ -977,7 +983,7 @@ private struct NativeMediaPager: View {
     init(store: NativeTimelineStore, initial: NativeTimelineItem) {
         self.store = store
         let media = store.mediaPages(store.items)
-        _pages = State(initialValue: initial.kind == "event" || !media.contains(where: { $0.stableID == initial.stableID }) ? [initial] : media)
+        _pages = State(initialValue: !media.contains(where: { $0.stableID == initial.stableID }) ? [initial] : media)
         _selection = State(initialValue: initial.stableID)
         _uploadTotal = State(initialValue: store.total)
     }
@@ -989,9 +995,9 @@ private struct NativeMediaPager: View {
             if let activeIndex, let item = activeItem {
                 NativeMediaDetail(
                     session: store.session, initial: item, profiles: store.profiles,
-                    pagePosition: item.kind == "media" ? position(at: activeIndex) : nil,
-                    previous: activeIndex > 0 || store.hasNewer && item.kind == "media" ? { move(-1) } : nil,
-                    next: activeIndex + 1 < pages.count || store.cursor != nil && item.kind == "media" ? { move(1) } : nil,
+                    pagePosition: position(at: activeIndex),
+                    previous: activeIndex > 0 || store.hasNewer ? { move(-1) } : nil,
+                    next: activeIndex + 1 < pages.count || store.cursor != nil ? { move(1) } : nil,
                     onSaved: { Task { await store.load() } },
                     onDeleted: { remove(item) },
                     onLocate: store.usesUploadOrder ? { current in dismiss(); store.locate(current) } : nil
@@ -1000,12 +1006,12 @@ private struct NativeMediaPager: View {
         }
         .background(.black)
         .task(id: selection) {
-            guard let activeIndex, activeItem?.kind == "media" else { return }
+            guard let activeIndex else { return }
             if activeIndex >= pages.count - 2, store.cursor != nil { await extend(1) }
             else if activeIndex <= 1, store.hasNewer { await extend(-1) }
         }
         .task(id: activeItem.map(store.groupDay)) {
-            guard store.usesUploadOrder, let activeItem, activeItem.kind == "media" else { return }
+            guard store.usesUploadOrder, let activeItem else { return }
             let day = store.groupDay(activeItem)
             guard uploadDayTotals[day] == nil, store.cursor != nil,
                   pages.last.map(store.groupDay) == day else { return }
@@ -1140,9 +1146,7 @@ struct NativeMediaDetail: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 VStack(spacing: 12) {
-                    if item.kind == "event" {
-                        ScrollView { Text(item.content ?? "").frame(maxWidth: .infinity, alignment: .leading).padding() }.foregroundStyle(.white)
-                    } else if let player {
+                    if let player {
                         VideoPlayer(player: player).onDisappear { player.pause() }
                             .overlay {
                                 if item.media_type == "live_photo" {
@@ -1155,7 +1159,10 @@ struct NativeMediaDetail: View {
                             }
                     } else if let file = item.primary {
                         NativeMediaImage(session: session, mediaID: item.id, fileID: file.id,
-                                         purpose: item.media_type == "video" ? "thumbnail" : "preview", inTrash: inTrash)
+                                         purpose: item.media_type == "video" ? "thumbnail" : "preview",
+                                         inTrash: inTrash, background: .black)
+                            .foregroundStyle(.white)
+                            .tint(.white)
                             .scaleEffect(zoom).offset(offset)
                             .gesture(DragGesture().onChanged { value in
                                 offset = CGSize(width: dragOrigin.width + value.translation.width, height: dragOrigin.height + value.translation.height)
@@ -1251,27 +1258,22 @@ struct NativeMediaDetail: View {
                         HStack {
                             Button { stop(); showingInfo = true } label: {
                                 Image(systemName: item.editable(by: session.account) ? "square.and.pencil" : "info.circle")
-                            }.accessibilityLabel(item.editable(by: session.account) ? (item.kind == "event" ? "编辑日记" : "编辑影像") : "查看信息与修改日志")
-                            if item.editable(by: session.account) && (item.kind != "event" || NativeDay.date(item.day) != nil) {
-                                Button { stop(); showingShare = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel(item.kind == "event" ? "分享当天回忆" : "分享这项影像")
+                            }.accessibilityLabel(item.editable(by: session.account) ? "编辑影像" : "影像信息")
+                            if item.editable(by: session.account) {
+                                Button { stop(); showingShare = true } label: { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享这项影像")
                             }
                             Menu {
-                                if item.kind == "event" && !item.editable(by: session.account) {
-                                    Button("查看信息", systemImage: "info.circle") { stop(); showingInfo = true }
-                                }
                                 if let onLocate {
                                     Button("跳到归档位置", systemImage: "scope") { stop(); onLocate(item) }
                                 }
-                                if item.kind != "event" {
-                                    if session.isAdmin {
-                                        Button("确认人物与宠物", systemImage: "person.crop.rectangle") { stop(); showingPeople = true }
-                                    }
-                                    Button("保存到相册", systemImage: "square.and.arrow.down") { Task { await saveToPhotos() } }
+                                if session.isAdmin {
+                                    Button("确认人物与宠物", systemImage: "person.crop.rectangle") { stop(); showingPeople = true }
+                                }
+                                Button("保存到相册", systemImage: "square.and.arrow.down") { Task { await saveToPhotos() } }
+                                    .disabled(savingToPhotos || deleting)
+                                if item.editable(by: session.account) {
+                                    Button("移到回收站", systemImage: "trash", role: .destructive) { confirmingDelete = true }
                                         .disabled(savingToPhotos || deleting)
-                                    if item.editable(by: session.account) {
-                                        Button("移到回收站", systemImage: "trash", role: .destructive) { confirmingDelete = true }
-                                            .disabled(savingToPhotos || deleting)
-                                    }
                                 }
                             } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("影像操作")
                         }
@@ -1280,7 +1282,6 @@ struct NativeMediaDetail: View {
             }
             .nativeInteractiveDismissDisabled(restoring)
             .task {
-                guard initial.kind != "event" else { return }
                 startAutomaticPlaybackIfNeeded()
                 guard !inTrash else { return }
                 do {
@@ -1294,7 +1295,7 @@ struct NativeMediaDetail: View {
                 Button("移到回收站", role: .destructive) { Task { await trash() } }
                 Button("取消", role: .cancel) {}
             } message: { Text("可以从时间线的回收站恢复这项影像。") }
-            .nativeSheet(isPresented: $showingShare) { NativeSharingView(session: session, day: item.day, selectedItems: item.kind == "event" ? nil : [item]) }
+            .nativeSheet(isPresented: $showingShare) { NativeSharingView(session: session, day: item.day, selectedItems: [item]) }
             .nativeSheet(isPresented: $showingPeople) {
                 NavigationStack {
                     NativeMemoryReviewView(session: session, mediaID: item.id, onUpdated: onSaved)
@@ -1302,13 +1303,9 @@ struct NativeMediaDetail: View {
                 }
             }
             .nativeSheet(isPresented: $showingInfo) {
-                if item.kind == "event" {
-                    NativeDiaryEditor(session: session, profiles: profiles, existing: item) { Task { await reloadDiary() } }
-                } else {
-                    NativeMediaInfo(session: session, item: item, profiles: profiles) {
-                        onSaved()
-                        Task { do { detail = try await session.get("/media/\(initial.id)") } catch { message = friendly(error) } }
-                    }
+                NativeMediaInfo(session: session, item: item, profiles: profiles) {
+                    onSaved()
+                    Task { do { detail = try await session.get("/media/\(initial.id)") } catch { message = friendly(error) } }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
@@ -1318,16 +1315,6 @@ struct NativeMediaDetail: View {
             .onChange(of: scenePhase) { if $0 != .active { stop() } }
         }
     }
-    private func reloadDiary() async {
-        do {
-            var updated: NativeTimelineItem = try await session.get("/events/\(initial.id)")
-            updated.kind = "event"
-            detail = updated
-            onSaved()
-        } catch let error as NativeAPIError where error.status == 404 { onDeleted() }
-        catch { message = friendly(error) }
-    }
-
     private func resetZoom() {
         zoom = 1
         imageScale = 1

@@ -14,6 +14,301 @@ struct NativeDiaryRequest: Identifiable {
     var items: [NativeTimelineItem] = []
 }
 
+struct NativeDiaryPreview: View {
+    private enum Panel: String, Identifiable {
+        case editor, share, history
+        var id: Self { self }
+    }
+
+    private struct Response: Decodable {
+        let entry: NativeTimelineItem
+        let media: [NativeTimelineItem]
+
+        init(from decoder: Decoder) throws {
+            entry = try NativeTimelineItem(from: decoder)
+            media = try decoder.container(keyedBy: CodingKeys.self).decode([NativeTimelineItem].self, forKey: .media)
+        }
+
+        private enum CodingKeys: String, CodingKey { case media }
+    }
+
+    @ObservedObject var session: NativeSession
+    let initial: NativeTimelineItem
+    let profiles: [UploadProfile]
+    let onChanged: () -> Void
+    var restoreFromTrash: (() async throws -> Void)? = nil
+
+    @NativeDismiss private var dismiss
+    @State private var detail: NativeTimelineItem?
+    @State private var media: [NativeTimelineItem]?
+    @State private var panel: Panel?
+    @State private var refreshAfterEdit = false
+    @State private var selectedMedia: NativeTimelineItem?
+    @State private var loading = false
+    @State private var loadRevision = 0
+    @State private var restoring = false
+    @State private var error = ""
+
+    private var item: NativeTimelineItem { detail ?? initial }
+    private var inTrash: Bool { restoreFromTrash != nil }
+    private var editable: Bool { item.editable(by: session.account) }
+    private var hasMedia: Bool { item.media_ids?.isEmpty == false }
+    private var cover: NativeTimelineItem? { media?.first { $0.id == item.cover_media_id && $0.primary != nil } }
+
+    private static let dayFormat: DateFormatter = {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "zh_CN")
+        format.timeZone = NativeLocalDateTime.zone
+        format.dateFormat = "yyyy年M月d日 EEEE"
+        return format
+    }()
+
+    private static let timeFormat: DateFormatter = {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "zh_CN")
+        format.timeZone = NativeLocalDateTime.zone
+        format.dateFormat = "HH:mm"
+        return format
+    }()
+
+    private var dateCaption: String {
+        let start = NativeLocalDateTime.date(item.start_at)
+        let end = NativeLocalDateTime.date(item.end_at)
+        guard let start else {
+            if let end { return "结束于 " + Self.dayFormat.string(from: end) + " " + Self.timeFormat.string(from: end) }
+            return item.day == "日期未知" ? "日期未填写" : item.day
+        }
+        let day = Self.dayFormat.string(from: start)
+        let time = Self.timeFormat.string(from: start)
+        if let end {
+            let endDay = Self.dayFormat.string(from: end)
+            let endTime = Self.timeFormat.string(from: end)
+            return day == endDay ? "\(day)  \(time)–\(endTime)" : "\(day) \(time) 至 \(endDay) \(endTime)"
+        }
+        // A diary created from a date uses midnight even when no specific time was selected.
+        return time == "00:00" ? day : "\(day)  \(time)"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            controls
+            Divider().accessibilityHidden(true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    article
+                    if !error.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(error).foregroundStyle(NativeTheme.inputError)
+                            if !inTrash {
+                                Button("重新加载") { Task { await load(refresh: true) } }
+                                    .buttonStyle(NativeActionStyle(compact: true))
+                                    .disabled(loading)
+                            }
+                        }
+                        .font(.subheadline)
+                    }
+                    if !inTrash && hasMedia { mediaSection }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 36)
+                .padding(.bottom, 48)
+                .frame(maxWidth: 640, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .background { NativeTheme.surface.ignoresSafeArea() }
+        .nativeInteractiveDismissDisabled(restoring)
+        .task { if !inTrash && hasMedia { await load() } }
+        .sheet(item: $panel, onDismiss: refreshEditedDiary) { destination in
+            switch destination {
+            case .editor:
+                NativeDiaryEditor(session: session, profiles: profiles, existing: item) {
+                    refreshAfterEdit = true
+                }
+            case .share:
+                NativeSharingView(session: session, day: item.day)
+            case .history:
+                NavigationStack {
+                    NativeAuditView(session: session, resourceType: "timeline_event", resourceID: String(item.id))
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { panel = nil } } }
+                }
+            }
+        }
+        .fullScreenCover(item: $selectedMedia) { selected in
+            NativeMediaDetail(session: session, initial: selected, profiles: profiles,
+                              pagePosition: nil, previous: nil, next: nil, onSaved: onChanged,
+                              onDeleted: {
+                                  selectedMedia = nil
+                                  media?.removeAll { $0.id == selected.id }
+                                  onChanged()
+                                  Task { await load(refresh: true) }
+                              }, onLocate: nil)
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 8) {
+            Button("关闭") { dismiss() }
+                .buttonStyle(NativeActionStyle(kind: .quiet, compact: true))
+                .disabled(restoring)
+            Spacer(minLength: 0)
+            if let restoreFromTrash {
+                if restoring {
+                    ProgressView("正在恢复…").padding(.horizontal, 8)
+                } else if editable {
+                    Button("恢复日记") { Task { await restore(restoreFromTrash) } }
+                        .buttonStyle(NativeActionStyle(kind: .primary, compact: true))
+                }
+            } else {
+                if editable {
+                    Button("编辑日记") { panel = .editor }
+                        .buttonStyle(NativeActionStyle(compact: true))
+                }
+                Menu {
+                    if editable && NativeDay.date(item.day) != nil {
+                        Button("分享当天回忆", systemImage: "square.and.arrow.up") { panel = .share }
+                    }
+                    Button("修改记录", systemImage: "clock.arrow.circlepath") { panel = .history }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.body.weight(.medium))
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("日记操作")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .tint(NativeTheme.accent)
+    }
+
+    private var article: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(dateCaption, systemImage: "calendar")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(NativeTheme.accent)
+                Text(item.label)
+                    .font(NativeTheme.display)
+                    .accessibilityAddTraits(.isHeader)
+                    .textSelection(.enabled)
+                if let people = item.children, !people.isEmpty {
+                    Label(people.map { $0.nickname.isEmpty ? $0.name : $0.nickname }.joined(separator: "、"),
+                          systemImage: "person.2")
+                        .font(.subheadline)
+                        .foregroundStyle(NativeTheme.secondaryText)
+                }
+            }
+            Rectangle().fill(NativeTheme.accent).frame(width: 36, height: 2).accessibilityHidden(true)
+            if let content = item.content, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(verbatim: content)
+                    .font(.title3)
+                    .lineSpacing(8)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("这篇日记还没有正文。").foregroundStyle(NativeTheme.secondaryText)
+            }
+        }
+    }
+
+    private var mediaSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("关联影像").font(.headline).accessibilityAddTraits(.isHeader)
+            if let media {
+                if media.isEmpty {
+                    Text("关联影像暂不可查看。").font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
+                } else {
+                    if let cover { thumbnail(cover, ratio: 16.0 / 10.0) }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 8)], spacing: 8) {
+                        ForEach(media.filter { $0.id != cover?.id }) { linked in
+                            thumbnail(linked, ratio: 1)
+                        }
+                    }
+                }
+            } else if error.isEmpty {
+                ProgressView("正在读取关联影像…")
+            }
+        }
+    }
+
+    private func thumbnail(_ linked: NativeTimelineItem, ratio: CGFloat) -> some View {
+        Button {
+            selectedMedia = linked
+        } label: {
+            Color.clear.aspectRatio(ratio, contentMode: .fit)
+                .overlay {
+                    if let file = linked.primary {
+                        NativeMediaImage(session: session, mediaID: linked.id, fileID: file.id)
+                            .allowsHitTesting(false)
+                    } else {
+                        Image(systemName: linked.media_type == "video" ? "video" : "photo")
+                            .foregroundStyle(NativeTheme.secondaryText)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if linked.media_type == "video" && linked.primary != nil {
+                        Image(systemName: "play.fill").font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(8).background(.black.opacity(0.75), in: Circle())
+                            .padding(8)
+                    }
+                }
+                .background(NativeTheme.background)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(linked.primary?.original_filename ?? linked.label)
+        .accessibilityHint("打开关联影像")
+    }
+
+    private func refreshEditedDiary() {
+        guard refreshAfterEdit else { return }
+        refreshAfterEdit = false
+        onChanged()
+        Task { await load(refresh: true, closeIfDeleted: true) }
+    }
+
+    private func load(refresh: Bool = false, closeIfDeleted: Bool = false) async {
+        loadRevision += 1
+        let revision = loadRevision
+        loading = true
+        error = ""
+        defer { if revision == loadRevision { loading = false } }
+        do {
+            let response: Response = try await session.get("/events/\(initial.id)", refresh: refresh)
+            guard !Task.isCancelled, revision == loadRevision else { return }
+            var entry = response.entry
+            entry.kind = "event"
+            detail = entry
+            media = response.media.map { current in
+                var linked = current
+                linked.kind = "media"
+                return linked
+            }
+        } catch {
+            guard !Task.isCancelled, revision == loadRevision else { return }
+            if closeIfDeleted, (error as? NativeAPIError)?.status == 404 {
+                dismiss()
+            } else {
+                self.error = friendly(error)
+            }
+        }
+    }
+
+    private func restore(_ action: () async throws -> Void) async {
+        guard !restoring else { return }
+        restoring = true
+        error = ""
+        defer { restoring = false }
+        do {
+            try await action()
+            dismiss()
+        } catch { self.error = friendly(error) }
+    }
+}
+
 struct NativeDiaryEditor: View {
     let session: NativeSession
     let profiles: [UploadProfile]
@@ -126,7 +421,10 @@ struct NativeDiaryEditor: View {
                 if !failure.isEmpty { Text(failure).foregroundStyle(.red) }
             }
             .disabled(busy)
+            .scrollContentBackground(.hidden)
+            .background(NativeTheme.background)
             .navigationTitle(existing == nil ? "写日记" : "编辑日记")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) {
