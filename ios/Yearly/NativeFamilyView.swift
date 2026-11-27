@@ -292,7 +292,7 @@ private extension UploadProfile {
     var portraitSubtitle: String {
         let details = isPet ? [species, breed].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
             : relationship ?? ""
-        return details.isEmpty ? kindLabel : details
+        return details.isEmpty || details == displayName ? kindLabel : details
     }
 }
 

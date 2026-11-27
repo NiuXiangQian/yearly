@@ -121,9 +121,9 @@ struct NativeFamilyAvatarViewer: View {
     @GestureState private var drag: CGSize = .zero
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            controls
             ZStack {
-                Color.black.ignoresSafeArea()
                 if let image {
                     zoomable(image)
                 } else if !error.isEmpty {
@@ -137,24 +137,10 @@ struct NativeFamilyAvatarViewer: View {
                     ProgressView("正在加载头像…")
                 }
             }
-            .navigationTitle("\(name)的头像")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
-                }
-                if image != nil {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button(action: toggleZoom) {
-                            Image(systemName: zoom > 1 ? "minus.magnifyingglass" : "plus.magnifyingglass")
-                                .frame(minWidth: 44, minHeight: 44)
-                        }
-                        .accessibilityLabel(zoom > 1 ? "适应屏幕" : "放大头像")
-                    }
-                }
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(Color.black.ignoresSafeArea())
+        .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .tint(.white)
         .task(id: attempt) {
@@ -166,6 +152,37 @@ struct NativeFamilyAvatarViewer: View {
                 if !Task.isCancelled { self.error = friendly(error) }
             }
         }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 12) {
+            Button { dismiss() } label: {
+                Text("关闭")
+                    .padding(.horizontal, 12)
+                    .frame(minWidth: 56, minHeight: 44)
+                    .background(.white.opacity(0.14), in: Capsule())
+            }
+            Text("\(name)的头像")
+                .font(.headline)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(.isHeader)
+            if image != nil {
+                Button(action: toggleZoom) {
+                    Image(systemName: zoom > 1 ? "minus.magnifyingglass" : "plus.magnifyingglass")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 56, height: 44)
+                        .background(.white.opacity(0.14), in: Capsule())
+                }
+                .accessibilityLabel(zoom > 1 ? "适应屏幕" : "放大头像")
+            } else {
+                Color.clear.frame(width: 56, height: 44).accessibilityHidden(true)
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private func zoomable(_ image: UIImage) -> some View {
