@@ -14,9 +14,7 @@ enum NativeTheme {
     static let secondaryText = Color(UIColor { $0.userInterfaceStyle == .dark
         ? UIColor(red: 0.71, green: 0.77, blue: 0.84, alpha: 1)
         : UIColor(red: 0.32, green: 0.39, blue: 0.47, alpha: 1) })
-    static let inputBackground = Color(UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0.09, green: 0.14, blue: 0.20, alpha: 1)
-        : UIColor(red: 0.95, green: 0.97, blue: 0.98, alpha: 1) })
+    static let inputSecondaryText = Color.primary.opacity(0.64)
     static let inputError = Color(UIColor { $0.userInterfaceStyle == .dark
         ? UIColor(red: 1, green: 0.62, blue: 0.60, alpha: 1)
         : UIColor(red: 0.67, green: 0.17, blue: 0.20, alpha: 1) })
@@ -24,7 +22,7 @@ enum NativeTheme {
     static let line = Color(UIColor.separator).opacity(0.35)
 
     static func inputPrompt(_ label: String) -> Text {
-        Text(label).foregroundColor(secondaryText)
+        Text(label).foregroundColor(inputSecondaryText)
     }
 }
 
@@ -67,7 +65,7 @@ struct NativeFormField<Input: View>: View {
             } else if let hint {
                 Text(hint)
                     .font(.footnote)
-                    .foregroundStyle(NativeTheme.secondaryText)
+                    .foregroundStyle(NativeTheme.inputSecondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -83,16 +81,17 @@ private struct NativeInputSurface: ViewModifier {
 
     private var border: Color {
         if invalid { return NativeTheme.inputError }
-        if focused && enabled { return NativeTheme.accent }
-        return NativeTheme.secondaryText.opacity(contrast == .increased ? 1 : 0.72)
+        if focused && enabled { return NativeTheme.accent.opacity(contrast == .increased ? 1 : 0.8) }
+        if !enabled { return Color.primary.opacity(0.08) }
+        return Color.primary.opacity(contrast == .increased ? 0.55 : 0.14)
     }
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 12)
         content
-            .background(NativeTheme.inputBackground.opacity(enabled ? 1 : 0.5), in: shape)
+            .background(Color.primary.opacity(enabled ? 0.05 : 0.025), in: shape)
             .overlay {
-                shape.strokeBorder(border, lineWidth: focused && enabled ? 2 : 1)
+                shape.strokeBorder(border, lineWidth: focused && enabled ? 1.5 : 1)
                     .allowsHitTesting(false)
             }
     }
