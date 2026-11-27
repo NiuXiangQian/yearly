@@ -1,7 +1,7 @@
 from datetime import date
 
 from app.map_geography import administrative_place, geographic_bounds
-from app.models import Child, Media, MediaChild, TimelineDay, TimelineFolder
+from app.models import Child, Media, MediaChild, MediaFile, TimelineDay, TimelineFolder
 
 
 def add_media(db, title, latitude, longitude, **fields):
@@ -114,3 +114,44 @@ def test_offline_boundary_data_and_bounds():
     assert administrative_place(37.7726, -122.4602, "country")[1] == "美国"
     assert administrative_place(0, 0, "country") is None
     assert geographic_bounds([(1, 180), (2, -180)]) == {"south": 1, "north": 2, "west": -180, "east": -180}
+
+
+def test_sparse_map_covers_are_visible_completed_originals(context, monkeypatch):
+    def original(db, media_id, status="complete"):
+        file = MediaFile(
+            media_id=media_id, file_role="original", oss_bucket="fixture",
+            oss_object_key=f"fixture/{media_id}", original_filename="photo.jpg",
+            mime_type="image/jpeg", file_size=10, sha256="0" * 64, crc64="0", upload_status=status,
+        )
+        db.add(file)
+        db.flush()
+        return file.id
+
+    with context.db() as db:
+        public_media = add_media(db, "西湖", 30.241, 120.148)
+        public_file = original(db, public_media)
+        original(db, add_media(db, "隐藏照片", 30.241, 120.148, share_allowed=False))
+        original(db, add_media(db, "等待原件", 31.324, 120.629), status="pending")
+        for index in range(4):
+            original(db, add_media(db, f"上海影像{index}", 31.239, 121.49))
+        db.commit()
+
+    client = context.client
+    client.cookies.set("yearly_session", "viewer")
+    area = {"south": 30, "north": 32, "west": 119, "east": 123, "level": "region"}
+    result = client.get("/api/media/map", params={**area, "include_covers": True})
+    assert result.status_code == 200, result.text
+    groups = {group["name"]: group for group in result.json()["groups"]}
+    assert groups["浙江省"]["cover"] == {
+        "media_id": public_media, "file_id": public_file, "media_type": "photo", "title": "西湖",
+    }
+    assert all("sample_id" not in group for group in groups.values())
+    assert "cover" not in groups["江苏省"]
+    assert "cover" not in groups["上海市"]
+
+    result = client.get("/api/media/map", params=area)
+    assert all("cover" not in group for group in result.json()["groups"])
+    monkeypatch.setattr("app.media_map.MAX_COVER_GROUPS", 2)
+    result = client.get("/api/media/map", params={**area, "include_covers": True})
+    assert len(result.json()["groups"]) == 3
+    assert all("cover" not in group for group in result.json()["groups"])

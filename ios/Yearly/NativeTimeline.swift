@@ -88,14 +88,18 @@ struct NativeMediaImage: View {
     var purpose = "thumbnail"
     var inTrash = false
     var background = Color(.secondarySystemBackground)
+    var contentMode: ContentMode = .fit
+    var showsStatus = true
     @State private var image: UIImage?
     @State private var failure = ""
     @State private var attempt = 0
     var body: some View {
         ZStack {
             background
-            if let image { Image(uiImage: image).resizable().scaledToFit() }
-            else if !failure.isEmpty {
+            if let image { Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode) }
+            else if !showsStatus {
+                Image(systemName: "photo").font(.caption).foregroundStyle(.secondary)
+            } else if !failure.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "photo.badge.exclamationmark")
                     Button("重试预览") { attempt += 1 }
