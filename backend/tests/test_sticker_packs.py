@@ -1,5 +1,12 @@
+import shutil
+import subprocess
+from types import SimpleNamespace
+
+import imageio_ffmpeg
+
 from app import sticker_packs
-from conftest import upload
+from app.models import VideoPreview
+from conftest import file_payload, upload
 
 
 def test_sticker_suggestions_keep_only_valid_frames_and_captions(context, monkeypatch):
@@ -41,3 +48,39 @@ def test_sticker_source_permissions_are_rechecked_for_export_and_ai(context, mon
     monkeypatch.setattr(sticker_packs, "require_enabled", must_not_call)
     assert context.client.get("/api/sticker-packs/eligibility", params={"media_ids": mid}).status_code == 422
     assert context.client.post("/api/sticker-packs/suggestions", json={"media_ids": [mid]}).status_code == 422
+
+
+def test_video_sticker_sends_sampled_preview_frames(context, tmp_path, monkeypatch):
+    clip = tmp_path / "clip.mp4"
+    subprocess.run([
+        imageio_ffmpeg.get_ffmpeg_exe(), "-v", "error", "-f", "lavfi", "-i",
+        "testsrc2=s=160x120:r=25:d=2", str(clip),
+    ], check=True, capture_output=True)
+    payload = file_payload(clip.read_bytes(), name=clip.name)
+    payload["mime_type"] = "video/mp4"
+    mid = upload(context, content=clip.read_bytes(), files=[payload], media_type="video")["media_id"]
+    with context.db() as db:
+        db.add(VideoPreview(sha256=payload["sha256"], status="ready", object_key="compressed-preview"))
+        db.commit()
+
+    reads = []
+
+    def download(key, target):
+        reads.append(key)
+        shutil.copyfile(clip, target)
+
+    context.storage.bucket = SimpleNamespace(get_object_to_file=download)
+    monkeypatch.setattr(sticker_packs, "require_enabled", lambda: None)
+
+    def suggest(db, system, content, schema, *, model):
+        images = [part for part in content if part["type"] == "image_url"]
+        assert len(images) == 5
+        assert all(image["image_url"]["url"].startswith("data:image/jpeg;base64,") for image in images)
+        return schema(items=[sticker_packs.CaptionSuggestion(candidate_id="c3", captions=["嘿嘿"])])
+
+    monkeypatch.setattr(sticker_packs, "chat", suggest)
+    assert context.client.get("/api/sticker-packs/eligibility", params={"media_ids": mid}).json() == {"ok": True}
+    response = context.client.post("/api/sticker-packs/suggestions", json={"media_ids": [mid]})
+    assert response.status_code == 200, response.text
+    assert response.json()["items"] == [{"media_id": mid, "frame_seconds": 0.95, "captions": ["嘿嘿"]}]
+    assert reads == ["compressed-preview"]

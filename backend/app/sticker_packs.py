@@ -38,8 +38,8 @@ def eligible_media(db, user, media_ids):
     scope = SimpleNamespace(media_ids=media_ids, owner_scope_id=None if user.role == "admin" else user.id)
     query, _ = shared_queries(scope)
     rows = {media.id: media for media in db.scalars(query)}
-    if len(rows) != len(media_ids) or any(media.media_type not in {"photo", "live_photo"} for media in rows.values()):
-        raise HTTPException(422, "请选择 1 至 6 张当前允许分享的照片或实况照片")
+    if len(rows) != len(media_ids) or any(media.media_type not in {"photo", "live_photo", "video"} for media in rows.values()):
+        raise HTTPException(422, "请选择 1 至 6 项当前允许分享的照片、实况照片或视频")
     return [rows[mid] for mid in media_ids]
 
 
@@ -52,19 +52,20 @@ def eligibility(media_ids: list[int] = Query(min_length=1, max_length=MAX_STICKE
 def preview_candidates(db, storage, media):
     files = {file.file_role: file for file in media.files if file.upload_status == "complete"}
     primary = files.get("original")
-    if primary:
+    is_video = media.media_type == "video"
+    if primary and not is_video:
         preview = db.get(DisplayPreview, primary.sha256)
         if preview and preview.status == "ready":
             try:
                 yield None, image_input(storage.bucket.get_object(preview.image_key).read())
             except (OSError, OssError):
                 pass
-    motion = files.get("live_video") if media.media_type == "live_photo" else None
+    motion = primary if is_video else files.get("live_video") if media.media_type == "live_photo" else None
     if motion:
         preview = db.get(VideoPreview, motion.sha256)
         if preview and preview.status == "ready":
             try:
-                for seconds, raw in sampled_video_images(storage, preview, frame_count=3):
+                for seconds, raw in sampled_video_images(storage, preview, frame_count=5 if is_video else 3):
                     yield seconds, image_input(raw)
             except (HTTPException, OSError, OssError, subprocess.SubprocessError):
                 # The still preview is independently usable if motion is unavailable.

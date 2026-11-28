@@ -20,6 +20,10 @@ private struct StickerSuggestions: Decodable {
 
 private struct StickerEligibility: Decodable { let ok: Bool }
 
+private extension NativeTimelineItem {
+    var stickerMotion: NativeMediaFile? { media_type == "video" ? primary : motion }
+}
+
 private struct StickerFrame: Identifiable {
     let seconds: Double?
     let image: UIImage
@@ -169,7 +173,7 @@ struct NativeStickerPackView: View {
     private func prepare() async {
         guard !busy else { return }
         busy = true
-        working = "正在加载照片…"
+        working = "正在加载素材…"
         message = ""
         defer { busy = false; working = "" }
         do {
@@ -177,16 +181,16 @@ struct NativeStickerPackView: View {
             var loaded: [StickerDraft] = []
             for item in items {
                 try Task.checkCancellation()
-                if let image = try? await loadStickerPhoto(item, session: session) {
+                if let image = try? await loadStickerCover(item, session: session) {
                     loaded.append(StickerDraft(id: item.id, image: image))
                 }
             }
             try Task.checkCancellation()
             drafts = loaded
-            if drafts.isEmpty { throw UploadFailure(message: "照片预览还未就绪，请稍后重试。") }
+            if drafts.isEmpty { throw UploadFailure(message: "影像预览还未就绪，请稍后重试。") }
             await applySuggestions()
             if drafts.count < items.count && message.isEmpty {
-                message = "部分照片预览还未就绪，已显示可用的照片。"
+                message = "部分影像预览还未就绪，已显示可用的素材。"
             }
         } catch is CancellationError {
         } catch {
@@ -215,11 +219,11 @@ struct NativeStickerPackView: View {
                       let source = items.first(where: { $0.id == item.media_id }) else { continue }
                 var draft = drafts[index]
                 let image: UIImage?
-                if let time = item.frame_seconds, let motion = source.motion,
+                if let time = item.frame_seconds, let motion = source.stickerMotion,
                    let url = try? await stickerPreviewURL(source.id, motion.id, session: session) {
                     image = try? await stickerFrame(stickerGenerator(url), time: time).image
                 } else if item.frame_seconds == nil {
-                    image = draft.seconds == nil ? draft.image : (try? await loadStickerPhoto(source, session: session))
+                    image = draft.seconds == nil ? draft.image : (try? await loadStickerCover(source, session: session))
                 } else {
                     image = nil
                 }
@@ -233,11 +237,11 @@ struct NativeStickerPackView: View {
                 if #available(iOS 17, *) { draft.cutout = await stickerCutout(image) }
                 drafts[index] = draft
             }
-            if suggestions.items.isEmpty { message = "点开任意照片，可以自己选帧和配字。" }
+            if suggestions.items.isEmpty { message = "点开任意素材，可以自己选帧和配字。" }
         } catch is CancellationError {
         } catch {
             retryAI = true
-            message = "\(stickerMessage(error)) 也可以手动修改照片和配字。"
+            message = "\(stickerMessage(error)) 也可以手动选帧和配字。"
         }
     }
 
@@ -279,6 +283,8 @@ private struct NativeStickerEditor: View {
     @State private var frames: [StickerFrame] = []
     @State private var loadingFrames = false
     @State private var frameError = false
+    @State private var endTime = 0.0
+    @State private var seekTime = 0.0
     @State private var editingCrop = false
     @State private var busy = false
     @State private var message = ""
@@ -292,6 +298,7 @@ private struct NativeStickerEditor: View {
         self.onDone = onDone
         self.onRemove = onRemove
         _draft = State(initialValue: initial)
+        _seekTime = State(initialValue: initial.seconds ?? 0)
     }
 
     var body: some View {
@@ -315,7 +322,7 @@ private struct NativeStickerEditor: View {
                         .background(NativeTheme.surface)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                    if source.motion != nil { frameStrip }
+                    if source.stickerMotion != nil { frameStrip }
                     NativeFormField(title: "配字") {
                         TextField("输入配字", text: $draft.caption)
                             .onChange(of: draft.caption) { if $0.count > 12 { draft.caption = String($0.prefix(12)) } }
@@ -383,20 +390,20 @@ private struct NativeStickerEditor: View {
     }
 
     private var frameStrip: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("实况选帧").font(.subheadline.weight(.semibold))
-            if loadingFrames { ProgressView("正在读取实况…") }
+        let isVideo = source.media_type == "video"
+        let title = isVideo ? "视频选帧" : "实况选帧"
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.subheadline.weight(.semibold))
+            if loadingFrames { ProgressView("正在读取动态预览…") }
             if frameError {
-                Button("重试读取实况") { Task { await loadFrames() } }.frame(minHeight: 44)
+                Button("重试读取动态预览") { Task { await loadFrames() } }.frame(minHeight: 44)
             }
             ScrollView(.horizontal) {
                 HStack {
                     ForEach(frames) { frame in
                         Button {
-                            draft.image = frame.image
-                            draft.seconds = frame.seconds
-                            draft.cutout = nil
-                            message = ""
+                            selectFrame(frame)
+                            seekTime = min(endTime, frame.seconds ?? 0)
                         } label: {
                             Image(uiImage: frame.image).resizable().scaledToFill()
                                 .frame(width: 60, height: 60)
@@ -407,42 +414,76 @@ private struct NativeStickerEditor: View {
                                 }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(frame.seconds.map { String(format: "%.1f 秒", $0) } ?? "实况封面")
+                        .accessibilityLabel(frame.seconds.map { String(format: "%.1f 秒", $0) } ?? "封面")
                         .accessibilityAddTraits(draft.seconds == frame.seconds ? .isSelected : [])
                     }
                 }
             }
             .scrollIndicators(.hidden)
             .disabled(busy)
+            if isVideo && endTime > 0 {
+                Slider(value: $seekTime, in: 0...endTime)
+                    .accessibilityLabel("视频位置")
+                    .accessibilityValue(String(format: "%.1f 秒", seekTime))
+                    .disabled(busy)
+                HStack {
+                    Text(String(format: "%.1f 秒", seekTime)).monospacedDigit().foregroundStyle(.secondary)
+                    Spacer()
+                    Button("取这一帧") { Task { await captureFrame() } }
+                        .frame(minHeight: 44).disabled(busy)
+                }
+                .font(.subheadline)
+            }
         }
     }
 
     private func loadFrames() async {
-        guard !loadingFrames, let motion = source.motion else { return }
+        guard !loadingFrames, let motion = source.stickerMotion else { return }
         loadingFrames = true
         frameError = false
         defer { loadingFrames = false }
         do {
-            let cover = try await loadStickerPhoto(source, session: session)
-            frames = [StickerFrame(seconds: nil, image: cover)]
+            let cover = initial.seconds == nil ? initial.image : try? await loadStickerCover(source, session: session)
+            frames = cover.map { [StickerFrame(seconds: nil, image: $0)] } ?? []
             if let seconds = initial.seconds {
                 frames.append(StickerFrame(seconds: seconds, image: initial.image))
             }
             let url = try await stickerPreviewURL(source.id, motion.id, session: session)
             let generator = stickerGenerator(url)
             let duration = try await generator.asset.load(.duration).seconds
-            guard duration.isFinite, duration > 0 else { throw UploadFailure(message: "实况预览暂不可用。") }
+            guard duration.isFinite, duration > 0 else { throw UploadFailure(message: "动态预览暂不可用。") }
+            endTime = max(0, duration - 0.1)
+            seekTime = min(seekTime, endTime)
             for index in 0..<5 {
                 try Task.checkCancellation()
-                let time = max(0, duration - 0.1) * Double(index) / 4
+                let time = endTime * Double(index) / 4
                 if frames.contains(where: { $0.seconds.map { abs($0 - time) < 0.025 } ?? false }) { continue }
                 if let frame = try? await stickerFrame(generator, time: time) { frames.append(frame) }
             }
             frames.sort { $0.id < $1.id }
-            frameError = !frames.contains { $0.seconds != nil && $0.seconds != initial.seconds }
+            frameError = !frames.contains { $0.seconds != nil }
         } catch is CancellationError {
         } catch {
             frameError = true
+        }
+    }
+
+    private func selectFrame(_ frame: StickerFrame) {
+        draft.image = frame.image
+        draft.seconds = frame.seconds
+        draft.cutout = nil
+        message = ""
+    }
+
+    private func captureFrame() async {
+        guard !busy, let motion = source.stickerMotion else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let url = try await stickerPreviewURL(source.id, motion.id, session: session)
+            selectFrame(try await stickerFrame(stickerGenerator(url), time: seekTime))
+        } catch {
+            message = "这个位置暂时取不到画面，可以移动进度后重试。"
         }
     }
 
@@ -494,8 +535,8 @@ private func validateStickerSources(_ ids: [Int], session: NativeSession) async 
 }
 
 @MainActor
-private func stickerPreviewURL(_ media: Int, _ file: Int, session: NativeSession) async throws -> URL {
-    let resource: NativeMediaResource = try await session.get("/media/\(media)/files/\(file)/url?purpose=preview")
+private func stickerPreviewURL(_ media: Int, _ file: Int, purpose: String = "preview", session: NativeSession) async throws -> URL {
+    let resource: NativeMediaResource = try await session.get("/media/\(media)/files/\(file)/url?purpose=\(purpose)")
     guard let url = resource.url.flatMap(AppConfiguration.httpsURL) else {
         throw UploadFailure(message: resource.message ?? "影像预览还未就绪。")
     }
@@ -503,8 +544,17 @@ private func stickerPreviewURL(_ media: Int, _ file: Int, session: NativeSession
 }
 
 @MainActor
-private func loadStickerPhoto(_ item: NativeTimelineItem, session: NativeSession) async throws -> UIImage {
-    guard let file = item.primary else { throw UploadFailure(message: "找不到照片预览。") }
+private func loadStickerCover(_ item: NativeTimelineItem, session: NativeSession) async throws -> UIImage {
+    guard let file = item.primary else { throw UploadFailure(message: "找不到影像预览。") }
+    if item.media_type == "video" {
+        if let url = try? await stickerPreviewURL(item.id, file.id, purpose: "thumbnail", session: session),
+           let poster = try? await NativeMediaNetwork.image(url, maximumDimension: 480) {
+            return poster
+        }
+        try Task.checkCancellation()
+        let video = try await stickerPreviewURL(item.id, file.id, session: session)
+        return try await stickerFrame(stickerGenerator(video), time: 0).image
+    }
     let url = try await stickerPreviewURL(item.id, file.id, session: session)
     return try await NativeMediaNetwork.image(url, maximumDimension: 768)
 }

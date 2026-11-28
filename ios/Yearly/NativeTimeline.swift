@@ -886,7 +886,7 @@ struct NativeTimelineView: View {
                             Button("做表情包", systemImage: "face.smiling") {
                                 if chosen.count <= 6 && chosen.allSatisfy({ item in
                                     item.kind == "media" && !item.sharingLocked && item.primary != nil &&
-                                        (item.media_type == "photo" || item.media_type == "live_photo")
+                                        ["photo", "live_photo", "video"].contains(item.media_type ?? "")
                                 }) {
                                     stickerRequest = NativeStickerRequest(items: chosen)
                                 } else {
@@ -899,7 +899,7 @@ struct NativeTimelineView: View {
                 }
             }
             .alert("一次最多选择 200 项", isPresented: $selectionLimit) { Button("知道了", role: .cancel) { } }
-            .alert("请选择 1 至 6 张允许分享的照片或实况照片", isPresented: $invalidStickerSelection) {
+            .alert("请选择 1 至 6 项允许分享的照片、实况照片或视频", isPresented: $invalidStickerSelection) {
                 Button("知道了", role: .cancel) { }
             }
             .nativeSheet(item: $stickerRequest) { request in
