@@ -133,6 +133,23 @@ def extract_frames(executable, video, directory, detector, start, interval, coun
     return found
 
 
+def combine_frame_detections(initial, refined):
+    frames = {}
+    for face in initial:
+        frames.setdefault(face["frame_seconds"], []).append(face)
+    for face in refined:
+        faces = frames.setdefault(face["frame_seconds"], [])
+        for index, existing in enumerate(faces):
+            if (overlap(face.get("box"), existing.get("box")) >= .7
+                    and similarity(face["embedding"], existing["embedding"]) >= .85):
+                if quality(face) > quality(existing):
+                    faces[index] = face
+                break
+        else:
+            faces.append(face)
+    return [face for faces in frames.values() for face in faces]
+
+
 def detect_video_faces(video, directory, detector, fallback_duration_ms=None):
     executable = imageio_ffmpeg.get_ffmpeg_exe()
     probe = subprocess.run([executable, "-hide_banner", "-i", str(video)],
@@ -153,12 +170,12 @@ def detect_video_faces(video, directory, detector, fallback_duration_ms=None):
             windows.append(start)
         if len(windows) == MAX_REFINEMENT_WINDOWS:
             break
-    detections = {(face["frame_seconds"], tuple(face.get("box", face["embedding"]))): face for face in initial}
+    refined = []
     for start in windows:
-        for face in extract_frames(executable, video, directory, detector, start, .15, 10, 1.4):
-            detections.setdefault((face["frame_seconds"], tuple(face.get("box", face["embedding"]))), face)
+        refined.extend(extract_frames(executable, video, directory, detector, start, .15, 10, 1.4))
+    detections = combine_frame_detections(initial, refined)
     results = []
-    for track in merge_tracks(track_faces(detections.values(), interval)):
+    for track in merge_tracks(track_faces(detections, interval)):
         best = track.representative
         if not best.get("_usable", True):
             continue

@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from app.face_engine import FaceEngine
-from app.video_faces import detect_video_faces, track_faces, merge_tracks, MAX_VIDEO_FRAMES, MAX_REFINEMENT_WINDOWS
+from app.video_faces import detect_video_faces, track_faces, merge_tracks, combine_frame_detections, MAX_VIDEO_FRAMES, MAX_REFINEMENT_WINDOWS
 
 
 def detection(vector, seconds, quality, box=None):
@@ -92,3 +92,10 @@ def test_long_clip_extraction_is_bounded_and_spans_its_duration(tmp_path, monkey
     assert commands[0] == (0, 10, MAX_VIDEO_FRAMES, None)
     assert len(commands) <= MAX_REFINEMENT_WINDOWS + 1
     assert all(command[3] == 1.4 for command in commands[1:])
+
+
+def test_resampling_same_timestamp_deduplicates_crop_jitter_and_keeps_cooccurrences():
+    first = detection([1, 0], 2, .6, [.11, .2, .2, .2])
+    clearer = detection([1, 0], 2, .8, [.12, .2, .2, .2])
+    separate = detection([1, 0], 2, .7, [.65, .2, .2, .2])
+    assert combine_frame_detections([first, separate], [clearer]) == [clearer, separate]
