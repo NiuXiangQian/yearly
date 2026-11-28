@@ -34,6 +34,7 @@ from .models import (
 )
 from .security import editor, admin
 from .services import timeline_time, filter_children
+from .share_cover import group_cover, share_avatar_ids
 from .visibility import sharing_visibility
 from .storage import get_storage, preview_resource
 
@@ -79,7 +80,7 @@ def share_info(share):
         "title": share.title,
         "profile_ids": share.profile_ids,
         "profile_name": (profile.nickname or profile.name) if profile else None,
-        "has_avatar": bool(profile and profile.avatar_media_id),
+        "has_avatar": bool(share_avatar_ids(share)),
         "card_title": title,
         "card_description": description,
         "start_date": share.start_date,
@@ -101,6 +102,11 @@ def share_token(share):
 
 def token_hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def share_site():
+    config = settings()
+    return config.allowed_origin.rstrip("/") + config.app_base_path
 
 
 def saved_token(share):
@@ -255,7 +261,7 @@ def share_page(token: str, response: Response, db=Depends(get_db)):
             "has_avatar": False,
         }
     config = settings()
-    base = config.allowed_origin.rstrip("/") + config.app_base_path
+    base = share_site()
     image = f"{base}/api/public/shares/{token}/avatar" if info["has_avatar"] else f"{base}/share-logo.png"
     title, description, image = (
         escape(value, quote=True)
@@ -316,13 +322,31 @@ def share_page(token: str, response: Response, db=Depends(get_db)):
 
 @router.get("/public/shares/{token}/avatar")
 def share_avatar(
+    token: str,
     redirect: bool = True,
     share=Depends(public_share),
     db=Depends(get_db),
     storage=Depends(get_storage),
 ):
-    profile = share.profiles[0] if len(share.profiles) == 1 else None
-    avatar = db.get(Media, profile.avatar_media_id) if profile and profile.avatar_media_id else None
+    avatar_ids = share_avatar_ids(share)
+    if not avatar_ids:
+        raise HTTPException(404, "分享头像不存在")
+    if len(share.profiles) > 1:
+        site = share_site()
+        if not redirect:
+            return {
+                "url": f"{site}/api/public/shares/{token}/avatar",
+                "status": "ready",
+                "mime_type": "image/png",
+            }
+        cover = group_cover(db, storage, avatar_ids)
+        if share.expires_at <= now():
+            raise HTTPException(404, "分享已失效或不存在")
+        headers = {"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow, noarchive"}
+        if cover is None:
+            return RedirectResponse(f"{site}/share-logo.png", status_code=302, headers=headers)
+        return Response(content=cover, media_type="image/png", headers=headers)
+    avatar = db.get(Media, avatar_ids[0])
     if not avatar or avatar.status != "active":
         raise HTTPException(404, "分享头像不存在")
     file = next(

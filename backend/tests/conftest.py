@@ -81,6 +81,9 @@ class FakeStorage:
         self.last_expiry = expires
         return "https://private.invalid/" + purpose
 
+    def read_thumbnail(self, file, preview):
+        return self.objects[preview.thumbnail_key if preview and preview.status == "ready" else file.oss_object_key]
+
     def video_url(self, preview, expires=300):
         self.last_expiry = expires
         return "https://private.invalid/compressed.mp4"

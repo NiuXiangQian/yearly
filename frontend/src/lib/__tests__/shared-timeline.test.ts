@@ -39,6 +39,7 @@ function response() {
     media_counts: { "2024-01-01": 1, "2024-01-02": 12 },
     share: {
       title: "Family",
+      profile_ids: [],
       start_date: "2024-01-01",
       end_date: "2024-01-02",
       expires_at: new Date(Date.now() + 3600000).toISOString(),
@@ -109,6 +110,18 @@ it("provides a family-sharing title and the site logo for an untitled share", as
   await mount();
   await vi.waitFor(() => expect(document.title).toBe("我们的家庭时光"));
   expect(host.querySelector(".shared-brand img")?.getAttribute("src")).toBe("/share-logo.png");
+});
+it("shows the group cover as a square avatar", async () => {
+  const data = response();
+  vi.mocked(api).mockResolvedValue({
+    ...data, share: { ...data.share, profile_ids: [1, 2], has_avatar: true },
+  });
+  await mount();
+  await vi.waitFor(() => {
+    const avatar = host.querySelector(".shared-avatar.group-avatar");
+    expect(avatar?.getAttribute("src")).toBe("/api/public/shares/virtual/avatar");
+    expect(avatar?.getAttribute("alt")).toBe("分享人物头像");
+  });
 });
 it("shows each child's localized age below an untitled shared Live Photo", async () => {
   const data = response();

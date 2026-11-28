@@ -48,6 +48,7 @@ type Share = {
   expires_at: string;
   has_avatar: boolean;
   profile_name: string | null;
+  profile_ids: number[];
 };
 type SharedPage = { share: Share; days: SharedDay[]; next_before: string | null; next_after: string | null };
 type ShareIndex = { dates: string[]; total: number; media_counts: Record<string, number> };
@@ -540,7 +541,8 @@ onBeforeUnmount(() => {
     <template v-else-if="share">
       <section class="shared-intro">
         <div class="shared-title">
-          <img v-if="avatar" :src="avatar" :alt="share.profile_name || ''" class="shared-avatar" />
+          <img v-if="avatar" :src="avatar" :alt="share.profile_name || t('分享人物头像')"
+            class="shared-avatar" :class="{ 'group-avatar': share.profile_ids.length > 1 }" />
           <div>
             <h1>{{ share.card_title || share.title || t("一起长大的日子") }}</h1>
             <p v-if="showingSelection">{{ t("指定影像分享") }}</p>
@@ -746,6 +748,7 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 .shared-avatar { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; object-fit: cover; }
+.shared-avatar.group-avatar { border-radius: 9px; }
 .shared-intro p { color: var(--muted); font-size: 12px; }
 .share-access { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px; font-size: 12px; }
 .share-access > span { display: flex; align-items: center; gap: 4px; color: var(--sage); }

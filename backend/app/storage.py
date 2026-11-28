@@ -84,17 +84,35 @@ class OSSStorage:
             )
         return self.bucket.sign_url("GET", file.oss_object_key, 300, params=params)
 
-    def image_url(self, file, purpose, expires=300):
+    @staticmethod
+    def image_process(file, purpose):
         if file.mime_type.startswith("video/"):
-            process = "video/snapshot,t_0,f_jpg,w_480,h_0,m_fast"
-        elif file.mime_type.startswith("image/"):
+            return "video/snapshot,t_0,f_jpg,w_480,h_0,m_fast"
+        if file.mime_type.startswith("image/"):
             size, quality = (480, 70) if purpose == "thumbnail" else (1600, 80)
-            process = f"image/resize,m_lfit,w_{size},h_{size},limit_1/format,webp/quality,q_{quality}"
-        else:
-            raise HTTPException(422, "此格式暂无压缩预览，请主动查看或下载原文件")
+            return f"image/resize,m_lfit,w_{size},h_{size},limit_1/format,webp/quality,q_{quality}"
+        raise HTTPException(422, "此格式暂无压缩预览，请主动查看或下载原文件")
+
+    def image_url(self, file, purpose, expires=300):
         return self.bucket.sign_url(
-            "GET", file.oss_object_key, expires, params={"x-oss-process": process}
+            "GET", file.oss_object_key, expires, params={"x-oss-process": self.image_process(file, purpose)}
         )
+
+    def read_thumbnail(self, file, preview):
+        if preview and preview.status == "ready":
+            result = self.bucket.get_object(preview.thumbnail_key)
+        else:
+            result = self.bucket.get_object(
+                file.oss_object_key, params={"x-oss-process": self.image_process(file, "thumbnail")},
+            )
+        try:
+            limit = 1024 * 1024
+            data = result.read(limit + 1)
+            if len(data) > limit:
+                raise OSError("Thumbnail exceeds size limit")
+            return data
+        finally:
+            result.close()
 
     def video_url(self, preview, expires=300):
         return self.bucket.sign_url("GET", preview.object_key, expires)

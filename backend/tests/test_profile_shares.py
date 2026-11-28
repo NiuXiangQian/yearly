@@ -1,15 +1,29 @@
 """Person scope is enforced on every public entry point and card resource."""
 from datetime import timedelta
+from io import BytesIO
 
 import pytest
+from PIL import Image
 
 from app.db import now
-from app.models import TimelineShare
+from app.models import Media, TimelineShare
 from conftest import child, upload
 from test_folders import folder
 from test_people import person as create_person
 from test_pets import pet
 from test_shares import share
+
+
+def avatar_profile(context, name, color, sort_order=0):
+    image = BytesIO()
+    Image.new("RGB", (96, 64), color).save(image, format="PNG")
+    media = upload(context, content=image.getvalue(), purpose="avatar")["media_id"]
+    profile = child(context, name)
+    response = context.client.put(f"/api/children/{profile['id']}", json={
+        "name": name, "birthday": profile["birthday"], "avatar_media_id": media, "sort_order": sort_order,
+    })
+    assert response.status_code == 200, response.text
+    return profile["id"], media
 
 
 def test_person_share_filters_folders_events_and_direct_media_access(context):
@@ -133,3 +147,61 @@ def test_deleting_a_selected_profile_invalidates_the_link(context):
     assert response.status_code == 200, response.text
     assert context.client.get("/api/public/shares/" + data["token"]).status_code == 404
     assert context.client.post(f"/api/shares/{data['id']}/copy", json={"hours": 24}).status_code == 422
+
+
+def test_group_cover_uses_the_first_nine_selected_avatars_in_profile_order(context):
+    colors = [(20 + i * 20, 50, 200 - i * 10) for i in range(11)]
+    profiles = [avatar_profile(context, f"档案 {i}", color, -1 if i == 9 else 0)[0] for i, color in enumerate(colors)]
+    unpictured = child(context, "没有头像")["id"]
+    data = share(context, profile_ids=[unpictured, *reversed(profiles[:10])])
+    assert data["has_avatar"] is True and data["profile_name"] is None
+    base = "/api/public/shares/" + data["token"]
+    context.client.cookies.clear()
+
+    page = context.client.get(base + "/page")
+    resource = context.client.get(base + "/avatar?redirect=false").json()
+    assert resource["mime_type"] == "image/png"
+    assert resource["url"].endswith(base + "/avatar")
+    assert f'<meta property="og:image" content="{resource["url"]}">' in page.text
+
+    response = context.client.get(base + "/avatar")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
+    with Image.open(BytesIO(response.content)) as cover:
+        assert cover.size == (360, 360)
+        pixels = [cover.getpixel((x, y)) for y in (66, 180, 294) for x in (66, 180, 294)]
+        assert pixels == [colors[9], *colors[:8]]
+
+    with context.db() as db:
+        db.get(TimelineShare, data["id"]).revoked = True
+        db.commit()
+    assert context.client.get(base + "/avatar").status_code == 404
+    assert context.client.get(base + "/avatar?redirect=false").status_code == 404
+
+
+def test_group_cover_omits_restricted_avatars_and_can_fall_back_to_the_logo(context):
+    first, first_image = avatar_profile(context, "第一位", (80, 100, 240))
+    second, second_image = avatar_profile(context, "第二位", (120, 180, 45))
+    third, third_image = avatar_profile(context, "第三位", (240, 180, 70))
+    data = share(context, profile_ids=[first, second, third])
+    base = "/api/public/shares/" + data["token"]
+    context.client.cookies.clear()
+    with context.db() as db:
+        db.get(Media, second_image).share_allowed = False
+        db.commit()
+
+    response = context.client.get(base + "/avatar")
+    with Image.open(BytesIO(response.content)) as cover:
+        assert cover.getpixel((90, 180)) == (80, 100, 240)
+        assert cover.getpixel((270, 180)) == (240, 180, 70)
+        assert cover.getpixel((180, 30)) == (232, 234, 237)
+
+    with context.db() as db:
+        db.get(Media, first_image).status = "deleted"
+        db.get(Media, third_image).share_allowed = False
+        db.commit()
+    fallback = context.client.get(base + "/avatar", follow_redirects=False)
+    assert fallback.status_code == 302
+    assert fallback.headers["location"].endswith("/share-logo.png")
