@@ -78,8 +78,8 @@ def share_info(db, share, default_avatar_ids=None):
         album = "成长相册" if all_children else "时光相册"
         title = f"{names}的{album}"
     description = (
-        "挑了些喜欢的瞬间，想和你分享。打开链接，无需登录。"
-        if is_selection else "一起翻翻这些日子里的回忆。打开链接，无需登录。"
+        "挑了些喜欢的瞬间，想和你分享。"
+        if is_selection else "一起翻翻这些日子里的回忆。"
     )
     return {
         "id": share.id,

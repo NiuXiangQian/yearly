@@ -76,11 +76,9 @@ def test_card_copy_uses_profiles_and_share_scope(context):
 
     assert family["card_title"] == "我们的家庭相册"
     assert mixed["card_title"] == "小禾、妈妈等 3 位的时光相册"
-    assert family["card_description"] == mixed["card_description"] == (
-        "一起翻翻这些日子里的回忆。打开链接，无需登录。"
-    )
+    assert family["card_description"] == mixed["card_description"] == "一起翻翻这些日子里的回忆。"
     assert selected["card_title"] == "小禾的成长相册"
-    assert selected["card_description"] == "挑了些喜欢的瞬间，想和你分享。打开链接，无需登录。"
+    assert selected["card_description"] == "挑了些喜欢的瞬间，想和你分享。"
 
     context.client.cookies.clear()
     base = "/api/public/shares/" + selected["token"]
