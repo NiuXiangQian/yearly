@@ -39,15 +39,11 @@ The link card uses your custom title. If you leave it blank, Yearly generates a 
 
 ## Preview
 
-These 2× lossless PNGs use fictional data. Set file permissions in their editors.
+The web screenshot shows how recipients browse monthly groups, jump with the date rail, and see ages at capture. The iPhone screenshot shows how the sender chooses profiles when creating a link. Both use fictional data.
 
-![Fictional example: date-only sharing dialog](../images/demo-share-create.png)
+[![Read-only shared timeline](../images/demo-share-en.png)](../images/demo-share-en.png)
 
-![Fictional example: read-only shared timeline](../images/demo-share.png)
-
-![Fictional example: collapsible timeline months](../images/demo-months.png)
-
-![Fictional example: left timeline and drag date tooltip](../images/demo-share-drag.png)
+<a href="../images/demo-ios-share.png"><img src="../images/demo-ios-share.png" width="230" alt="Choosing profiles and a start date when sharing from iPhone"></a>
 
 ## Privacy and bandwidth
 

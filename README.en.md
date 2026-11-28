@@ -1,281 +1,107 @@
-# yearly
+# Yearly
 
-[简体中文（默认）](README.md) | **English**
+[简体中文](README.md) · **English**
 
-**Keep every chapter of growing up.**
+Yearly is a self-hosted family photo archive. Photos, videos, Live Photos, and journals share one growth timeline. Family members can browse the same album on iPhone, Android, or the web and send relatives a link that expires.
 
-A self-hosted, private family archive with **Web, native iOS, and native Android apps**. Organize photos, videos, and growth journals by date, person, and pet. Connect all clients to the same family server to share memories, profiles, and permissions.
+[Gallery](#gallery) · [Features](#features) · [Quick start](#quick-start) · [Mobile installation](#mobile-installation) · [Deployment and maintenance](#deployment-and-maintenance)
 
-Native apps · Original and Live Photo uploads · Daily timeline · Expiring read-only shares · People and pet profiles · Drag-and-drop folders · Compressed previews · Original-file backups
+## Gallery
 
-[AI features](#ai-features) · [iOS gallery](#ios-app-gallery) · [Install the app](#ios-app) · [Web screenshots](#screenshots) · [Sharing page](#share-a-read-only-timeline) · [Quick start](#quick-start) · [Deployment](docs/en/deployment.md) · [Backup and restore](docs/en/backup-restore.md)
+### iPhone
 
-## AI features
+| Growth timeline | Photo map | Growth journal |
+| :---: | :---: | :---: |
+| <a href="docs/images/demo-ios-timeline.png"><img src="docs/images/demo-ios-timeline.png" width="230" alt="Growth timeline with daily photo groups, ages at capture, and a date rail"></a> | <a href="docs/images/demo-ios-map.png"><img src="docs/images/demo-ios-map.png" width="230" alt="Photo map with capture locations, thumbnails, and a list of places"></a> | <a href="docs/images/demo-ios-diary.png"><img src="docs/images/demo-ios-diary.png" width="230" alt="Journal reader with the full entry and attached photos"></a> |
 
-Describe a scene in the timeline on Web, iOS, or Android. A search for “birthday celebration” can find a photo described as “a child closes her eyes, makes a wish, and blows out the candles on a cake.” For “playing in the sand at the beach,” the AI can use details such as breaking waves and a child shoveling sand into a bucket.
-
-The AI reviews the full saved scene description for each indexed item you can access within your filters. It also considers existing tags and linked people and pets. Narrow the search by date, person, pet, uploader, or media type. There is no cap on relevant results. Each page shows up to 20 items, and turning the page reuses the same ranking without another AI call.
-
-Administrators can also use AI to organize the archive.
-
-- **Match people and dogs.** The server can match faces locally. Dog matching uses appearance and confirmed reference samples. Administrators can confirm or correct matches and enable automatic linking for high-confidence results.
-- **Tag media automatically.** When enabled, the background worker generates and saves tags from existing scene descriptions. Those tags also help with future searches.
-- **Review image quality.** The web album organizer and the iOS photo assistant can assess sharpness, obstructions, and face visibility in photos and sampled video frames. Use the review to decide which items to add to a person’s or pet’s album.
-
-Smart search is off by default. To enable it, configure an OpenAI API key and a monthly budget on the server, then start the indexing worker. Indexing sends photo previews or sampled video frames to OpenAI and uses the still image for Live Photos. Searches use the saved text descriptions. [Search setup (Chinese)](docs/ai-search.md#启用) · [Matching and album organization (Chinese)](docs/face-matching.md)
-
-## iOS app gallery
-
-A native SwiftUI client for iPhone running iOS 16 or later. Preserve originals, browse the family timeline, organize people and pets, and share selected memories with a time limit.
-
-These screenshots show the current native UI in an iPhone simulator with isolated fictional accounts, profiles, and original sample illustrations. No real family photos are included. Each is a **1320 × 2868 px, native 3×, lossless PNG**; click to open the full-resolution image. The app screenshots use Simplified Chinese. See [screenshot notes](docs/images/ios-screenshots.md).
-
-### Timeline, original uploads, and family profiles
-
-Browse by date and filter by profile, uploader, or media type. Select photos, videos, and Live Photos from the system library, preserve paired still/MOV resources, and pause, retry, or resume persisted uploads. Open memories for each person or pet.
-
-<p>
-  <a href="docs/images/demo-ios-timeline.png"><img src="docs/images/demo-ios-timeline.png" width="250" alt="Daily timeline" /></a>
-  <a href="docs/images/demo-ios-upload.png"><img src="docs/images/demo-ios-upload.png" width="250" alt="Original uploads" /></a>
-  <a href="docs/images/demo-ios-family.png"><img src="docs/images/demo-ios-family.png" width="250" alt="People and pets" /></a>
-</p>
-
-The iOS timeline's Map lets you browse photos, Live Photos, and videos by capture location, with country and province groups and the same people and archive-date filters. [Photo map guide](docs/en/storage-and-metadata.md#ios-photo-map)
-
-[Timeline original](docs/images/demo-ios-timeline.png) · [Upload original](docs/images/demo-ios-upload.png) · [Profiles original](docs/images/demo-ios-family.png)
-
-### Full-screen previews, expiring shares, and accounts
-
-Zoom and swipe through photos, play videos and Live Photos, and share a date range or selected media for 1 hour to 7 days. Manage family accounts, roles, and change history; members can edit only the content they added.
-
-<p>
-  <a href="docs/images/demo-ios-preview.png"><img src="docs/images/demo-ios-preview.png" width="250" alt="Full-screen photo preview" /></a>
-  <a href="docs/images/demo-ios-share.png"><img src="docs/images/demo-ios-share.png" width="250" alt="Expiring shares" /></a>
-  <a href="docs/images/demo-ios-account.png"><img src="docs/images/demo-ios-account.png" width="250" alt="Account and permissions" /></a>
-</p>
-
-[Preview original](docs/images/demo-ios-preview.png) · [Sharing original](docs/images/demo-ios-share.png) · [Account original](docs/images/demo-ios-account.png)
-
-[iOS build, installation, and usage guide](ios/README.md) · [Android native client guide](android/README.md)
-
-## Screenshots
-
-These screenshots show the actual application with isolated fictional data. Names, birthdays, entries, and counts are fictional; avatars and media use original sample illustrations. No real family photos or accounts are included. The main gallery shows the English interface; the sharing examples use Simplified Chinese. Both languages are supported. Family names and user-written content are preserved in their original language. These web screenshots are lossless PNGs captured at 2× resolution (3024px wide); open an image or its full-resolution link for details.
-
-### A daily timeline you can organize your way
-
-Drag photos, videos, and folders into any order within a day. Folders display small previews, and custom titles appear over the images.
-
-![Fictional demo: daily timeline with folders and media](docs/images/demo-timeline-en.png)
-
-[Full-resolution timeline screenshot](docs/images/demo-timeline-en.png)
-
-### Organize a whole batch before uploading
-
-Name a batch, select people and pets, and choose an archive date. The compact file list supports bulk selection, drag-to-reorder, and file details.
-
-[Native iPhone upload](docs/en/storage-and-metadata.md#native-iphone-upload) lets you select a Live Photo in the system picker and upload its still image and paired video together.
-
-![Fictional demo: batch naming and upload queue](docs/images/demo-upload-en.png)
-
-[Full-resolution upload screenshot](docs/images/demo-upload-en.png)
-
-### Share a read-only timeline
-
-Set sharing permissions while editing files, folders, or timeline days. Creating a link only requires a date range and a lifetime of 1 hour to 7 days. Links can be revoked at any time.
-
-Recipients browse compressed previews without signing in. They can switch chronological order, collapse months, and expand days beyond eight entries. The timeline on the left marks dates with dots: drag to preview a date, then release to jump and open the corresponding month.
-
-![Fictional demo: read-only sharing page with a left timeline](docs/images/demo-share.png)
-
-[Full-resolution sharing screenshot](docs/images/demo-share.png) · [Sharing guide and permissions](docs/en/sharing.md)
+| Smart search | People and pets | Expiring shares |
+| :---: | :---: | :---: |
+| <a href="docs/images/demo-ios-search.png"><img src="docs/images/demo-ios-search.png" width="230" alt="Smart search for a scene, with results in a photo grid"></a> | <a href="docs/images/demo-ios-family.png"><img src="docs/images/demo-ios-family.png" width="230" alt="Profiles for children, other family members, and pets"></a> | <a href="docs/images/demo-ios-share.png"><img src="docs/images/demo-ios-share.png" width="230" alt="Share settings with profile selection and an archive start date"></a> |
 
 <details>
-<summary>View link creation and timeline dragging</summary>
+<summary>See original uploads, media preview, Photo Assistant, and account settings</summary>
 
-Start from the earliest date, one year ago, six months ago, or a custom date. There is no per-file picker during link creation.
-
-![Fictional demo: share date range and lifetime](docs/images/demo-share-create.png)
-
-Dragging previews the date; releasing loads the target content on demand.
-
-![Fictional demo: date tooltip while dragging the timeline](docs/images/demo-share-drag.png)
+| Original uploads | Media preview | Photo Assistant | Account |
+| :---: | :---: | :---: | :---: |
+| <a href="docs/images/demo-ios-upload.png"><img src="docs/images/demo-ios-upload.png" width="175" alt="Original-file upload queue with items awaiting confirmation"></a> | <a href="docs/images/demo-ios-preview.png"><img src="docs/images/demo-ios-preview.png" width="175" alt="Full-screen photo with a sharing lock badge"></a> | <a href="docs/images/demo-ios-assistant.png"><img src="docs/images/demo-ios-assistant.png" width="175" alt="Photo Assistant selecting media to add to family albums"></a> | <a href="docs/images/demo-ios-account.png"><img src="docs/images/demo-ios-account.png" width="175" alt="Account role, account management, change history, and sharing settings"></a> |
 
 </details>
 
-<details>
-<summary>View folder organization and people / pet profiles</summary>
+### Shared timeline on the web
 
-### Keep a story together in a folder
+Recipients can open a read-only album without signing in. Like the iOS timeline, the shared page groups memories by month and day. Recipients can drag the date rail, browse media full-screen, or open a journal entry in its own reader. For linked child profiles with growth tracking enabled, photos and videos can show the child's age based on their birthday and the capture date. [Sharing guide](docs/en/sharing.md)
 
-Select multiple items, append uploads, drag items into or out of folders, reorder their contents, and restore the default order.
+<a href="docs/images/demo-share-en.png"><img src="docs/images/demo-share-en.png" width="680" alt="Read-only family timeline with a cover, monthly groups, ages at capture, and a date rail"></a>
 
-![Fictional demo: folder contents and organization controls](docs/images/demo-folder-en.png)
-
-### People and pets, sharing memories
-
-Create profiles for parents, grandparents, children, friends, and pets. Set custom relationships and pet categories, with optional birthdays. Growth timelines default to on for children and pets and off for other people, who remain available for tagging and filtering. Tag multiple people and pets in each file, then filter by profile or pet category. Shared memories keep one original. See [People & pets](docs/en/pets.md).
-
-![Fictional demo: people and pet profiles](docs/images/demo-profiles-en.png)
-
-</details>
+These screenshots show the running iOS simulator app and web interface with fictional profiles, media, and journals. Select an image to view it at full size. [Screenshot notes](docs/images/ios-screenshots.md)
 
 ## Features
 
-| Use case | Capabilities |
-| --- | --- |
-| Finding and organizing media | Search photos and videos by scene, match people and dogs, apply tags automatically, and review image quality. See [AI features](#ai-features). |
-| Organize memories | Daily grouping, named folders, mixed folder/media ordering, bulk selection and moves, default-order reset |
-| Record growth | People and pet profiles, individual avatars, age-based browsing, one-month / 100-day / birthday navigation, shared growth journals |
-| Upload in batches | Batch names, EXIF / QuickTime date parsing, date checks when appending, cross-batch deduplication, multipart uploads and retries |
-| Browse efficiently | Image thumbnails, HEIC / HEIF previews, image zoom and pan, compressed video copies, originals on demand |
-| Preserve originals | Direct uploads to private OSS, paired Live Photo resources, original metadata, backups and integrity checks |
-| Expiring shares | [Content permissions, date ranges, 1-hour to 7-day lifetime, revocation, collapsible months, eight-entry days, draggable date navigation](docs/en/sharing.md) |
-| Share with family | Administrator / member / read-only guest roles, login CAPTCHA, recycle bin, Chinese / English switching, light / dark themes, responsive layout |
+- **Browse and organize.** Group photos, videos, Live Photos, and journals by day, collapse months, and jump with the date rail. Mix folders and media within a day, move several items together, and reorder them. The iOS photo map groups geotagged media and lets you browse everything captured at a location. [iOS photo map](docs/en/storage-and-metadata.md#ios-photo-map)
+- **Record growth.** Create individual profiles for children, other family members, and pets. Link a memory to several profiles and browse their timelines. Children's profiles support ages at capture and growth milestones. Birthdays are optional. [People and pets](docs/en/pets.md)
+- **Keep originals.** Batch-import originals from the iPhone photo library. A Live Photo's still image and paired MOV upload together as one item. The queue supports pausing, retrying, and continuing transfers in the background. Originals are stored in private OSS, with thumbnails or compressed previews for browsing. [iOS uploads and background transfers](ios/README.md)
+- **Share for a limited time.** Create a read-only link scoped to profiles, archive dates, or specific media. Links last from one hour to seven days and can be revoked early. Changes to content sharing permissions apply to existing links. The iOS app marks media with sharing disabled. [Share scope and permissions](docs/en/sharing.md)
+- **Manage family access.** Each deployment serves one family. Administrators create accounts and set member or read-only access. The server checks editing permissions and records changes. Deleted media and journals can be restored from the trash.
 
-Each deployment serves one family. All enabled accounts share the family archive. There is no public registration or multi-tenant isolation.
+### Smart search and Photo Assistant
 
-## Technology and storage
+Describe a scene such as “playing in the sand by the sea” to find photos or videos even when the indexed description uses different words. Search respects your current filters and access permissions, and you can browse all matching results 20 at a time. Administrators can review face and dog matches, check image quality, add media to family albums, and enable automatic tags.
 
-- **Backend:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic.
-- **Web:** Vue 3, TypeScript, Vite, Pinia, Element Plus.
-- **iOS:** SwiftUI, PhotoKit, AVKit; iOS 16+.
-- **Android:** Kotlin, Jetpack Compose, Material 3, Media3; Android 8.0+.
-- **Database:** MySQL 5.7.8+ with separate development/test and production configuration; SQLite is not used as a substitute.
-- **Files:** Private Alibaba Cloud OSS. Web and native clients upload originals directly; the database stores metadata and relationships.
-- **Deployment:** Nginx + systemd, with a separate video preview worker. Redis is not required.
-
-Browsing uses compressed previews by default. Originals are loaded only when explicitly requested through “查看原文件” (View original); preview processing never overwrites them. Initial video transcoding reads the original and requires temporary disk space.
-
-## Interface language and date selection
-
-The web interface defaults to Simplified Chinese. Switch to English on the login page, in the top-right header, or in family settings. The choice is saved in the current browser and survives refreshes. Menus, forms, messages, and calendars switch together; child and pet names, filenames, and journal content remain unchanged.
-
-Long timelines support collapsible months, individual expansion, and Collapse all / Expand all in both family and shared views. Shared views also offer a draggable timeline on the left with date previews and direct jumps.
-
-The timeline offers Day / Month / Year filters, previous/next period buttons, and All time / Today / This month / Day of birth shortcuts (the birthday shortcut appears when one child or pet with a birthday is selected). Type dates directly or click the calendar's year/month heading to navigate quickly. Child and pet birthdays, upload archive dates, and journal times use the same date controls.
+Smart search is off by default. Enabling it requires an OpenAI API key and monthly budget on the server, followed by an indexing run. Indexing sends photo previews or sampled video frames and uses the still image for Live Photos. Search uses the stored descriptions. [Smart search setup](docs/ai-search.md) · [Face matching and album organization](docs/face-matching.md)
 
 ## Quick start
 
-### 1. Install dependencies
+Local development requires Python 3.12, Node.js 22.12+, and MySQL 5.7.8+. Full upload and preview functionality also requires a private Alibaba Cloud OSS bucket with access permissions and CORS configured. [Create the MySQL database](docs/en/deployment.md#2-create-application-databases-in-mysql) · [Configure OSS](docs/en/storage-and-metadata.md)
 
-You need Python 3.12, Node.js 22.12+, MySQL 5.7.8+, and a private OSS bucket. Uploads and previews require OSS permissions, CORS, and the correct region. See [storage configuration](docs/en/storage-and-metadata.md).
+1. Install dependencies and prepare the test configuration.
 
-```bash
-git clone https://github.com/NiuXiangQian/yearly.git
-cd yearly
+   ```bash
+   git clone https://github.com/NiuXiangQian/yearly.git
+   cd yearly
+   python3.12 -m venv .venv
+   .venv/bin/pip install -r backend/requirements.txt
+   (cd frontend && npm ci)
+   cp -n .env.test.example .env.test
+   chmod 600 .env.test
+   ```
 
-# If nvm is installed, run nvm use to read .nvmrc
-python3.12 -m venv .venv
-.venv/bin/pip install -r backend/requirements.txt
-(cd frontend && npm ci)
+2. Set the test MySQL connection, `SESSION_SECRET`, and OSS values in `.env.test`. Use a dedicated database account and a database name ending in `_test`. Generate a random session secret locally.
 
-cp -n .env.test.example .env.test
-chmod 600 .env.test
-```
+   ```bash
+   .venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))'
+   ```
 
-### 2. Configure the local environment
+3. Migrate the database, create the first administrator, and start the app.
 
-Edit `.env.test` with your database connection, Session secret, and OSS settings. The test database name must end in `_test`. Use an application account restricted to that database.
+   ```bash
+   ./scripts/manage.sh test migrate
+   ./scripts/manage.sh test create-admin your-admin-name
+   ./scripts/start-local.sh
+   ```
 
-Generate a Session secret locally, save it in your configuration, and keep it out of Git:
+Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/) to sign in. Press `Ctrl+C` to stop the frontend, API, and video preview worker together.
 
-```bash
-.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))'
-```
+## Mobile installation
 
-Values such as `CHANGE_ME` and `your-private-bucket` in the example files are placeholders. Replace them before deployment. Database initialization examples are in the [deployment guide](docs/en/deployment.md).
-
-### 3. Migrate and start
-
-```bash
-./scripts/manage.sh test migrate
-
-# On first use, create an administrator and enter a password when prompted
-./scripts/manage.sh test create-admin your-admin-name
-
-./scripts/start-local.sh
-```
-
-Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The startup script runs the API, frontend, and video preview worker together. Press `Ctrl+C` to stop them.
-
-To start them separately, run each command in its own terminal:
-
-```bash
-./scripts/start-api.sh test --reload
-(cd frontend && npm run dev -- --port 5173)
-./scripts/manage.sh test generate-previews --watch
-```
-
-## iOS app
-
-The iPhone app (iOS 16+) uses the same backend and family accounts as the web client. Deploy your family server first, then enter its full **HTTPS URL** in the app, for example `https://example.com/yearly/`. The certificate must be valid and the server reachable from your phone.
-
-1. Install full Xcode and the iOS platform components on a Mac, then open `ios/Yearly.xcodeproj`.
-2. Select your Apple Team in Signing & Capabilities, connect the iPhone, and enable Developer Mode when prompted.
-3. Select the device and run from Xcode. A free Personal Team supports installation with a 7-day signing period; renew by installing over the existing app with the same Team and Bundle Identifier.
-
-```bash
-# From the repository root: local logic and project checks
-./scripts/ios.sh verify
-
-# Full Xcode: Debug / Release simulator builds
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build
-```
-
-The repository provides source and self-build installation instructions; no App Store or TestFlight download is offered. When the main app moves to the background, iOS can continue transferring upload parts. See the [iOS guide](ios/README.md) for installation, re-signing, behavior, and device-validation limits.
-
-## Android app
-
-A native client for Android 8.0+ is also included. Open `android/` in Android Studio or run `./scripts/android.sh release` to build a personal installation APK, then connect to the same HTTPS family server. See the [Android guide](android/README.md) for builds, installation, and compatibility.
-
-## Environments and deployment
-
-| Setting | Local testing | Production |
-| --- | --- | --- |
-| Environment | `APP_ENV=test` | `APP_ENV=production` |
-| Configuration | `.env.test` | `.env.production` |
-| Database | Name ends in `_test` | Separate database; name must not end in `_test` |
-| Access | Local HTTP | HTTPS and Secure cookies |
-| Database account, secrets, OSS settings | Configured independently | Configured independently |
-
-Use Alembic to create the schema for a new deployment. Back up an existing deployment before running migrations. The account and audit migration revision is `0013`. Production requires both the API and the video preview worker, together with Nginx, private OSS, and backup jobs.
-
-Follow the [deployment guide](docs/en/deployment.md). This repository contains the application and deployment templates, not working server, database, or OSS credentials.
-
-## Development and verification
-
-```bash
-# Frontend tests and build
-(cd frontend && npm test && npm run build)
-
-# Full backend/frontend checks: configure and migrate a separate test MySQL first
-./scripts/test.sh
-```
-
-Backend tests use MySQL with transaction rollback. OSS operations are mocked, with separate signing and synthetic-media tests. Stop services connected to the same test database before running database tests to avoid concurrent writes.
-
-See [verification notes](docs/en/verification.md) for coverage and remaining acceptance checks.
-
-## Data boundaries and privacy
-
-- Members can upload and edit their own files, folders, profiles, and journals. Other content is locked for editing. Administrators manage accounts and all content. Changes record the actor and field history transactionally. Legacy folders and profiles without a known creator are managed by administrators. Existing read-only guests remain read-only.
-- The application preserves the bytes selected in the browser. Phone photo pickers may convert formats or omit Live Photo resources; check how originals are exported before importing.
-- Original capture times and manual corrections are stored separately. Missing times, time zones, or GPS data are not fabricated.
-- Deleted media and journals enter the recycle bin. Deleting a folder only removes its classification. Originals are never automatically permanently deleted.
-- Restore backups during a maintenance window with writes stopped. Keep more than one storage copy of irreplaceable family originals.
-- Do not upload `.env` files, passwords, private keys, certificates, database dumps, original family photos, or logs containing personal information to the repository or issues. Use fictional data for public screenshots and check image EXIF metadata before sharing.
-
-## Documentation
-
-| Document | Contents |
+| Client | Installation |
 | --- | --- |
-| [iOS app](ios/README.md) | Native features, Xcode installation, free re-signing, and verification scope |
-| [Android app](android/README.md) | Native features, APK builds, installation, and compatibility |
-| [People & pets](docs/en/pets.md) | Relationships, pet categories, file tagging, and filtering |
-| [Deployment](docs/en/deployment.md) | MySQL, HTTPS, Nginx, systemd, and the video preview worker |
-| [Storage and metadata](docs/en/storage-and-metadata.md) | OSS, direct uploads, compressed previews, capture times, and organization rules |
-| [Backup and restore](docs/en/backup-restore.md) | Database, manifests, original-file backups, and restoration |
-| [Verification](docs/en/verification.md) | Verified scope, test commands, and compatibility limitations |
+| **iOS 16+** | Open `ios/Yearly.xcodeproj` in full Xcode, configure your Apple Team and signing, connect an iPhone with Developer Mode enabled, and run the app. [iOS build and signing guide](ios/README.md) |
+| **Android 8.0+** | Open `android/` in Android Studio or run `./scripts/android.sh release` from the repository root to build the APK. [Android build and installation guide](android/README.md) |
 
-Deployment templates are in [`deploy/`](deploy/); management commands are in [`scripts/`](scripts/).
+Enter the full HTTPS address of your family site in the app, such as `https://example.com/yearly/`. The phone must be able to reach the site and trust its certificate. Sign in with your existing family account.
+
+## Deployment and maintenance
+
+The backend uses FastAPI, SQLAlchemy, Alembic, and MySQL. The web client uses Vue 3 and TypeScript. The native apps use SwiftUI and Jetpack Compose. Production uses a separate `.env.production` configuration and database. Nginx serves HTTPS, and systemd runs the API and video preview worker. Back up your data before migrating an existing deployment. [Deployment guide](docs/en/deployment.md)
+
+Original capture metadata is stored separately from manual corrections. Generating previews leaves the originals intact. MySQL stores metadata and relationships. A complete backup also includes the original OSS objects and the manifest. [Storage and metadata](docs/en/storage-and-metadata.md) · [Backup and restore](docs/en/backup-restore.md)
+
+The following commands cover routine checks. The full backend and frontend suite uses a dedicated test MySQL database.
+
+```bash
+(cd frontend && npm test && npm run build)
+./scripts/test.sh
+./scripts/ios.sh verify
+```
+
+[Verification scope](docs/en/verification.md) · [Deployment templates](deploy/) · [Management scripts](scripts/)

@@ -1,283 +1,107 @@
-# yearly
+# Yearly
 
-**简体中文（默认）** | [English](README.en.md)
+**简体中文** · [English](README.en.md)
 
-**让成长有迹可循。**
+Yearly 是一个可自行部署的家庭影像档案。照片、视频、实况照片和日记沿着同一条成长时间线归档。家人可以用 iPhone、Android 或网页浏览同一个家庭相册，也可以把一段回忆限时分享给亲友。
 
-一个支持 **Web、iOS 与 Android 原生 App** 的私人家庭影像档案，可自行部署。把照片、视频与成长日记按日期、人物和宠物整理，在多年以后，依然能找到每一个值得记住的瞬间。手机与网页连接同一个家庭站点，共享影像、档案与权限。
-
-原生 App · 原片与实况上传 · 按天时间线 · 限时只读分享 · 人物与宠物档案 · 文件夹自由混排 · 压缩预览 · 原件备份
-
-[AI 功能](#ai-功能) · [iOS 高清预览](#ios-app-预览) · [App 安装](#ios-app) · [网页预览](#界面预览) · [分享页面](#限时分享时间线) · [快速开始](#快速开始) · [部署指南](docs/deployment.md) · [备份与恢复](docs/backup-restore.md)
-
-## AI 功能
-
-在 Web、iOS 或 Android 的时间线描述想找的画面。搜“过生日”时，即使描述里只写了“孩子闭眼许愿，吹灭蛋糕上的蜡烛”，这张照片也可能入选。搜“海边玩沙”时，AI 会结合浪花、沙铲和往桶里装沙的动作判断相关性。
-
-可以先按日期、人物、宠物、上传人或媒体类型缩小范围。对于范围内有权查看且已建立索引的每项影像，AI 都会阅读完整的画面描述，并结合已有标签和已关联的人物、宠物判断相关性。相关结果总数不限，每页 20 项，翻页沿用同一次搜索的排序，无需再次调用 AI。
-
-管理员还可以用 AI 整理相册。
-
-- **人物与狗狗匹配**。服务器可在本地比对人脸，狗狗则按外观与已确认的参考样本匹配。管理员可以确认或纠正匹配，也可启用高置信度结果自动关联。
-- **自动标签**。启用后，后台根据已有画面描述生成并保存标签，标签也会参与后续搜索。
-- **画质复核**。在网页“相册整理”或 iOS“照片助手”中查看照片与视频采样画面的清晰度、遮挡和人脸可见情况，再决定将哪些影像加入人物或宠物相册。
-
-智能搜索默认关闭。启用时，在服务端配置 OpenAI 密钥和月度预算，并启动索引任务。建立索引会将照片预览或视频采样帧发送给 OpenAI，Live Photo 只分析静态照片。搜索时使用已保存的文字描述。[智能搜索配置](docs/ai-search.md#启用) · [人物匹配与相册整理](docs/face-matching.md)
-
-## iOS App 预览
-
-iPhone 上的 SwiftUI 原生客户端，支持 iOS 16 及以上。用手机珍藏原片、浏览成长时间线、整理家人与宠物，再把选中的回忆限时分享给亲友。
-
-以下为当前原生界面在 iPhone 模拟器中的截图，使用独立虚拟账户、档案和原创示例插画；不包含真实家庭照片。图片以 **1320 × 2868 像素（原生 3×）、无损 PNG** 保存，点击可查看高清原图。示例数据与截图说明见 [图片说明](docs/images/ios-screenshots.md)。
-
-### 时间线、原片上传、家人与宠物
-
-按日期浏览，按人物、上传人和媒体类型组合筛选；系统相册批量选择照片、视频与 Live Photo，配对原图和 MOV，支持暂停、重试与持久续传；按家人和宠物查看各自的回忆。
-
-<p>
-  <a href="docs/images/demo-ios-timeline.png"><img src="docs/images/demo-ios-timeline.png" width="250" alt="家庭时间线" /></a>
-  <a href="docs/images/demo-ios-upload.png"><img src="docs/images/demo-ios-upload.png" width="250" alt="原片批量上传" /></a>
-  <a href="docs/images/demo-ios-family.png"><img src="docs/images/demo-ios-family.png" width="250" alt="家人与宠物" /></a>
-</p>
-
-iOS 时间线的「地图」按拍摄坐标浏览照片、实况和视频。可以从国家、省市缩放到拍摄地点，并复用人物和归档日期筛选。 [照片地图说明](docs/storage-and-metadata.md#ios-照片地图)
-
-[时间线原图](docs/images/demo-ios-timeline.png) · [上传原图](docs/images/demo-ios-upload.png) · [家人与宠物原图](docs/images/demo-ios-family.png)
-
-### 沉浸预览、限时分享、账号管理
-
-全屏浏览照片，支持缩放、左右切换以及视频和 Live Photo 播放；按日期范围或指定影像创建 1 小时至 7 天的只读分享；管理家庭账号、角色与修改记录，普通成员仅可编辑自己添加的内容。
-
-<p>
-  <a href="docs/images/demo-ios-preview.png"><img src="docs/images/demo-ios-preview.png" width="250" alt="全屏影像预览" /></a>
-  <a href="docs/images/demo-ios-share.png"><img src="docs/images/demo-ios-share.png" width="250" alt="限时分享" /></a>
-  <a href="docs/images/demo-ios-account.png"><img src="docs/images/demo-ios-account.png" width="250" alt="账号与权限" /></a>
-</p>
-
-[预览原图](docs/images/demo-ios-preview.png) · [分享原图](docs/images/demo-ios-share.png) · [账号原图](docs/images/demo-ios-account.png)
-
-[iOS 构建、安装与使用指南](ios/README.md) · [Android 原生客户端指南](android/README.md)
+[界面预览](#界面预览) · [功能](#功能) · [快速开始](#快速开始) · [手机安装](#手机安装) · [部署与维护](#部署与维护)
 
 ## 界面预览
 
-截图来自实际应用界面，使用独立的虚拟数据。人物姓名、生日、记录和数量均为虚构，头像与影像为原创示例插画，不包含真实家庭照片或账户。以下网页图片均为 2 倍像素、3024px 宽的无损 PNG，可点击图片或下方链接查看高清原图。
+### iPhone
 
-### 按天收藏，自由整理
+| 成长时间线 | 照片地图 | 成长日记 |
+| :---: | :---: | :---: |
+| <a href="docs/images/demo-ios-timeline.png"><img src="docs/images/demo-ios-timeline.png" width="230" alt="成长时间线按日期展示照片与拍摄时年龄，左侧为日期轴"></a> | <a href="docs/images/demo-ios-map.png"><img src="docs/images/demo-ios-map.png" width="230" alt="照片地图显示拍摄地点、缩略图和地点列表"></a> | <a href="docs/images/demo-ios-diary.png"><img src="docs/images/demo-ios-diary.png" width="230" alt="成长日记阅读页展示正文及关联照片"></a> |
 
-照片、视频和文件夹可以在同一天内拖动混排；文件夹显示小预览，自定义标题叠加在图片上。
-
-![虚拟示例：按天时间线与文件夹混排](docs/images/demo-timeline.png)
-
-[查看时间线高清原图](docs/images/demo-timeline.png)
-
-### 一批回忆，一次整理
-
-上传前命名批次、选择人物与宠物、调整归档日期，紧凑文件列表支持多选、拖动排序和查看详情。
-
-[iPhone 原生上传](docs/storage-and-metadata.md#iphone-原生上传)支持系统相册批量选择原图、视频和实况照片，自动将静态图与配对 MOV 作为同一媒体上传。
-
-![虚拟示例：批次命名与上传文件列表](docs/images/demo-upload.png)
-
-[查看上传页高清原图](docs/images/demo-upload.png)
-
-### 限时分享时间线
-
-先在文件、文件夹或当天时间线中设置是否允许分享，创建链接时只需选择日期范围和有效期（1 小时至 7 天），也可随时撤销。
-
-接收者无需登录即可只读浏览压缩预览。支持正序 / 倒序、按月折叠、每天超过 8 项展开；左侧时间轴以圆点标记日期，拖动时显示日期，松开后直接跳转并展开对应月份。
-
-![虚拟示例：只读分享页面与左侧时间轴](docs/images/demo-share.png)
-
-[查看分享页高清原图](docs/images/demo-share.png) · [分享使用与权限说明](docs/sharing.md)
+| 智能搜索 | 家人与宠物 | 限时分享 |
+| :---: | :---: | :---: |
+| <a href="docs/images/demo-ios-search.png"><img src="docs/images/demo-ios-search.png" width="230" alt="智能搜索用一句话找回忆，结果以照片网格展示"></a> | <a href="docs/images/demo-ios-family.png"><img src="docs/images/demo-ios-family.png" width="230" alt="家人与宠物页展示孩子、其他家人和宠物档案"></a> | <a href="docs/images/demo-ios-share.png"><img src="docs/images/demo-ios-share.png" width="230" alt="分享管理可选择多个档案并设置分享的起始日期"></a> |
 
 <details>
-<summary>查看创建分享与拖动时间轴</summary>
+<summary>查看原片上传、媒体预览、照片助手与账号</summary>
 
-开始日期可选最早、一年前、六个月前或自选日期，无需逐个勾选文件。
-
-![虚拟示例：选择分享日期范围和有效期](docs/images/demo-share-create.png)
-
-拖动左侧时间轴时预览日期，松开后按需加载目标内容。
-
-![虚拟示例：拖动时间轴显示日期](docs/images/demo-share-drag.png)
+| 原片上传 | 媒体预览 | 照片助手 | 账号 |
+| :---: | :---: | :---: | :---: |
+| <a href="docs/images/demo-ios-upload.png"><img src="docs/images/demo-ios-upload.png" width="175" alt="原片上传列表及待确认任务"></a> | <a href="docs/images/demo-ios-preview.png"><img src="docs/images/demo-ios-preview.png" width="175" alt="全屏照片预览显示禁止分享标记"></a> | <a href="docs/images/demo-ios-assistant.png"><img src="docs/images/demo-ios-assistant.png" width="175" alt="照片助手可以选择影像并整理到家人相册"></a> | <a href="docs/images/demo-ios-account.png"><img src="docs/images/demo-ios-account.png" width="175" alt="账号页显示角色、账号管理、修改记录和分享管理"></a> |
 
 </details>
 
-<details>
-<summary>查看文件夹整理与人物、宠物档案</summary>
+### 网页分享
 
-### 一个文件夹，留住一段故事
+亲友打开链接就能浏览只读相册。分享页与 iOS 时间线采用相同的月份和日期分组，可拖动日期轴定位，点开影像全屏浏览，或独立阅读日记。孩子档案启用成长记录后，已关联的影像可根据拍摄日期和生日显示拍摄时年龄。 [分享使用指南](docs/sharing.md)
 
-支持批量选择、追加上传、拖入 / 拖出文件夹、内部排序和恢复默认排序。
+<a href="docs/images/demo-share.png"><img src="docs/images/demo-share.png" width="680" alt="新版只读分享时间线显示家庭封面、归档月份、拍摄时年龄和左侧日期轴"></a>
 
-![虚拟示例：文件夹内容与整理操作](docs/images/demo-folder.png)
+截图来自运行中的 iOS 模拟器和网页，使用虚构的家庭档案、影像和日记。点击图片可查看完整尺寸。 [截图说明](docs/images/ios-screenshots.md)
 
-### 人物与宠物，一起珍藏
+## 功能
 
-为爸爸妈妈、爷爷奶奶、孩子和宠物设置独立档案，人物关系和宠物分类可自定义，生日可留空。成长时间线可单独开关：孩子、宠物默认开启，家长默认仅用于标记与筛选。同一份照片、视频或日记可以多选标记里面的人物与宠物，按名字、关系或宠物分类查找，在各自时间线出现，原件只保存一份。详见[人物与宠物](docs/pets.md)。
+- **浏览与整理。** 按天归档照片、视频、实况和日记，按月折叠，用日期轴快速跳转。同一天内可混排媒体和文件夹，批量移动并调整顺序。iOS 照片地图按拍摄坐标聚合影像，点开地点可浏览同地点照片。 [存储与地图](docs/storage-and-metadata.md)
+- **记录成长。** 为孩子、其他家人和宠物建立独立档案。一项回忆可关联多个档案，沿各自时间线浏览；孩子档案可查看拍摄时年龄与成长节点。生日可留空。 [人物与宠物](docs/pets.md)
+- **保存原片。** iPhone 可从系统相册批量选取原件，实况照片的静态图和配对 MOV 作为同一项上传。上传队列支持暂停、重试及后台续传。原件存放于私有 OSS，日常浏览使用缩略图或压缩预览。 [iOS 上传与后台传输](ios/README.md)
+- **限时分享。** 能按人物、归档日期或指定影像创建只读链接，有效期 1 小时至 7 天，可提前撤销。内容的分享权限会应用到已有链接，iOS 会为禁止分享的影像显示锁标记。 [分享范围与权限](docs/sharing.md)
+- **家庭管理。** 一个部署服务一个家庭，管理员创建账号并分配成员或只读权限。服务端校验编辑权限并保留修改记录，删除的影像和日记可以从回收站恢复。
 
-![虚拟示例：人物与宠物档案](docs/images/demo-profiles.png)
+### 智能搜索与照片助手
 
-</details>
+在时间线输入“在海边玩沙”一类的描述，可以找回画面描述里没有原词的照片和视频。搜索沿用当前筛选，在有权限且已建立索引的内容中查找，每页 20 项，可继续翻看全部相关结果。管理员可在照片助手确认人物与狗狗匹配、复核画质，并将影像加入家人相册，也可开启自动标签。
 
-## 可以做什么
-
-| 场景 | 功能 |
-| --- | --- |
-| 查找与整理影像 | 用一句话搜索照片和视频，按人物或狗狗匹配相册，自动打标签，复核画质。详见 [AI 功能](#ai-功能) |
-| 整理回忆 | 按天归档、命名文件夹、文件夹与影像混排、批量选择与移动、恢复默认排序 |
-| 记录成长 | 人物与宠物档案、独立头像、按年龄浏览、满月 / 百天 / 生日导航、共同成长日记 |
-| 批量上传 | 批次命名、EXIF / QuickTime 时间解析、跨日期追加提示、跨批次去重、分片上传与重试 |
-| 轻量浏览 | 图片缩略图、HEIC / HEIF 预览、图片缩放拖动、视频压缩副本、按需查看原文件 |
-| 珍藏原件 | 私有 OSS 直传、Live Photo 双文件配对、原始元数据保留、备份与完整性校验 |
-| 限时分享 | [内容分享权限、日期范围、1 小时至 7 天有效期、随时撤销、按月折叠、每天 8 项展开、拖动时间轴定位](docs/sharing.md) |
-| 家庭共享 | 管理员 / 成员 / 只读访客、登录验证码、回收站、中英文切换、浅色 / 深色主题、响应式布局 |
-
-一个部署实例对应一个家庭，启用的账户共享家庭内容。它不提供公开注册，也不是多租户相册服务。
-
-## 技术与存储
-
-- **后端：** Python 3.12、FastAPI、SQLAlchemy 2、Alembic。
-- **Web：** Vue 3、TypeScript、Vite、Pinia、Element Plus。
-- **iOS：** SwiftUI、PhotoKit、AVKit，iOS 16+。
-- **Android：** Kotlin、Jetpack Compose、Material 3、Media3，Android 8.0+。
-- **数据库：** MySQL 5.7.8+；开发、测试与生产使用独立配置，不使用 SQLite 替代。
-- **文件：** 阿里云私有 OSS；原件由网页或 App 直传，数据库保存元数据和关联关系。
-- **部署：** Nginx + systemd；独立工作进程生成视频预览，无需 Redis。
-
-默认浏览使用压缩预览。只有主动选择“查看原文件”时才加载原件；预览处理不会覆盖原始文件。视频首次转码需要读取原件，并占用临时磁盘空间。
-
-## 界面语言与日期选择
-
-网页默认使用简体中文。登录页、页面右上角和家庭设置中都可切换 English；选择保存在当前浏览器，刷新后继续生效。菜单、表单、提示和日历同步切换，孩子姓名、文件名和日记内容保持原样。
-
-长时间线支持按月折叠、单月展开及全部收起 / 展开，家庭时间线和分享页均可使用。分享页左侧还可拖动时间轴，预览日期并快速跳转。
-
-时间线提供“按天 / 按月 / 按年”筛选、前后日期切换，以及“全部时间 / 今天 / 本月 / 出生当天”快捷入口（选择一个已填写生日的孩子或宠物后显示出生当天）。日历支持直接输入，也可点击顶部年份或月份快速定位；孩子生日、上传归档日期和日记时间使用同一套日期控件。
+智能搜索默认关闭。启用时需在服务端配置 OpenAI 密钥和月度预算，并运行索引任务。建索引会发送照片预览或视频采样帧，实况照片使用静态图；搜索使用已保存的画面描述。 [智能搜索配置](docs/ai-search.md) · [人物匹配与相册整理](docs/face-matching.md)
 
 ## 快速开始
 
-### 1. 准备依赖
+本地运行需要 Python 3.12、Node.js 22.12+ 和 MySQL 5.7.8+。完整的上传和预览功能需要配置私有阿里云 OSS Bucket、访问权限和 CORS。 [MySQL 建库](docs/deployment.md#2-已有-mysql-实例创建应用库) · [OSS 配置](docs/storage-and-metadata.md#bucket-与-ram)
 
-需要 Python 3.12、Node.js 22.12+、MySQL 5.7.8+ 和私有 OSS Bucket。完整上传与预览功能需要配置 OSS 的权限、CORS 和对应地域，详见[存储配置](docs/storage-and-metadata.md)。
+1. 安装依赖并准备测试配置。
 
-```bash
-git clone https://github.com/NiuXiangQian/yearly.git
-cd yearly
+   ```bash
+   git clone https://github.com/NiuXiangQian/yearly.git
+   cd yearly
+   python3.12 -m venv .venv
+   .venv/bin/pip install -r backend/requirements.txt
+   (cd frontend && npm ci)
+   cp -n .env.test.example .env.test
+   chmod 600 .env.test
+   ```
 
-# 安装了 nvm 时，可用 nvm use 读取 .nvmrc
-python3.12 -m venv .venv
-.venv/bin/pip install -r backend/requirements.txt
-(cd frontend && npm ci)
+2. 编辑 `.env.test`，填写测试 MySQL 的连接信息、`SESSION_SECRET` 和 OSS 参数。测试库名以 `_test` 结尾，使用独立的数据库账号。可在本地生成随机 Session 密钥。
 
-cp -n .env.test.example .env.test
-chmod 600 .env.test
-```
+   ```bash
+   .venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))'
+   ```
 
-### 2. 填写本地配置
+3. 执行迁移、创建首个管理员并启动。
 
-编辑 `.env.test`，设置自己的数据库连接、Session 密钥及 OSS 参数。测试数据库名必须以 `_test` 结尾，使用仅有该库权限的应用账号。
+   ```bash
+   ./scripts/manage.sh test migrate
+   ./scripts/manage.sh test create-admin your-admin-name
+   ./scripts/start-local.sh
+   ```
 
-可在本机生成 Session 密钥，将输出保存到配置文件，不要提交到 Git：
+打开 [http://127.0.0.1:5173/](http://127.0.0.1:5173/) 登录。`Ctrl+C` 会一起停止前端、API 和视频预览进程。
 
-```bash
-.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))'
-```
+## 手机安装
 
-示例配置中的 `CHANGE_ME`、`your-private-bucket` 等只是占位符，不能直接作为真实部署配置。数据库初始化示例见[部署指南](docs/deployment.md)。
-
-### 3. 建表并启动
-
-```bash
-./scripts/manage.sh test migrate
-
-# 首次运行时创建管理员，按提示输入密码
-./scripts/manage.sh test create-admin your-admin-name
-
-./scripts/start-local.sh
-```
-
-访问 [http://127.0.0.1:5173/](http://127.0.0.1:5173/)。启动脚本同时运行 API、前端和视频预览进程，按 `Ctrl+C` 一起停止。
-
-需要分别启动时：
-
-```bash
-./scripts/start-api.sh test --reload
-(cd frontend && npm run dev -- --port 5173)
-./scripts/manage.sh test generate-previews --watch
-```
-
-上面三个命令分别在三个终端运行。
-
-## iOS App
-
-iPhone（iOS 16+）原生客户端与网页使用同一套后端和家庭账户。先按上面的步骤部署家庭站点，再在 App 中填写证书有效、手机可访问的 **HTTPS 站点完整地址**，例如 `https://example.com/yearly/`，登录后即可使用。
-
-1. 在 Mac 安装完整 Xcode 与 iOS 平台组件，打开 `ios/Yearly.xcodeproj`。
-2. 在 Signing & Capabilities 中选择自己的 Apple Team，连接 iPhone 并按提示开启开发者模式。
-3. 在 Xcode 选择设备并运行。免费 Personal Team 可安装，签名有效期为 7 天，之后用同一 Team 和 Bundle Identifier 覆盖安装续签。
-
-```bash
-# 项目根目录：本地逻辑与工程检查
-./scripts/ios.sh verify
-
-# 完整 Xcode：Debug / Release 模拟器构建
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/ios.sh build
-```
-
-当前提供源码与自行构建安装方式，未提供 App Store / TestFlight 下载入口。主 App 切到后台后由 iOS 接续传输分片。后台调度限制、安装续签和真机验收范围见 [iOS 指南](ios/README.md)。
-
-## Android App
-
-仓库也提供 Android 8.0+ 原生客户端，可使用 Android Studio 打开 `android/`，或运行 `./scripts/android.sh release` 构建个人安装包。连接同一 HTTPS 家庭站点即可使用，构建、安装与兼容性说明见 [Android 指南](android/README.md)。
-
-## 环境与部署
-
-| 配置 | 本地测试 | 正式环境 |
-| --- | --- | --- |
-| 环境选择 | `APP_ENV=test` | `APP_ENV=production` |
-| 配置文件 | `.env.test` | `.env.production` |
-| 数据库 | 名称以 `_test` 结尾 | 独立正式库，不能以 `_test` 结尾 |
-| 访问方式 | 本机 HTTP | HTTPS 与 Secure Cookie |
-| 数据库账号、密钥、OSS 配置 | 单独配置 | 单独配置 |
-
-新部署使用 Alembic 建表；升级已有部署时先备份，再迁移数据库。账户与日志迁移版本为 `0013`。生产部署需同时运行 API 和视频预览工作进程，并配置 Nginx、私有 OSS 及备份任务。
-
-具体步骤见[部署指南](docs/deployment.md)。仓库提供的是应用与部署模板，不包含可直接使用的服务器、数据库或 OSS 凭据。
-
-## 验证与开发
-
-```bash
-# 前端测试与构建
-(cd frontend && npm test && npm run build)
-
-# 前后端完整检查：先配置独立的测试 MySQL，并执行迁移
-./scripts/test.sh
-```
-
-后端测试使用 MySQL 和事务回滚，OSS 操作使用 Mock，包含独立的签名与合成媒体测试。运行数据库测试前先停止连接同一测试库的服务，避免同时写入。
-
-验证范围与待验收项目见[验证说明](docs/verification.md)。
-
-## 数据边界与隐私
-
-- 普通账户只能上传和编辑自己添加的文件、文件夹、档案与日记，其他内容只读并显示锁定。管理员可管理账户并操作全部内容。服务端校验归属，修改人及字段变化随业务更新一同记录。历史文件夹和档案缺少创建人时由管理员管理，历史只读访客继续只读。
-- 保存浏览器实际选择的文件字节。手机相册可能转换格式或省略 Live Photo 资源，导入前应确认原片导出方式。
-- 原始拍摄时间与手工修正独立保存；缺失的时间、时区或 GPS 不会被补造。
-- 删除影像和日记进入回收站；删除文件夹只移除分类。系统不会自动永久删除原件。
-- 恢复备份需要维护窗口和停写。不要把唯一一份家庭原件只交给单一存储副本。
-- `.env`、密码、私钥、证书、数据库导出、原始照片和带个人信息的日志不要上传到仓库或 Issue。公开截图仅使用虚拟数据，分享前同时检查图片的 EXIF 元数据。
-
-## 更多文档
-
-| 文档 | 内容 |
+| 客户端 | 安装方式 |
 | --- | --- |
-| [iOS App](ios/README.md) | 原生功能、Xcode 安装、免费签名续签与验证范围 |
-| [Android App](android/README.md) | 原生功能、APK 构建、安装与兼容性 |
-| [人物与宠物](docs/pets.md) | 人物关系、宠物分类、文件多选关联与筛选 |
-| [部署指南](docs/deployment.md) | MySQL、HTTPS、Nginx、systemd 与视频预览进程 |
-| [存储与元数据](docs/storage-and-metadata.md) | OSS、直传、压缩预览、拍摄时间与归档规则 |
-| [备份与恢复](docs/backup-restore.md) | 数据库、清单、原件备份及恢复流程 |
-| [验证说明](docs/verification.md) | 已验证范围、测试命令与兼容性限制 |
+| **iOS 16+** | 用完整 Xcode 打开 `ios/Yearly.xcodeproj`，配置自己的 Apple Team 和签名，连接已打开开发者模式的 iPhone 并运行。 [iOS 构建与签名](ios/README.md) |
+| **Android 8.0+** | 用 Android Studio 打开 `android/`，或从项目根目录运行 `./scripts/android.sh release` 生成安装包。 [Android 构建与安装](android/README.md) |
 
-部署模板位于 [`deploy/`](deploy/)，管理命令位于 [`scripts/`](scripts/)。
+在 App 中填写手机可访问、证书有效的 HTTPS 家庭站点完整地址，例如 `https://example.com/yearly/`，再用已有家庭账号登录。
+
+## 部署与维护
+
+后端使用 FastAPI、SQLAlchemy、Alembic 和 MySQL，Web 使用 Vue 3 与 TypeScript，原生端使用 SwiftUI 和 Jetpack Compose。正式部署使用独立的 `.env.production` 和生产数据库。Nginx 提供 HTTPS，systemd 运行 API 和视频预览工作进程。升级前先备份，再执行数据库迁移。 [部署指南](docs/deployment.md)
+
+原始拍摄信息与手工修正分开保存，预览生成不会覆盖原件。数据库保存元数据和关联信息，完整备份还需包含 OSS 原件和清单。 [存储与元数据](docs/storage-and-metadata.md) · [备份与恢复](docs/backup-restore.md)
+
+日常验证可运行以下命令。完整前后端测试使用独立的测试 MySQL。
+
+```bash
+(cd frontend && npm test && npm run build)
+./scripts/test.sh
+./scripts/ios.sh verify
+```
+
+[验证范围](docs/verification.md) · [部署模板](deploy/) · [管理脚本](scripts/)

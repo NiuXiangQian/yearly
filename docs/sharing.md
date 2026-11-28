@@ -39,15 +39,11 @@
 
 ## 界面预览
 
-文件的分享权限在编辑文件时管理。截图使用独立虚拟数据、2 倍像素无损 PNG。
+网页截图展示接收者看到的月份分组、日期轴和拍摄时年龄。iPhone 截图展示发送者创建链接时可设置的人物范围。两张截图均使用虚构数据。
 
-![虚拟示例：简化分享窗口](images/demo-share-create.png)
+[![只读分享时间线](images/demo-share.png)](images/demo-share.png)
 
-![虚拟示例：只读分享时间线](images/demo-share.png)
-
-![虚拟示例：按月折叠长时间线](images/demo-months.png)
-
-![虚拟示例：左侧时间轴与拖动日期提示](images/demo-share-drag.png)
+<a href="images/demo-ios-share.png"><img src="images/demo-ios-share.png" width="230" alt="iPhone 分享管理中的人物选择和起始日期"></a>
 
 ## 隐私与流量
 
