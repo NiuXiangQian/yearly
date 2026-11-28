@@ -38,7 +38,6 @@ class Settings(BaseSettings):
     face_matching_enabled: bool = False
     face_auto_link_enabled: bool = False
     face_model_directory: str = str(PROJECT_ROOT / ".local" / "face-models")
-    face_match_threshold: float = Field(default=0.45, ge=0, le=1)
 
     @field_validator("app_base_path")
     @classmethod

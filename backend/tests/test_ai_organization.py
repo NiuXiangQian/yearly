@@ -189,7 +189,7 @@ def test_approving_automatic_face_queues_dependent_matching(context, monkeypatch
     person=child(context,'参考人物')
     reference_pair(context,person['id'],[1,0])
     target=image_media(context, taken='2024-05-01T10:00:00'); fid=indexed(context,target,[.87,math.sqrt(1-.87**2)])
-    chained=image_media(context); chained_id=indexed(context,chained,[.69,math.sqrt(1-.69**2)])
+    chained=image_media(context); chained_id=indexed(context,chained,[.59,math.sqrt(1-.59**2)])
     assert context.client.post('/api/faces/auto-link').json()['linked_faces']==1
     row=context.client.get('/api/organization/reviews?kind=face').json()['items'][0]
     result=context.client.put(f"/api/organization/reviews/{row['id']}",json=dict(action='approve'))

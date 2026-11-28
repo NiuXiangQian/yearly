@@ -26,8 +26,9 @@ from .storage import get_storage
 from .visibility import visible_row
 
 router = APIRouter(prefix="/api/faces", tags=["人脸匹配"])
-AUTO_LINK_MINIMUM_SIMILARITY = 0.78
+FACE_MATCH_MINIMUM_SIMILARITY = 0.60
 AUTO_LINK_MINIMUM_MARGIN = 0.08
+FACE_COMPETITION_MINIMUM_SIMILARITY = FACE_MATCH_MINIMUM_SIMILARITY - AUTO_LINK_MINIMUM_MARGIN
 VIDEO_CONFIRMATION_MINIMUM = 0.55
 VIDEO_REFERENCE_MINIMUM = 0.65
 REFERENCE_BATCH_SIZE = 150
@@ -125,7 +126,8 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
                 ):
                     continue
                 score = track_similarity(face, sample)
-                if score < settings().face_match_threshold:
+                # A score just below the candidate cutoff can still make an automatic decision ambiguous.
+                if score < FACE_COMPETITION_MINIMUM_SIMILARITY:
                     continue
                 source_day = capture_day(source)
                 nearby = bool(person.birthday and person.profile_type == "child" and taken and source_day
@@ -133,7 +135,9 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
                 matches[person.id].append((score, nearby, source_day, source_hash, sample, person))
         best = {}
         for person_id, samples in matches.items():
-            score, _, _, _, sample, person = max(samples, key=lambda entry: (entry[0] + .025 * entry[1], entry[0], -entry[4].id))
+            score, _, _, _, sample, person = max(samples, key=lambda entry: (
+                entry[0] >= FACE_MATCH_MINIMUM_SIMILARITY, entry[0] + .025 * entry[1], entry[0], -entry[4].id,
+            ))
             best[person_id] = dict(child_id=person.id, name=person.name, similarity=score,
                 reference_media_id=sample.media_id, reference_face_id=sample.id,
                 reference_thumbnail="data:image/jpeg;base64," + sample.thumbnail)
@@ -148,7 +152,8 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
         suppressed = {cid for cid, candidate in best.items() if cid in excluded and "_local" not in candidate}
         excluded_score = max((best[cid]["similarity"] for cid in suppressed), default=-1)
         candidates = sorted((candidate for cid, candidate in best.items()
-                             if cid not in suppressed and candidate["similarity"] > excluded_score),
+                             if cid not in suppressed and candidate["similarity"] > excluded_score
+                             and candidate["similarity"] >= FACE_MATCH_MINIMUM_SIMILARITY),
                             key=lambda item: item["similarity"], reverse=True)[:3]
         public_candidates = [{key: round(value, 4) if key == "similarity" and round_scores else value
                               for key, value in candidate.items() if not key.startswith("_")} for candidate in candidates]
@@ -299,7 +304,7 @@ def matchable_face():
     return or_(MediaFace.ignored.is_(False), MediaFace.confirmed_by.is_(None) & duplicate)
 
 
-def auto_link(db, user, media_ids=None):
+def auto_link(db, user, media_ids=None, *, pending_only=False):
     options = preferences(db)
     if not settings().face_auto_link_enabled or not options["people_enabled"]:
         return NO_MATCH_CHANGES.copy()
@@ -307,8 +312,11 @@ def auto_link(db, user, media_ids=None):
     query = (select(MediaFace).join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
         .where(Media.status == "active", Media.purpose == "memory", MediaFaceIndex.model == MODEL_VERSION,
-               or_(MediaFace.child_id.is_(None), MediaFace.auto_match_score.is_not(None)),
-               matchable_face(), MediaFace.auto_link_blocked.is_(False)))
+               MediaFace.auto_link_blocked.is_(False)))
+    if pending_only:
+        query = query.where(MediaFace.child_id.is_(None), MediaFace.ignored.is_(False))
+    else:
+        query = query.where(or_(MediaFace.child_id.is_(None), MediaFace.auto_match_score.is_not(None)), matchable_face())
     if media_ids is not None:
         query = query.where(MediaFace.media_id.in_(media_ids))
     rows = list(db.scalars(query.order_by(MediaFace.id).with_for_update().execution_options(populate_existing=True)))
@@ -329,11 +337,10 @@ def auto_link(db, user, media_ids=None):
             continue
         if rules.get(str(best["child_id"])) == "manual":
             continue
-        direct = best["similarity"] > AUTO_LINK_MINIMUM_SIMILARITY
-        if not direct and best.get("_video_support", 0) < 2:
-            continue
         local = best.get("_local")
-        if local and (not direct or best["child_id"] in options["face_excluded_child_ids"]):
+        if local and best["child_id"] in options["face_excluded_child_ids"]:
+            if local[1] < FACE_MATCH_MINIMUM_SIMILARITY and best.get("_video_support", 0) < 2:
+                continue
             best = dict(best, reference_face_id=local[0], reference_media_id=face.media_id)
         proposed[face.id] = best
         claims[face.media_id, face.frame_seconds, best["child_id"]].add(face.id)
@@ -425,7 +432,7 @@ def process_face_work(db, user):
                MediaFace.id > source.reference_cursor, matchable_face(), MediaFace.auto_link_blocked.is_(False),
                MediaFace.confirmed_by.is_(None)).order_by(MediaFace.id).limit(REFERENCE_BATCH_SIZE)))
     affected = {face.media_id for face in targets if samples and assess_crop(face.thumbnail, face.box)[0] is True
-                and any(track_similarity(face, sample) >= .68 for sample in samples)}
+                and any(track_similarity(face, sample) >= FACE_COMPETITION_MINIMUM_SIMILARITY for sample in samples)}
     if affected:
         db.execute(update(MediaFaceIndex).where(MediaFaceIndex.media_id.in_(affected)).values(match_pending=True))
     source.reference_cursor = targets[-1].id if samples and len(targets) == REFERENCE_BATCH_SIZE else None
@@ -438,7 +445,7 @@ def auto_link_faces(db=Depends(get_db), user=Depends(admin)):
     summary = auto_link(db, user)
     db.commit()
     return dict(**summary, enabled=settings().face_auto_link_enabled,
-                minimum_similarity=AUTO_LINK_MINIMUM_SIMILARITY, minimum_similarity_exclusive=True,
+                minimum_similarity=FACE_MATCH_MINIMUM_SIMILARITY, minimum_similarity_exclusive=False,
                 minimum_margin=AUTO_LINK_MINIMUM_MARGIN, minimum_independent_references=1, ties_require_review=True)
 
 
