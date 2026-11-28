@@ -9,7 +9,7 @@ from typing import Literal
 from PIL import Image, ImageOps
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import delete, select, func, or_, update
+from sqlalchemy import String, cast, delete, func, or_, select, update
 
 from .organization_history import preferences, record_identity, clear_identity_reviews
 from .accounts import record_change
@@ -18,7 +18,7 @@ from .face_engine import FaceEngine, MODEL_VERSION, availability
 from .face_quality import assess_crop, QUALITY_VERSION
 from .video_faces import detect_video_faces, overlap, similarity, VIDEO_FACE_SIMILARITY
 from .config import settings
-from .models import Child, DisplayPreview, Media, MediaChild, MediaFace, MediaFaceIndex, MediaFile, VideoPreview, MediaInterview
+from .models import Child, DisplayPreview, Media, MediaChild, MediaFace, MediaFaceIndex, MediaFile, VideoPreview, MediaInterview, OrganizationReview
 from .security import admin
 from .services import set_children, media_data
 from .storage import get_storage
@@ -27,6 +27,8 @@ from .visibility import visible_row
 router = APIRouter(prefix="/api/faces", tags=["人脸匹配"])
 AUTO_LINK_MINIMUM_SIMILARITY = 0.78
 AUTO_LINK_MINIMUM_MARGIN = 0.08
+VIDEO_CONFIRMATION_MINIMUM = 0.55
+VIDEO_REFERENCE_MINIMUM = 0.65
 REFERENCE_BATCH_SIZE = 150
 NO_MATCH_CHANGES = dict(linked_faces=0, reset_faces=0, media_count=0)
 
@@ -91,17 +93,9 @@ def active_media(db, mid, user):
     return media
 
 
-def face_items(db, rows, matching=True, review_automatic=False, round_scores=True, find_bound_matches=False):
+def face_items(db, rows, matching=True, review_automatic=False, round_scores=True):
     rows = list(rows)
     excluded = set(preferences(db)["face_excluded_child_ids"])
-    bindings = {}
-    if rows and matching:
-        query = select(MediaChild.media_id, MediaChild.child_id).where(
-            MediaChild.media_id.in_({row.media_id for row in rows}))
-        if find_bound_matches:
-            query = query.with_for_update()
-        for mid, cid in db.execute(query):
-            bindings.setdefault(mid, set()).add(cid)
     references = db.execute(select(MediaFace, Child, Media, MediaFaceIndex.source_sha256).join(Child, Child.id == MediaFace.child_id)
         .join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
@@ -113,7 +107,7 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
     items = []
     for face in rows:
         matches = defaultdict(list)
-        if (not face.ignored and assess_crop(face.thumbnail, face.box)[0] is True
+        if (references and (not face.ignored or review_automatic) and assess_crop(face.thumbnail, face.box)[0] is True
                 and (face.child_id is None or (review_automatic and face.auto_match_score is not None))):
             taken = capture_day(media_rows[face.media_id])
             for sample, person, source, source_hash in references:
@@ -133,22 +127,19 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
         best = {}
         for person_id, samples in matches.items():
             score, _, _, _, sample, person = max(samples, key=lambda entry: (entry[0] + .025 * entry[1], entry[0], -entry[4].id))
-            days, hashes = set(), set()
-            support = 0
-            for raw, _, source_day, source_hash, _, _ in sorted(samples, key=lambda entry: -entry[0]):
-                if raw < .68 or source_hash in hashes or (source_day is not None and source_day in days):
-                    continue
-                hashes.add(source_hash)
-                if source_day is not None:
-                    days.add(source_day)
-                support += 1
             best[person_id] = dict(child_id=person.id, name=person.name, similarity=score,
                 reference_media_id=sample.media_id, reference_face_id=sample.id,
-                reference_thumbnail="data:image/jpeg;base64," + sample.thumbnail, _support=support)
-        bound = bindings.get(face.media_id, set()) if face.child_id is None else set()
-        suppressed = excluded | bound
-        # Do not fall back to a weaker identity when the best match is already bound.
-        excluded_score = max((candidate["similarity"] for cid, candidate in best.items() if cid in suppressed), default=-1)
+                reference_thumbnail="data:image/jpeg;base64," + sample.thumbnail)
+            if face.frame_seconds is not None:
+                local = [entry for entry in samples if entry[4].media_id == face.media_id
+                         and entry[0] >= VIDEO_CONFIRMATION_MINIMUM]
+                if local:
+                    local_score, _, _, _, local_sample, _ = max(local, key=lambda entry: entry[0])
+                    best[person_id]["_local"] = (local_sample.id, local_score)
+                    if review_automatic:
+                        best[person_id]["_video_support"] = video_reference_support(samples, face.media_id)
+        suppressed = {cid for cid, candidate in best.items() if cid in excluded and "_local" not in candidate}
+        excluded_score = max((best[cid]["similarity"] for cid in suppressed), default=-1)
         candidates = sorted((candidate for cid, candidate in best.items()
                              if cid not in suppressed and candidate["similarity"] > excluded_score),
                             key=lambda item: item["similarity"], reverse=True)[:3]
@@ -163,14 +154,20 @@ def face_items(db, rows, matching=True, review_automatic=False, round_scores=Tru
             if candidates:
                 items[-1]["_runner_up"] = max((value["similarity"] for cid, value in best.items()
                                                if cid != candidates[0]["child_id"]), default=0)
-        if find_bound_matches and best:
-            ranked = sorted(best.values(), key=lambda value: value["similarity"], reverse=True)
-            best_bound = ranked[0]
-            runner_up = ranked[1]["similarity"] if len(ranked) > 1 else 0
-            if (best_bound["child_id"] in bound and best_bound["similarity"] > AUTO_LINK_MINIMUM_SIMILARITY
-                    and best_bound["similarity"] - runner_up >= AUTO_LINK_MINIMUM_MARGIN):
-                items[-1]["_already_bound_match"] = [best_bound]
     return items, [(sample, person) for sample, person, _, _ in references if person.id not in excluded]
+
+
+def video_reference_support(samples, media_id):
+    days, hashes = set(), set()
+    for score, _, day, source_hash, sample, _ in sorted(samples, key=lambda entry: -entry[0]):
+        if sample.media_id == media_id or score < VIDEO_REFERENCE_MINIMUM or source_hash in hashes:
+            continue
+        if day is not None and day in days:
+            continue
+        hashes.add(source_hash)
+        if day is not None:
+            days.add(day)
+    return len(hashes)
 
 
 def result(db, media):
@@ -263,34 +260,15 @@ def ignore_low_quality_faces(db, user, media_ids=None):
     return sum(len(ids) for ids in changed.values())
 
 
-def ignore_already_bound_faces(db, user, media_ids=None):
-    query = (select(MediaFace).join(Media, Media.id == MediaFace.media_id)
-        .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
-        .where(Media.status == "active", Media.purpose == "memory", MediaFaceIndex.model == MODEL_VERSION,
-               MediaFace.child_id.is_(None), MediaFace.confirmed_by.is_(None),
-               MediaFace.ignored.is_(False), MediaFace.auto_link_blocked.is_(False)))
-    if media_ids is not None:
-        query = query.where(MediaFace.media_id.in_(media_ids))
-    rows = list(db.scalars(query.with_for_update().execution_options(populate_existing=True)))
-    items, _ = face_items(db, rows, round_scores=False, find_bound_matches=True)
-    changed = {}
-    for face, item in zip(rows, items, strict=True):
-        matches = item.get("_already_bound_match")
-        if not matches:
-            continue
-        face.ignored = True
-        face.auto_match_score = face.auto_reference_face_id = None
-        record_identity(db, face.media_id, "face", str(face.id),
-            dict(child_id=None, ignored=False), dict(child_id=None, ignored=True), automatic=True,
-            evidence=dict(reason="影像已关联该人物，自动忽略重复识别", already_bound_child_ids=[c["child_id"] for c in matches],
-                          similarity=matches[0]["similarity"], reference_face_ids=[c["reference_face_id"] for c in matches],
-                          model=MODEL_VERSION))
-        changed.setdefault(face.media_id, []).append(face.id)
-    for mid, ids in changed.items():
-        record_change(db, db.get(Media, mid), {"faces": {
-            "before": [dict(face_id=fid, child_id=None, ignored=False) for fid in ids],
-            "after": [dict(face_id=fid, child_id=None, ignored=True) for fid in ids]}})
-    return sum(len(ids) for ids in changed.values())
+def matchable_face():
+    # Reconsider legacy rows suppressed only because the album already contained this person.
+    duplicate = select(OrganizationReview.id).where(
+        OrganizationReview.media_id == MediaFace.media_id, OrganizationReview.kind == "face",
+        OrganizationReview.target_id == cast(MediaFace.id, String), OrganizationReview.status == "automatic",
+        OrganizationReview.automatic.is_(True),
+        func.json_contains_path(OrganizationReview.evidence, "one", "$.already_bound_child_ids") == 1,
+    ).exists()
+    return or_(MediaFace.ignored.is_(False), MediaFace.confirmed_by.is_(None) & duplicate)
 
 
 def auto_link(db, user, media_ids=None):
@@ -298,13 +276,11 @@ def auto_link(db, user, media_ids=None):
     if not settings().face_auto_link_enabled or not options["people_enabled"]:
         return NO_MATCH_CHANGES.copy()
     ignore_low_quality_faces(db, user, media_ids)
-    ignore_already_bound_faces(db, user, media_ids)
     query = (select(MediaFace).join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
         .where(Media.status == "active", Media.purpose == "memory", MediaFaceIndex.model == MODEL_VERSION,
                or_(MediaFace.child_id.is_(None), MediaFace.auto_match_score.is_not(None)),
-               or_(MediaFace.child_id.is_(None), MediaFace.child_id.not_in(options["face_excluded_child_ids"])),
-               MediaFace.ignored.is_(False), MediaFace.auto_link_blocked.is_(False)))
+               matchable_face(), MediaFace.auto_link_blocked.is_(False)))
     if media_ids is not None:
         query = query.where(MediaFace.media_id.in_(media_ids))
     rows = list(db.scalars(query.order_by(MediaFace.id).with_for_update().execution_options(populate_existing=True)))
@@ -321,18 +297,28 @@ def auto_link(db, user, media_ids=None):
     for face, item in zip(rows, items, strict=True):
         candidates = item["_auto_candidates"]
         best = candidates[0] if candidates else None
-        if (best and best["similarity"] > AUTO_LINK_MINIMUM_SIMILARITY and best["_support"] >= 2
-                and best["similarity"] - item["_runner_up"] >= AUTO_LINK_MINIMUM_MARGIN):
-            proposed[face.id] = best
-            claims[face.media_id, face.frame_seconds, best["child_id"]].add(face.id)
+        if not best or best["similarity"] - item["_runner_up"] < AUTO_LINK_MINIMUM_MARGIN:
+            continue
+        if rules.get(str(best["child_id"])) == "manual":
+            continue
+        direct = best["similarity"] > AUTO_LINK_MINIMUM_SIMILARITY
+        if not direct and best.get("_video_support", 0) < 2:
+            continue
+        local = best.get("_local")
+        if local and (not direct or best["child_id"] in options["face_excluded_child_ids"]):
+            best = dict(best, reference_face_id=local[0], reference_media_id=face.media_id)
+        proposed[face.id] = best
+        claims[face.media_id, face.frame_seconds, best["child_id"]].add(face.id)
     changes = {}
     for face in rows:
         if assess_crop(face.thumbnail, face.box)[0] is not True:
             continue  # Keep existing assignments; unusable crops cannot drive new decisions.
-        if face.child_id is not None and face.auto_reference_face_id is not None:
-            previous_reference = db.get(MediaFace, face.auto_reference_face_id)
-            if previous_reference is not None and assess_crop(previous_reference.thumbnail, previous_reference.box)[0] is not True:
-                continue  # A quality-policy change must not silently undo historical bindings.
+        previous_reference = db.get(MediaFace, face.auto_reference_face_id) if face.auto_reference_face_id else None
+        if face.child_id in options["face_excluded_child_ids"] and (
+                previous_reference is None or previous_reference.media_id != face.media_id):
+            continue  # Preserve links predating the exclusion; new scoped links always cite a local reference.
+        if previous_reference is not None and assess_crop(previous_reference.thumbnail, previous_reference.box)[0] is not True:
+            continue  # A quality-policy change must not silently undo historical bindings.
         best = proposed.get(face.id)
         if best and len(claims[face.media_id, face.frame_seconds, best["child_id"]]) > 1:
             best = None
@@ -342,18 +328,20 @@ def auto_link(db, user, media_ids=None):
                 source = db.get(Media, reference.media_id)
                 if source and source.status == "active" and source.purpose == "memory":
                     continue
-        if best and rules.get(str(best["child_id"])) == "manual":
+        if face.ignored and best is None:
             continue
-        previous = face.child_id
+        previous, previously_ignored = face.child_id, face.ignored
+        face.ignored = False
         face.child_id = best["child_id"] if best else None
         face.auto_match_score = best["similarity"] if best else None
         face.auto_reference_face_id = best["reference_face_id"] if best else None
         # confirmed_by stays empty: automatic links never become reference samples.
         if previous != face.child_id:
             record_identity(db, face.media_id, "face", str(face.id),
-                dict(child_id=previous, ignored=False), dict(child_id=face.child_id, ignored=False), automatic=True,
+                dict(child_id=previous, ignored=previously_ignored), dict(child_id=face.child_id, ignored=False), automatic=True,
                 evidence=dict(similarity=face.auto_match_score, reference_face_id=face.auto_reference_face_id,
-                    reference_media_id=best["reference_media_id"] if best else None, frame_seconds=float(face.frame_seconds) if face.frame_seconds is not None else None,
+                    reference_media_id=best["reference_media_id"] if best else None,
+                    local_reference_similarity=best["_local"][1] if best and best.get("_local") else None, frame_seconds=float(face.frame_seconds) if face.frame_seconds is not None else None,
                     model=MODEL_VERSION, reason="参考样本明确匹配" if best else "匹配不再明确，撤回自动关联"))
             changes.setdefault(face.media_id, []).append(dict(face_id=face.id, previous_child_id=previous, child_id=face.child_id,
                 similarity=face.auto_match_score, reference_face_id=face.auto_reference_face_id))
@@ -405,7 +393,7 @@ def process_face_work(db, user):
     targets = list(db.scalars(select(MediaFace).join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
         .where(Media.status == "active", Media.purpose == "memory", MediaFaceIndex.model == MODEL_VERSION,
-               MediaFace.id > source.reference_cursor, MediaFace.ignored.is_(False), MediaFace.auto_link_blocked.is_(False),
+               MediaFace.id > source.reference_cursor, matchable_face(), MediaFace.auto_link_blocked.is_(False),
                MediaFace.confirmed_by.is_(None)).order_by(MediaFace.id).limit(REFERENCE_BATCH_SIZE)))
     affected = {face.media_id for face in targets if any(track_similarity(face, sample) >= .68 for sample in samples)}
     if affected:
@@ -421,7 +409,7 @@ def auto_link_faces(db=Depends(get_db), user=Depends(admin)):
     db.commit()
     return dict(**summary, enabled=settings().face_auto_link_enabled,
                 minimum_similarity=AUTO_LINK_MINIMUM_SIMILARITY, minimum_similarity_exclusive=True,
-                minimum_margin=AUTO_LINK_MINIMUM_MARGIN, minimum_independent_references=2, ties_require_review=True)
+                minimum_margin=AUTO_LINK_MINIMUM_MARGIN, minimum_independent_references=1, ties_require_review=True)
 
 
 @router.post("/analyze-next")
