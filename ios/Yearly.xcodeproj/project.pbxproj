@@ -46,6 +46,7 @@
 		B00000000000000000000003 /* OriginalMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000003 /* OriginalMetadata.swift */; };
 		B00000000000000000000004 /* UploadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000004 /* UploadQueue.swift */; };
 		B00000000000000000000005 /* NativeUploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* NativeUploadView.swift */; };
+		B00000000000000000000038 /* NativeStickerPack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038 /* NativeStickerPack.swift */; };
 		B00000000000000000000037 /* UploadTaskPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000037 /* UploadTaskPreview.swift */; };
 		B00000000000000000000006 /* NativeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000006 /* NativeSession.swift */; };
 		B00000000000000000000007 /* NativeTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000007 /* NativeTimeline.swift */; };
@@ -124,6 +125,7 @@
 		A00000000000000000000003 /* OriginalMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OriginalMetadata.swift; sourceTree = "<group>"; };
 		A00000000000000000000004 /* UploadQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadQueue.swift; sourceTree = "<group>"; };
 		A00000000000000000000005 /* NativeUploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUploadView.swift; sourceTree = "<group>"; };
+		A00000000000000000000038 /* NativeStickerPack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeStickerPack.swift; sourceTree = "<group>"; };
 		A00000000000000000000037 /* UploadTaskPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadTaskPreview.swift; sourceTree = "<group>"; };
 		A00000000000000000000006 /* NativeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSession.swift; sourceTree = "<group>"; };
 		A00000000000000000000007 /* NativeTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTimeline.swift; sourceTree = "<group>"; };
@@ -228,6 +230,7 @@
 				A00000000000000000000003 /* OriginalMetadata.swift */,
 				A00000000000000000000004 /* UploadQueue.swift */,
 				A00000000000000000000005 /* NativeUploadView.swift */,
+				A00000000000000000000038 /* NativeStickerPack.swift */,
 				A00000000000000000000037 /* UploadTaskPreview.swift */,
 				A00000000000000000000007 /* NativeTimeline.swift */,
 				A00000000000000000000006 /* NativeSession.swift */,
@@ -389,6 +392,7 @@
 				B00000000000000000000003 /* OriginalMetadata.swift in Sources */,
 				B00000000000000000000004 /* UploadQueue.swift in Sources */,
 				B00000000000000000000005 /* NativeUploadView.swift in Sources */,
+				B00000000000000000000038 /* NativeStickerPack.swift in Sources */,
 				B00000000000000000000037 /* UploadTaskPreview.swift in Sources */,
 				F00000000000000000000001 /* YearlyApp.swift in Sources */,
 				F00000000000000000000004 /* SiteOrigin.swift in Sources */,

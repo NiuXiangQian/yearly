@@ -79,6 +79,7 @@ from .ai_search import router as ai_search_router
 from .faces import router as face_router
 from .curation import router as curation_router
 from .memory_interviews import router as interview_router
+from .sticker_packs import router as sticker_router
 from .pets import router as pet_router, detach_profile as detach_pet_profile
 from .folders import (
     router as folder_router,
@@ -122,6 +123,7 @@ app.include_router(ai_search_router)
 app.include_router(face_router)
 app.include_router(curation_router)
 app.include_router(interview_router)
+app.include_router(sticker_router)
 app.include_router(pet_router)
 app.include_router(media_map_router)
 
