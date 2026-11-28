@@ -36,7 +36,7 @@ def test_person_share_filters_folders_events_and_direct_media_access(context):
     event = context.client.post("/api/events", json={"title": "小满的记录", "start_at": "2024-03-31T12:00:00", "child_ids": [second["id"]]}).json()
     context.client.post("/api/events", json={"title": "其他记录", "start_at": "2024-03-31T13:00:00", "child_ids": [other["id"]]})
     data = share(context, profile_ids=[person["id"], second["id"], person["id"]])
-    assert data["card_title"] == "小禾、小满的时光"
+    assert data["card_title"] == "小禾、小满的成长相册"
     assert not data["has_avatar"]
     copied = context.client.post(f'/api/shares/{data["id"]}/copy', json={"hours": 1}).json()
     assert copied["profile_ids"] == [person["id"], second["id"]]
@@ -61,6 +61,34 @@ def test_person_selection_intersects_explicit_media_and_validates_profile(contex
     assert [item["id"] for item in body["days"][0]["items"]] == [chosen]
     assert context.client.post("/api/shares", json={"media_ids": [chosen], "profile_ids": [999999999]}).status_code == 422
     assert context.client.post("/api/shares", json={"media_ids": [chosen], "profile_ids": [other["id"]]}).status_code == 422
+
+
+def test_card_copy_uses_profiles_and_share_scope(context):
+    baby = create_person(context, "小禾", "孩子")
+    parent = create_person(context, "妈妈", "妈妈")
+    animal = pet(context)
+    chosen = upload(context, [baby["id"]])["media_id"]
+    family = share(context)
+    mixed = share(context, profile_ids=[baby["id"], parent["id"], animal["id"]])
+    selected = context.client.post("/api/shares", json={
+        "media_ids": [chosen], "profile_ids": [baby["id"]],
+    }).json()
+
+    assert family["card_title"] == "我们的家庭相册"
+    assert mixed["card_title"] == "小禾、妈妈等 3 位的时光相册"
+    assert family["card_description"] == mixed["card_description"] == (
+        "一起翻翻这些日子里的回忆。打开链接，无需登录。"
+    )
+    assert selected["card_title"] == "小禾的成长相册"
+    assert selected["card_description"] == "挑了些喜欢的瞬间，想和你分享。打开链接，无需登录。"
+
+    context.client.cookies.clear()
+    base = "/api/public/shares/" + selected["token"]
+    public = context.client.get(base).json()["share"]
+    page = context.client.get(base + "/page")
+    for tag, field in (("title", "card_title"), ("description", "card_description")):
+        assert public[field] == selected[field]
+        assert f'<meta property="og:{tag}" content="{selected[field]}">' in page.text
 
 
 def test_public_cards_show_capture_ages_for_tagged_children(context):
@@ -116,7 +144,8 @@ def test_person_metadata_and_avatar_follow_link_expiry_and_escape_titles(context
     base = "/api/public/shares/" + data["token"]
     page = context.client.get(base + "/page")
     assert page.status_code == 200
-    assert '<h1>小禾 &lt;script&gt; · 相册 &quot; &lt;测试&gt;</h1>' in page.text
+    assert '<h1>相册 &quot; &lt;测试&gt;</h1>' in page.text
+    assert '<meta property="og:title" content="相册 &quot; &lt;测试&gt;">' in page.text
     assert page.headers["cache-control"] == "no-store"
     assert int(page.headers["content-length"]) == len(page.content)
     assert f'{base}/avatar' in page.text

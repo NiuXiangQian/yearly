@@ -35,6 +35,8 @@ Open media fullscreen and use swipes, arrow keys, or the previous and next butto
 
 Group shares use the same collage on the link card and the shared page. The cover takes the first nine configured avatars in profile-list order. **All content** draws from active family profiles by default. Unavailable images are omitted, and the Yearly logo appears if no avatars are available.
 
+The link card uses your custom title. If you leave it blank, Yearly generates a title based on the selected profiles. The card description reflects whether the link shares a date range or selected media.
+
 ## Preview
 
 These 2× lossless PNGs use fictional data. Set file permissions in their editors.

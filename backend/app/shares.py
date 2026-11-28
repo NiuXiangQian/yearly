@@ -65,23 +65,31 @@ class ShareCreate(BaseModel):
 def share_info(db, share, default_avatar_ids=None):
     profiles = share.profiles
     profile = profiles[0] if len(profiles) == 1 else None
-    names = "、".join(p.nickname or p.name for p in profiles[:2])
-    if len(profiles) > 2:
-        names += f"等 {len(profiles)} 位"
-    title = share.title or "我们的家庭时光"
-    description = "一起看看这些珍藏的照片与视频。记录成长，留住相聚的瞬间。"
-    if names:
-        title = f"{names} · {share.title}" if share.title else f"{names}的时光"
-        description = f"一起看看{names}的照片与视频，珍藏每一个值得记住的瞬间。"
+    is_selection = share.media_ids is not None
+    title = share.title
+    if not title and profiles:
+        names = "、".join(p.nickname or p.name for p in profiles[:2])
+        if len(profiles) > 2:
+            names += f"等 {len(profiles)} 位"
+        all_children = all(
+            p.profile_type == "child" or (p.profile_type == "person" and p.relationship == "孩子")
+            for p in profiles
+        )
+        album = "成长相册" if all_children else "时光相册"
+        title = f"{names}的{album}"
+    description = (
+        "挑了些喜欢的瞬间，想和你分享。打开链接，无需登录。"
+        if is_selection else "一起翻翻这些日子里的回忆。打开链接，无需登录。"
+    )
     return {
         "id": share.id,
-        "scope": "selection" if share.media_ids is not None else "date_range",
-        "selected_count": len(share.media_ids) if share.media_ids is not None else None,
+        "scope": "selection" if is_selection else "date_range",
+        "selected_count": len(share.media_ids) if is_selection else None,
         "title": share.title,
         "profile_ids": share.profile_ids,
         "profile_name": (profile.nickname or profile.name) if profile else None,
         "has_avatar": bool(share_avatar_ids(db, share, default_avatar_ids)),
-        "card_title": title,
+        "card_title": title or "我们的家庭相册",
         "card_description": description,
         "start_date": share.start_date,
         "end_date": share.end_date,
