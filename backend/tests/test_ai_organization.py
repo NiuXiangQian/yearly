@@ -133,11 +133,15 @@ def test_pet_habit_automatically_matches_at_threshold_without_creating_reference
     source, target, below = [image_media(context) for _ in range(3)]
     detection = dict(box=[0,0,1,1], frame_seconds=None, appearance='棕白色竖耳小狗', embedding=[1,0], thumbnail='', child_id=None, ignored=False, confirmed_by=None)
     with context.db() as db:
-        for mid, score in [(source, 1), (target, .70), (below, .6999)]:
+        for mid, score in [(source, 1), (target, .60), (below, .59996)]:
             dog = dict(detection, embedding=[score, math.sqrt(1 - score**2)])
             db.add(MediaPetIndex(media_id=mid, model=pets.MODEL, source_sha256='a'*64, detections=[dog]))
         db.commit()
     assert context.client.put(f'/api/pets/media/{source}/confirm', json=dict(index=0, child_id=pet['id'])).status_code == 200
+    queue = context.client.get('/api/pets/review').json()['items']
+    candidates = {row['media']['id']: row['dogs'][0]['candidates'] for row in queue}
+    assert candidates[target][0]['similarity'] == .60
+    assert candidates[below] == []
     with context.db() as db:
         assert db.get(MediaPetIndex,target).detections[0]['child_id'] is None
     entry = context.client.get('/api/organization/reviews?scope=all&kind=pet').json()['items'][0]

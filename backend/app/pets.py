@@ -37,7 +37,7 @@ from .storage import get_storage
 
 router = APIRouter(prefix="/api/pets", tags=["宠物确认"])
 MODEL = "gpt-4.1-mini-dog-appearance-v1"
-AUTO_LINK_MINIMUM_SIMILARITY = 0.70
+PET_MATCH_MINIMUM_SIMILARITY = 0.60
 Coordinate = Annotated[float, Field(ge=0, le=1)]
 
 
@@ -145,7 +145,7 @@ def detach_profile(db, cid):
             ]
 
 
-def items(db, rows):
+def items(db, rows, round_scores=True):
     profiles = {
         p.id: p
         for p in db.scalars(
@@ -183,17 +183,20 @@ def items(db, rows):
                             dog["embedding"], sample["embedding"], strict=True
                         )
                     )
-                    if score >= 0.65 and score > best.get(profile.id, {}).get(
+                    if score >= PET_MATCH_MINIMUM_SIMILARITY and score > best.get(profile.id, {}).get(
                         "similarity", -1
                     ):
                         best[profile.id] = dict(
                             child_id=profile.id,
                             name=profile.name,
-                            similarity=round(score, 4),
+                            similarity=score,
                             reference_media_id=mid,
                             reference_thumbnail="data:image/jpeg;base64,"
                             + sample["thumbnail"],
                         )
+            candidates = sorted(best.values(), key=lambda candidate: candidate["similarity"], reverse=True)[:3]
+            if round_scores:
+                candidates = [dict(candidate, similarity=round(candidate["similarity"], 4)) for candidate in candidates]
             dogs.append(
                 dict(
                     index=number,
@@ -203,9 +206,7 @@ def items(db, rows):
                     appearance=dog["appearance"],
                     thumbnail="data:image/jpeg;base64," + dog["thumbnail"],
                     frame_seconds=dog["frame_seconds"],
-                    candidates=sorted(
-                        best.values(), key=lambda c: c["similarity"], reverse=True
-                    )[:3],
+                    candidates=candidates,
                 )
             )
         groups.append(dict(media=media_data(db.get(Media, row.media_id)), dogs=dogs))
@@ -532,13 +533,13 @@ def auto_link_pets(db, user):
     rows = sorted(pet_rows(db), key=lambda row: row.media_id)
     indexed = {r.media_id: r for r in rows}
     count = 0
-    for group in items(db, rows):
+    for group in items(db, rows, round_scores=False):
         for dog in group["dogs"]:
             raw = indexed[group["media"]["id"]].detections[dog["index"]]
             if dog["child_id"] is not None or dog["ignored"] or raw.get("auto_link_blocked"):
                 continue
             candidates = dog["candidates"]
-            if not candidates or candidates[0]["similarity"] < AUTO_LINK_MINIMUM_SIMILARITY:
+            if not candidates:
                 continue
             best = candidates[0]
             if len(candidates) > 1 and best["similarity"] - candidates[1]["similarity"] < 0.12:
