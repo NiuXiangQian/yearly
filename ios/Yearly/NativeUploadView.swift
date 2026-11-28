@@ -91,11 +91,7 @@ struct NativeUploadView: View {
         return (title, detail.joined(separator: " · "), ids, failures == 0 && cancelled == 0)
     }
     private var uploadSize: Int64 { uploadItems.reduce(0) { $0 + $1.size } }
-    private var sentBytes: Int64 { uploadItems.reduce(0) { $0 + bytesSent($1) } }
-    private func bytesSent(_ item: UploadItem) -> Int64 {
-        let inFlight = item.phase == .uploading && queue.transfer?.itemID == item.id ? queue.transfer?.inFlightBytes ?? 0 : 0
-        return min(item.size, item.uploadedBytes + inFlight)
-    }
+    private var sentBytes: Int64 { uploadItems.reduce(0) { $0 + queue.bytesSent($1) } }
 
     private func bytesLabel(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
@@ -104,14 +100,6 @@ struct NativeUploadView: View {
     private func progressLabel(_ progress: ByteProgress) -> String {
         guard let total = progress.total else { return "\(bytesLabel(progress.processed)) · 总大小待确认" }
         return "\(bytesLabel(progress.processed)) / \(bytesLabel(total))"
-    }
-
-    private func eta(_ seconds: Double) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "估算中" }
-        if seconds < 60 { return "\(max(1, Int(seconds.rounded(.up)))) 秒" }
-        if seconds < 3600 { return "\(Int((seconds / 60).rounded(.up))) 分钟" }
-        if seconds < 86400 { return "\(Int(seconds / 3600)) 小时 \(Int(seconds / 60) % 60) 分钟" }
-        return "超过 1 天"
     }
 
     @ViewBuilder private var preparationSummary: some View {
@@ -134,7 +122,7 @@ struct NativeUploadView: View {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             if context.date.timeIntervalSince(sample.sampledAt) < 5,
                                let seconds = progress.remainingTime(bytesPerSecond: sample.bytesPerSecond) {
-                                Text("\(read) · 预计剩余 \(eta(seconds))")
+                                Text("\(read) · 预计剩余 \(ByteProgress.remainingTimeLabel(seconds))")
                             } else { Text(read) }
                         }
                     } else { Text(read) }
@@ -157,14 +145,20 @@ struct NativeUploadView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("已上传 \(progressLabel(progress))")
                     if active.isEmpty && blocked { Text("上传已中断，继续后显示剩余时间") }
-                    else if !active.isEmpty && active.allSatisfy({ bytesSent($0) == $0.size }) {
+                    else if !active.isEmpty && active.allSatisfy({ queue.bytesSent($0) == $0.size }) {
                         Text(blocked ? "进行中任务已传完，正在校验" : "已传完，正在校验")
-                    } else if let rate = queue.uploadRate,
-                              let seconds = ByteProgress(processed: active.reduce(0) { $0 + bytesSent($1) },
-                                                         total: active.reduce(0) { $0 + $1.size }).remainingTime(bytesPerSecond: rate) {
+                    } else if !active.isEmpty {
+                        let activeProgress = ByteProgress(processed: active.reduce(0) { $0 + queue.bytesSent($1) },
+                                                          total: active.reduce(0) { $0 + $1.size })
                         let remaining = blocked ? "进行中任务预计剩余" : "预计剩余"
-                        Text("\(bytesLabel(Int64(rate)))/秒 · \(remaining) \(eta(seconds))")
-                            .monospacedDigit()
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            if let rate = queue.uploadRate, let seconds = activeProgress.remainingTime(bytesPerSecond: rate) {
+                                Text("\(bytesLabel(Int64(rate)))/秒 · \(remaining) \(ByteProgress.remainingTimeLabel(seconds))")
+                                    .monospacedDigit()
+                            } else {
+                                Text("估算剩余时间…")
+                            }
+                        }
                     }
                 }
                 .font(.caption)
@@ -459,7 +453,7 @@ struct NativeUploadView: View {
             return ByteProgress(processed: bytesRead, total: item.sourceByteCount)
         }
         guard item.confirmed, !item.duplicate, item.phase != .cancelled, item.size > 0 else { return nil }
-        return ByteProgress(processed: bytesSent(item), total: item.size)
+        return ByteProgress(processed: queue.bytesSent(item), total: item.size)
     }
 
     private func taskRow(_ item: UploadItem) -> some View {

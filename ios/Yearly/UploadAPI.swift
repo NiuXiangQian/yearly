@@ -111,7 +111,8 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         changeTransferRoute?(background)
     }
 
-    var onPartProgress: ((Int64, Double) -> Void)?
+    // Cumulative bytes for the current PUT attempt. nil discards that attempt's progress.
+    var onPartProgress: ((Int64?) -> Void)?
     private var activePart: UUID?
 
     // Injectable boundaries let tests prove credential isolation without a real account or network.
@@ -201,10 +202,9 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         let stagedFile = try await backgroundTransport?.stage(data)
         var handedOff: BackgroundUploadTransport.Transfer?
         let part = UUID()
-        let started = Date()
         let partSize = Int64(data.count)
         let wake = onBackgroundWake
-        var lastProgress = Date.distantPast
+        var lastProgress: ContinuousClock.Instant?
         activePart = part
         defer {
             activePart = nil
@@ -216,11 +216,11 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         func progress(fromBackground: Bool) -> @Sendable (Int64) -> Void {
             { [weak self] bytes in
                 Task { @MainActor in
-                    let now = Date()
+                    let now = ContinuousClock.now
                     guard let self, self.activePart == part, self.usesBackgroundSession == fromBackground,
-                          now.timeIntervalSince(lastProgress) >= 0.25 else { return }
+                          lastProgress.map({ $0.duration(to: now) >= .milliseconds(250) }) ?? true else { return }
                     lastProgress = now
-                    self.onPartProgress?(min(bytes, partSize), Double(bytes) / max(now.timeIntervalSince(started), 0.05))
+                    self.onPartProgress?(min(bytes, partSize))
                 }
             }
         }
@@ -229,6 +229,8 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         let foregroundProgress = progress(fromBackground: false)
         while true {
             try Task.checkCancellation()
+            lastProgress = nil
+            onPartProgress?(0)
             let attempt: Task<URLResponse, Error>
             if usesBackgroundSession, let backgroundTransport, let stagedFile {
                 let transfer = handedOff ?? backgroundTransport.schedule(request, file: stagedFile,
@@ -254,15 +256,18 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
             do {
                 let response = try await withTaskCancellationHandler { try await attempt.value } onCancel: { attempt.cancel() }
                 try Task.checkCancellation()
-                if attempt.isCancelled { continue }
+                if attempt.isCancelled {
+                    onPartProgress?(nil)
+                    continue
+                }
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                     throw UploadHTTPError(status: (response as? HTTPURLResponse)?.statusCode ?? 0, isOSS: true)
                 }
-                onPartProgress?(partSize, Double(partSize) / max(Date().timeIntervalSince(started), 0.05))
+                onPartProgress?(partSize)
                 return
             } catch {
                 try Task.checkCancellation()
-                onPartProgress?(0, 0)
+                onPartProgress?(nil)
                 // A scene transition restarts the same PUT with identical bytes and part number.
                 if attempt.isCancelled { continue }
                 throw error

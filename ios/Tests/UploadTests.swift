@@ -164,6 +164,19 @@ import UniformTypeIdentifiers
         expect(mixed.remainingTime(bytesPerSecond: 8) == 49.5, "ETA uses remaining bytes")
         let unknown = ByteProgress(processed: 4, total: nil)
         expect(unknown.fraction == nil && unknown.remainingTime(bytesPerSecond: 8) == nil, "unknown original size never becomes a fabricated percent")
+        var speed = UploadSpeed()
+        let start = ContinuousClock.now
+        speed.record(0, at: start)
+        speed.record(300, at: start + .milliseconds(500))
+        expect(speed.bytesPerSecond(at: start + .milliseconds(500)) == nil, "ETA waits for enough sampling time")
+        speed.record(900, at: start + .seconds(1))
+        speed.record(0, at: start + .milliseconds(1500)) // Start of the next PUT.
+        speed.record(600, at: start + .seconds(2))
+        expect(speed.bytesPerSecond(at: start + .seconds(2)) == 900, "PUT boundaries retain the rate window")
+        speed.record(120, at: start + .seconds(4))
+        expect(speed.bytesPerSecond(at: start + .seconds(4)) == 240, "ETA uses only the bytes in the trailing three seconds")
+        expect(speed.bytesPerSecond(at: start + .seconds(6)) == 40, "idle time reduces the estimate speed")
+        expect(speed.bytesPerSecond(at: start + .seconds(7)) == nil, "a stalled upload stops reporting an ETA")
         let invalidParts = MockUploadService()
         invalidParts.knownParts = [RemotePart(number: 1, size: 1)]
         await rejects("malformed resume part") { try await MultipartUploader.upload(multipart, file: multi, service: invalidParts) { _, _ in } }

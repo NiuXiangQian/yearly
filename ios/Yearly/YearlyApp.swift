@@ -59,6 +59,7 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
     private let identifier = "\(Bundle.main.bundleIdentifier ?? "family.yearly.app").upload"
     private let logger = Logger(subsystem: "family.yearly.app", category: "BackgroundUpload")
     private var observation: AnyCancellable?
+    private var estimateTimer: AnyCancellable?
     private var batch: Set<UUID> = []
     private var awaitingTask = false
     private var task: BGTask?
@@ -123,16 +124,20 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
         logger.info("Continued upload execution granted")
         queue.setContinuedExecution(true)
         IOSUploadNotifications.cancelStartedReminder()
+        estimateTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+            .sink { [weak self] _ in self?.refresh() }
         refresh()
     }
 
     private func refresh() {
         guard !batch.isEmpty else { return }
         let progress = queue.batchProgress(for: batch)
-        if #available(iOS 26.0, *), let task = task as? BGContinuedProcessingTask, lastProgress != progress {
-            lastProgress = progress
-            task.progress.totalUnitCount = max(progress.totalBytes, 1)
-            task.progress.completedUnitCount = progress.succeeded ? task.progress.totalUnitCount : progress.uploadedBytes
+        if #available(iOS 26.0, *), let task = task as? BGContinuedProcessingTask {
+            if lastProgress != progress {
+                lastProgress = progress
+                task.progress.totalUnitCount = max(progress.totalBytes, 1)
+                task.progress.completedUnitCount = progress.succeeded ? task.progress.totalUnitCount : progress.uploadedBytes
+            }
             let subtitle = subtitle(for: progress)
             if subtitle != lastSubtitle {
                 lastSubtitle = subtitle
@@ -150,6 +155,8 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
         batch = []
         lastProgress = nil
         lastSubtitle = nil
+        estimateTimer?.cancel()
+        estimateTimer = nil
         queue.setContinuedExecution(false)
         completedTask?.expirationHandler = nil
         completedTask?.setTaskCompleted(success: success)
@@ -157,13 +164,19 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
 
     private func subtitle(for progress: UploadQueue.BatchProgress) -> String {
         if progress.succeeded { return "已完成 \(progress.totalItems) 项" }
+        let count = "\(progress.completedItems)/\(progress.totalItems) 项"
+        if !progress.hasActiveUploads { return "上传已中断 · \(count)" }
+        if progress.remainingBytes == 0 { return "正在校验 · \(count)" }
         let sent = ByteCountFormatter.string(fromByteCount: progress.uploadedBytes, countStyle: .file)
         let total = ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file)
-        let count = "\(progress.completedItems)/\(progress.totalItems) 项"
-        if progress.totalBytes > 0 && progress.uploadedBytes == progress.totalBytes && progress.hasActiveUploads {
-            return "正在校验 · \(count)"
+        let remaining = ByteProgress(processed: 0, total: progress.remainingBytes)
+        let estimate: String
+        if let rate = queue.uploadRate, let seconds = remaining.remainingTime(bytesPerSecond: rate) {
+            estimate = "约剩 \(ByteProgress.remainingTimeLabel(seconds))"
+        } else {
+            estimate = "估算中"
         }
-        return "\(sent) / \(total) · \(count)"
+        return "\(estimate) · \(count) · \(sent) / \(total)"
     }
 }
 

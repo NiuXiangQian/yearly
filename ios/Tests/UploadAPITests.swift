@@ -71,24 +71,25 @@ private final class MockHTTP: URLProtocol {
         do { _ = try await api.create(body: Data("{}".utf8), key: UUID()); fatalError("invalid upload accepted") }
         catch let error as UploadHTTPError { precondition(error.status == 422 && error.localizedDescription == "批次名称最多允许 255 个字符。") }
         MockHTTP.invalidUpload = false
-        var sent: Int64 = 0
-        api.onPartProgress = { bytes, speed in
-            precondition(bytes <= payload.count && speed > 0)
-            sent = bytes
+        var progress: [Int64?] = []
+        api.onPartProgress = { bytes in
+            if let bytes { precondition(bytes >= 0 && bytes <= payload.count) }
+            progress.append(bytes)
         }
         try await api.put(payload, to: URL(string: "https://oss.invalid/part")!)
-        precondition(sent == payload.count)
+        precondition(progress.first == 0 && progress.last == Int64(payload.count))
         let put = MockHTTP.captured().last!
         precondition(put.httpMethod == "PUT")
         for header in ["Cookie", "Origin", "Authorization", "X-CSRF-Token", "Idempotency-Key"] {
             precondition(put.value(forHTTPHeaderField: header) == nil)
         }
-        api.onPartProgress = { bytes, _ in sent = bytes }
+        progress.removeAll()
         do {
             try await api.put(payload, to: URL(string: "https://oss.invalid/expired-part")!)
             fatalError("Expired PUT must fail")
         } catch let error as UploadHTTPError {
-            precondition(error.status == 403 && sent == 0, "failed PUT clears uncommitted progress")
+            precondition(error.status == 403 && progress.first == 0 && progress.last == .some(nil),
+                         "failed PUT clears uncommitted progress")
         }
         for (role, authenticated) in [("viewer", true), ("member", false)] {
             MockHTTP.reset(role: role, authenticated: authenticated)

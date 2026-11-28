@@ -148,6 +148,38 @@ struct ByteProgress {
         guard let total, bytesPerSecond.isFinite, bytesPerSecond > 0, processed < total else { return nil }
         return Double(total - processed) / bytesPerSecond
     }
+
+    static func remainingTimeLabel(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "估算中" }
+        if seconds >= 86_400 { return "超过 1 天" }
+        let minutes = Int((seconds / 60).rounded(.up))
+        if seconds <= 59 { return "\(max(1, Int(seconds.rounded(.up)))) 秒" }
+        if minutes < 60 { return "\(minutes) 分钟" }
+        if minutes == 60 { return "1 小时" }
+        return "\(minutes / 60) 小时 \(minutes % 60) 分钟"
+    }
+}
+
+struct UploadSpeed {
+    private static let window: Duration = .seconds(3)
+    private var startedAt: ContinuousClock.Instant?
+    private var samples: [(time: ContinuousClock.Instant, bytes: Int64)] = []
+
+    mutating func record(_ bytes: Int64, at now: ContinuousClock.Instant = .now) {
+        if startedAt == nil { startedAt = now }
+        samples.removeAll { $0.time <= now - Self.window }
+        if bytes > 0 { samples.append((now, bytes)) }
+    }
+
+    func bytesPerSecond(at now: ContinuousClock.Instant = .now) -> Double? {
+        guard let startedAt else { return nil }
+        let cutoff = now - Self.window
+        let duration = max(startedAt, cutoff).duration(to: now)
+        guard duration >= .seconds(1) else { return nil }
+        let bytes = samples.lazy.filter { $0.time > cutoff }.reduce(Int64(0)) { $0 + $1.bytes }
+        guard bytes > 0 else { return nil }
+        return Double(bytes) / (duration / .seconds(1))
+    }
 }
 
 struct UploadStore {

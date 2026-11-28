@@ -25,6 +25,7 @@ import Photos
     struct BatchProgress: Equatable {
         let uploadedBytes: Int64
         let totalBytes: Int64
+        let remainingBytes: Int64
         let completedItems: Int
         let totalItems: Int
         let hasActiveUploads: Bool
@@ -37,7 +38,8 @@ import Photos
     private var duplicateNames: [String] = []
     @Published private(set) var running = false
     @Published private(set) var transfer: Transfer?
-    @Published private(set) var uploadRate: Double?
+    private var uploadSpeed = UploadSpeed()
+    var uploadRate: Double? { uploadSpeed.bytesPerSecond() }
     @Published private(set) var preparation: Preparation?
     @Published private(set) var uploadGroup: Set<UUID> = []
     @Published private(set) var hasContinuedExecution = false
@@ -89,7 +91,6 @@ import Photos
         if changed, configuredOwnerID != nil {
             pauseAll()
             uploadGroup = []
-            uploadRate = nil
             duplicateNotice = ""; duplicateNames = []
         }
         configuredOwnerID = ownerID
@@ -114,15 +115,18 @@ import Photos
     func batchProgress(for ids: Set<UUID>) -> BatchProgress {
         let batch = items.filter { ids.contains($0.id) }
         let transfers = batch.filter { $0.phase != .skipped && $0.phase != .cancelled }
-        let uploaded = transfers.reduce(Int64(0)) { bytes, item in
-            let inFlight = transfer?.itemID == item.id && item.phase == .uploading ? transfer?.inFlightBytes ?? 0 : 0
-            return bytes + min(item.size, item.uploadedBytes + inFlight)
-        }
+        let active = transfers.filter { $0.phase == .queued || $0.phase == .uploading || pendingResumes.contains($0.id) }
+        let uploaded = transfers.reduce(Int64(0)) { $0 + bytesSent($1) }
+        let remaining = active.reduce(Int64(0)) { $0 + ($1.size - bytesSent($1)) }
         let completed = batch.filter { $0.phase == .complete || $0.phase == .skipped }.count
-        return BatchProgress(uploadedBytes: uploaded, totalBytes: transfers.reduce(0) { $0 + $1.size },
+        return BatchProgress(uploadedBytes: uploaded, totalBytes: transfers.reduce(0) { $0 + $1.size }, remainingBytes: remaining,
                              completedItems: completed, totalItems: batch.count,
-                             hasActiveUploads: batch.contains { $0.phase == .queued || $0.phase == .uploading || pendingResumes.contains($0.id) },
-                             succeeded: !batch.isEmpty && completed == batch.count)
+                             hasActiveUploads: !active.isEmpty, succeeded: !batch.isEmpty && completed == batch.count)
+    }
+
+    func bytesSent(_ item: UploadItem) -> Int64 {
+        let inFlight = item.phase == .uploading && transfer?.itemID == item.id ? transfer?.inFlightBytes ?? 0 : 0
+        return min(item.size, item.uploadedBytes + inFlight)
     }
 
     func setContinuedExecution(_ active: Bool) {
@@ -282,7 +286,7 @@ import Photos
     private func beginBatchIfNeeded() {
         if !items.contains(where: { uploadGroup.contains($0.id) && ($0.phase.canPause || $0.phase == .paused) }) {
             uploadGroup = []
-            uploadRate = nil
+            uploadSpeed = UploadSpeed()
         }
     }
     func pause(_ id: UUID) {
@@ -299,6 +303,7 @@ import Photos
         suspended = true
         worker?.cancel()
         transfer = nil
+        uploadSpeed = UploadSpeed()
         preparation = nil
         for i in items.indices where items[i].phase.canPause { items[i].phase = .paused }
         if store != nil { do { try persist() } catch { } }
@@ -376,6 +381,7 @@ import Photos
             activeID = nil
             activeService = nil
             preparation = nil
+            uploadSpeed = UploadSpeed()
             worker = nil
             running = false
             reportBackgroundResult()
@@ -429,12 +435,17 @@ import Photos
                     activeService = service
                     service.setBackground(preparingForBackground && !hasContinuedExecution)
                     service.onBackgroundWake = { [weak self] in self?.beginBackgroundExecution() }
-                    service.onPartProgress = { [weak self] bytes, rate in
+                    service.onPartProgress = { [weak self] bytes in
                         guard let self, self.activeID == id, self.items[index].phase == .uploading else { return }
-                        if rate > 0 {
-                            self.uploadRate = self.uploadRate.map { $0 * 0.75 + rate * 0.25 } ?? rate
+                        guard let bytes else {
+                            self.uploadSpeed = UploadSpeed()
+                            self.transfer = nil
+                            return
                         }
-                        self.transfer = rate > 0 ? Transfer(itemID: id, inFlightBytes: bytes) : nil
+                        let previous = self.transfer?.inFlightBytes ?? 0
+                        guard bytes >= previous else { return }
+                        self.uploadSpeed.record(bytes - previous)
+                        self.transfer = Transfer(itemID: id, inFlightBytes: bytes)
                     }
                     items[index].phase = .uploading
                     items[index].message = "正在核对原件与上传任务…"
@@ -502,6 +513,7 @@ import Photos
                     try? store.removeFiles(id)
                 }
             } catch {
+                uploadSpeed = UploadSpeed()
                 if items[index].phase == .cancelled {
                     try? store.removeFiles(id)
                 } else if Task.isCancelled || error is CancellationError || items[index].phase == .paused {

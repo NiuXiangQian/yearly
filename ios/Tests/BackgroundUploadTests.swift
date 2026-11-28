@@ -297,10 +297,12 @@ private struct SyntheticCredentials: SessionCredentialStore {
                      "A continued processing task must keep direct transfers and avoid duplicate alerts")
         let initial = continued.batchProgress(for: continuedIDs)
         precondition(initial.totalBytes > 0 && initial.totalItems == 2 && initial.hasActiveUploads && !initial.succeeded)
+        precondition(initial.remainingBytes == initial.totalBytes)
         BackgroundHTTP.release()
         try await wait("both uploads complete during continued processing") { !continued.running }
         let done = continued.batchProgress(for: continuedIDs)
         precondition(done.completedItems == 2 && done.uploadedBytes == done.totalBytes && done.succeeded && !done.hasActiveUploads)
+        precondition(done.remainingBytes == 0 && continued.uploadRate == nil)
         print("Passed background upload checks: early daemon handoff, continued processing progress, file bytes, Live Photo multipart continuation, lease expiration/wake, credential isolation, pause/resume, relaunch recovery, background notices, extension lifetime and bulk retry.")
     }
 }
