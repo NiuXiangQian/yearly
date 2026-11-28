@@ -6,6 +6,7 @@ struct NativeUploadView: View {
     @ObservedObject var queue: UploadQueue
     @ObservedObject var session: NativeSession
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var site: SiteOrigin { session.site }
     let profileRevision: Int
@@ -307,30 +308,41 @@ struct NativeUploadView: View {
     }
 
     private var batchActions: some View {
-        VStack(spacing: 0) {
+        let compact = verticalSizeClass == .compact && dynamicTypeSize.isAccessibilitySize
+        let layout = compact ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 6))
+        return VStack(spacing: 0) {
             Divider()
-            VStack(spacing: 6) {
+            layout {
                 Button {
                     profileSearch = ""
                     showingBatchSettings = true
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "slider.horizontal.3")
-                            .foregroundStyle(NativeTheme.accent)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("批次设置").font(.subheadline.weight(.semibold))
-                            Text(batchNameError ?? batchSettingsSummary)
-                                .font(.caption)
-                                .foregroundStyle(batchNameError == nil ? NativeTheme.secondaryText : NativeTheme.inputError)
-                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                    if compact {
+                        Image(systemName: batchNameError == nil ? "slider.horizontal.3" : "exclamationmark.circle")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(batchNameError == nil ? NativeTheme.accent : NativeTheme.inputError)
+                            .frame(width: 48, height: 48)
+                            .background(NativeTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 11))
+                            .contentShape(Rectangle())
+                    } else {
+                        HStack(spacing: 10) {
+                            Image(systemName: "slider.horizontal.3")
+                                .foregroundStyle(NativeTheme.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("批次设置").font(.subheadline.weight(.semibold))
+                                Text(batchNameError ?? batchSettingsSummary)
+                                    .font(.caption)
+                                    .foregroundStyle(batchNameError == nil ? NativeTheme.secondaryText : NativeTheme.inputError)
+                                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(NativeTheme.secondaryText)
                         }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(NativeTheme.secondaryText)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                     }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("批次设置")
@@ -347,6 +359,7 @@ struct NativeUploadView: View {
                     .accessibilityIdentifier("upload-start")
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
         }
