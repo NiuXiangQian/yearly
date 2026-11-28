@@ -8,14 +8,13 @@ import MotionDialog from "./MotionDialog.vue";
 import type { ReviewMedia } from "../lib/memory-review";
 
 type Settings = { tags_enabled: boolean; people_enabled: boolean; tag_rules: Record<string, { target: string; mode: string }>; person_rules: Record<string, string> };
-type Entry = { auto_linked?: number; auto_reset?: number; id: number; kind: string; status: string; automatic: boolean; media: ReviewMedia; created_at: string; updated_at: string;
+type Entry = { matching_queued?: boolean; id: number; kind: string; status: string; automatic: boolean; media: ReviewMedia; created_at: string; updated_at: string;
   before: { tags?: string[]; child_id?: number | null }; proposed: { tags?: string[]; child_id?: number | null }; current: { tags?: string[]; decisions?: Record<string, string | null>; child_id?: number | null };
   names: Record<string, string>; thumbnail: string; frame_seconds?: number | null;
   evidence: { tags?: { name: string; evidence: string; rule: string }[]; reason?: string; similarity?: number; model?: string; description?: string };
   events: { action: string; at: string; actor_name: string; value: { tags?: string[]; child_id?: number | null; remember?: boolean } }[] };
 const emit = defineEmits<{ updated: [] }>();
 const yearly = useYearly(), options = ref<Settings>(), entries = ref<Entry[]>([]), all = ref(false), kind = ref("");
-const autoLinkedCount = ref(0);
 const pending = ref(0), before = ref<number>(), next = ref<number | null>(), history = ref<(number | undefined)[]>([]);
 const busy = ref(false), error = ref(""), notice = ref(""), failures = ref<{ media_id: number; message: string }[]>([]), preview = ref<Entry>();
 const labels = ref<Record<number, Record<string, string>>>({}), enabled = ref<Record<number, Record<string, boolean>>>({}), people = ref<Record<number, string>>({}), remember = ref<Record<number, boolean>>({});
@@ -48,7 +47,7 @@ async function review(entry: Entry, action: string) {
   busy.value = true; error.value = "";
   try {
     const body = { action, remember: remember.value[entry.id], ...(entry.kind === "tags" ? { tag_decisions: Object.fromEntries((entry.proposed.tags ?? []).map(tag => [tag, enabled.value[entry.id][tag] ? labels.value[entry.id][tag] : null])) } : { child_id: people.value[entry.id] ? Number(people.value[entry.id]) : null }) };
-    const result = await put<Entry>(`/organization/reviews/${entry.id}`, body); autoLinkedCount.value = result.auto_linked ?? 0; notice.value = t("审核已保存，变更与处理习惯已记录。"); emit("updated"); await load();
+    const result = await put<Entry>(`/organization/reviews/${entry.id}`, body); notice.value = t("审核已保存，变更与处理习惯已记录。"); if (result.matching_queued) notice.value += " " + t("后台会继续整理相关影像。"); emit("updated"); await load();
   } catch (e) { error.value = (e as Error).message; }
   finally { busy.value = false; }
 }
@@ -88,10 +87,7 @@ onMounted(() => load());
     <p v-if="!busy && !entries.length">{{ t("当前没有待审核记录，可查看全部记录。") }}</p>
     <div class="review-toolbar"><button class="button" :disabled="busy || !history.length" @click="before = history.pop(); load()">{{ t("上一页") }}</button><button class="button" :disabled="busy || !next" @click="history.push(before); before = next ?? undefined; load()">{{ t("下一页") }}</button></div>
     <MotionDialog :model-value="!!preview" @update:model-value="(value: boolean) => { if (!value) preview = undefined }" :title="t('识别来源')" width="900px" destroy-on-close><MediaViewer v-if="preview" :key="preview.id" :media="preview.media" :initial-seconds="preview.frame_seconds ?? undefined" /></MotionDialog>
-    <MotionDialog :model-value="autoLinkedCount > 0" @update:model-value="(value: boolean) => { if (!value) autoLinkedCount = 0 }" :title="t('已自动整理相似人脸')" width="420px">
-      <p>{{ t("已将另外 {n} 张明确匹配的人脸关联到对应人物，可在已处理项中查看和修改。", { n: autoLinkedCount }) }}</p>
-      <template #footer><button class="button primary" @click="autoLinkedCount = 0">{{ t("知道了") }}</button></template>
-    </MotionDialog>
+
   </section>
 </template>
 <style scoped>

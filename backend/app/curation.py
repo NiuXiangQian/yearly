@@ -18,9 +18,9 @@ from .accounts import record_change
 from .ai_search import chat, image_input
 from .config import settings
 from .db import get_db
-from .models import Media, MediaFile, MediaChild, MediaCuration, CurationBatch, DisplayPreview, VideoPreview
+from .models import MediaFaceIndex, Media, MediaFile, MediaChild, MediaCuration, CurationBatch, DisplayPreview, VideoPreview
 from .security import admin
-from .services import media_data, set_children, validate_children
+from .services import pin_manual_people, media_data, set_children, validate_children
 from .storage import get_storage
 
 router = APIRouter(prefix="/api/curation", tags=["影像整理"])
@@ -109,15 +109,21 @@ def batch(data: BatchIn, db=Depends(get_db), user=Depends(admin)):
     rows = [active(db, mid, True) for mid in ids]
     before, after = {}, {}
     for media in rows:
-        old = state(db, media);before[str(media.id)] = old
+        old = state(db, media)
+        index = db.get(MediaFaceIndex, media.id)
+        old["face_managed_child_ids"] = list(index.managed_child_ids) if index else []
+        before[str(media.id)] = old
         row = db.get(MediaCuration, media.id)
         if row is None:
             row = MediaCuration(media_id=media.id);db.add(row)
         if data.action == "add":
+            pin_manual_people(db, media.id, children)
             set_children(db, media.id, set(old["child_ids"]) | children, MediaChild)
         row.disposition = "ignored" if data.action == "ignore" else "done"
         db.flush()
-        new = state(db, media);after[str(media.id)] = new
+        new = state(db, media)
+        new["face_managed_child_ids"] = list(index.managed_child_ids) if index else []
+        after[str(media.id)] = new
         record_change(db, media, {"curation": {"before": old, "after": new}})
     token = str(uuid4())
     db.add(CurationBatch(id=token, actor_id=user.id, before=before, after=after))
@@ -132,12 +138,22 @@ def undo(token: str, db=Depends(get_db), user=Depends(admin)):
         raise HTTPException(404, "操作记录不存在")
     if batch_row.undone: return dict(ok=True)
     rows = {str(mid): active(db, int(mid), True) for mid in sorted(batch_row.before, key=int)}
-    if any(state(db, m) != batch_row.after[mid] for mid, m in rows.items()):
-        raise HTTPException(409, "影像关联或整理状态已有后续修改，请查看当前内容后操作")
+    indexes = {}
+    for mid, media in rows.items():
+        expected = batch_row.after[mid]
+        current = state(db, media)
+        if "face_managed_child_ids" in expected:
+            index = db.scalar(select(MediaFaceIndex).where(MediaFaceIndex.media_id == media.id).with_for_update())
+            indexes[mid] = index
+            current["face_managed_child_ids"] = list(index.managed_child_ids) if index else []
+        if current != expected:
+            raise HTTPException(409, "影像关联或整理状态已有后续修改，请查看当前内容后操作")
     for mid, media in rows.items():
         old = batch_row.before[mid]
         validate_children(db, old["child_ids"])
         set_children(db, media.id, old["child_ids"], MediaChild)
+        if indexes.get(mid) is not None:
+            indexes[mid].managed_child_ids = old["face_managed_child_ids"]
         db.get(MediaCuration, media.id).disposition = old["disposition"]
         record_change(db, media, {"curation": {"before": batch_row.after[mid], "after": old}})
     batch_row.undone = True;db.commit()

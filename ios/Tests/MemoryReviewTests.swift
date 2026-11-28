@@ -16,23 +16,36 @@ import Foundation
         MemoryReviewHTTP.failWrites = true
         await review.confirm(face: firstFace, mediaID: 42)
         precondition(!review.error.isEmpty && review.faceChoices[21] == 7, "failed confirmation retains selection")
-        precondition(review.autoLinkedCount == 0, "failed confirmation must not show a success alert")
         MemoryReviewHTTP.failWrites = false
         await review.confirm(face: firstFace, mediaID: 42)
-        precondition(review.notice.contains("自动关联 2 张") && review.notice.contains("撤回 1 条"), "confirmation displays server-provided automatic matching counts")
-        precondition(review.autoLinkedCount == 2, "each successful confirmation raises an alert only for automatic matches")
+        precondition(review.notice.contains("后台会继续整理"), "confirmation reflects queued matching")
         precondition(!MemoryReviewHTTP.requests.contains { $0.url!.path.hasSuffix("/auto-link") }, "confirmation already performs automatic matching on the server")
         let confirm = MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/confirm") }!
         let assignments = MemoryReviewHTTP.body(confirm)["assignments"] as! [[String: Any]]
         precondition(confirm.httpMethod == "PUT" && assignments[0]["child_id"] as? Int == 7)
         precondition(confirm.value(forHTTPHeaderField: "X-CSRF-Token") == "synthetic-csrf")
-        MemoryReviewHTTP.omitConfirmationCounts = true
+        MemoryReviewHTTP.omitMatchingQueued = true
         review.faceChoices[21] = -1; await review.confirm(face: firstFace, mediaID: 42)
         precondition(!review.error.isEmpty, "confirmation requires the current response fields")
-        precondition(review.autoLinkedCount == 0, "invalid responses must not show a success alert")
-        MemoryReviewHTTP.omitConfirmationCounts = false
+        MemoryReviewHTTP.omitMatchingQueued = false
         let ignored = MemoryReviewHTTP.body(MemoryReviewHTTP.requests.last { $0.httpMethod == "PUT" }!)["assignments"] as! [[String: Any]]
         precondition(ignored[0]["child_id"] is NSNull && ignored[0]["ignored"] as? Bool == true)
+        let rejected = await review.confirm(face: firstFace, mediaID: 42, rejecting: 7)
+        precondition(rejected && review.notice.contains("已排除"))
+        let rejection = MemoryReviewHTTP.body(MemoryReviewHTTP.requests.last { $0.httpMethod == "PUT" }!)["assignments"] as! [[String: Any]]
+        precondition(rejection[0]["rejected_child_id"] as? Int == 7 && rejection[0]["child_id"] is NSNull)
+        MemoryReviewHTTP.groupedFaces = true
+        await review.load()
+        precondition(review.faceGroups[21]?.map(\.id) == [21, 22])
+        MemoryReviewHTTP.failWrites = true
+        let failedGroup = await review.confirmFaceGroup(ids: [22], childID: 7)
+        precondition(!failedGroup && !review.error.isEmpty)
+        MemoryReviewHTTP.failWrites = false
+        let savedGroup = await review.confirmFaceGroup(ids: [22], childID: 7)
+        precondition(savedGroup && review.notice.contains("1 份影像"))
+        let group = MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/confirm-group") }!
+        precondition(MemoryReviewHTTP.body(group)["face_ids"] as? [Int] == [22], "only checked items are saved")
+        MemoryReviewHTTP.groupedFaces = false
         let petReads = MemoryReviewHTTP.requests.filter { $0.url!.path.hasSuffix("/pets/review") }.count
         await review.page(next: true)
         precondition(MemoryReviewHTTP.requests.filter { $0.url!.path.hasSuffix("/pets/review") }.count == petReads, "finished pet pages do not repeat when faces continue")
@@ -58,7 +71,7 @@ import Foundation
         precondition(!review.error.isEmpty)
         MemoryReviewHTTP.failWrites = false
         await review.reviewOrganization(organizationEntry, action: "correct", remember: true, tags: ["公园": nil], childID: 0)
-        precondition(review.autoLinkedCount == 2, "review confirmation preserves automatic match alerts")
+        precondition(review.notice.contains("后台会继续整理"), "review acknowledges queued matching inline")
         let reviewed = MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/reviews/31") }!
         let reviewBody = MemoryReviewHTTP.body(reviewed)
         precondition(reviewBody["remember"] as? Bool == true && (reviewBody["tag_decisions"] as! [String: Any])["公园"] is NSNull)

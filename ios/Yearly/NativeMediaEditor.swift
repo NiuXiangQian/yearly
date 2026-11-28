@@ -21,11 +21,9 @@ private struct NativeFaceState: Decodable {
     let ready: Bool
     let message: String
     let analyzed: Bool
-    let refresh_supported: Bool?
     let faces: [NativeDetectedFace]
     let child_ids: [Int]
-    let auto_linked: Int?
-    let auto_reset: Int?
+    let matching_queued: Bool?
 }
 private struct NativeFaceThumbnail: View {
     let source: String
@@ -47,7 +45,6 @@ private struct NativeFaceReview: View {
     @State private var choices: [Int: Int] = [:]
     @State private var message = ""
     @State private var notice = ""
-    @State private var autoLinkedCount = 0
     @State private var clearing = false
     private var changed: Bool { state?.faces.contains { choices[$0.id] != $0.choice } ?? false }
 
@@ -62,12 +59,8 @@ private struct NativeFaceReview: View {
                     if !state.analyzed {
                         Button("查找这份影像中的人脸") { Task { await perform("analyze") } }.disabled(busy || !state.enabled || !state.ready)
                     } else {
-                        if state.refresh_supported == true {
-                            Button("重新查找人脸") { Task { await perform("refresh") } }
-                                .disabled(busy || changed || !state.enabled || !state.ready)
-                            Text("保留已确认和忽略的记录，补查遗漏的人脸。请先保存当前选择。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                        Button("补查漏掉的人脸") { Task { await perform("refresh") } }
+                            .disabled(busy || changed || !state.enabled || !state.ready)
                         if state.faces.isEmpty { Text("未检测到清晰人脸，可继续手动关联人物。").font(.caption) }
                         ForEach(Array(state.faces.enumerated()), id: \.element.id) { number, face in
                             VStack(alignment: .leading, spacing: 10) {
@@ -112,9 +105,7 @@ private struct NativeFaceReview: View {
                 if !notice.isEmpty { Text(notice).font(.caption).foregroundStyle(NativeTheme.accent) }
                 if state == nil && !busy { Button("重新加载") { Task { await perform("load") } } }
             }
-        }.alert("已自动整理相似人脸", isPresented: Binding(get: { autoLinkedCount > 0 }, set: { if !$0 { autoLinkedCount = 0 } })) {
-            Button("知道了", role: .cancel) { autoLinkedCount = 0 }
-        } message: { Text("已将另外 \(autoLinkedCount) 张明确匹配的人脸关联到对应人物，可在已处理项中查看和修改。") }
+        }
         .onChange(of: expanded) { value in
             if value && state == nil { Task { await perform("load") } }
         }
@@ -128,16 +119,14 @@ private struct NativeFaceReview: View {
             let path = "/faces/media/\(mediaID)"
             let value: NativeFaceState
             if action == "analyze" || action == "refresh" {
-                value = try await session.post(path + "/analyze", json: ["refresh": action == "refresh"])
+                value = try await session.post(path + "/analyze", json: ["refresh": action == "refresh", "detailed_photo": action == "refresh"])
             } else if action == "confirm" {
                 let assignments: [[String: Any]] = (state?.faces ?? []).filter { choices[$0.id] != $0.choice }.map { face in
                     let choice = choices[face.id] ?? 0
                     return ["face_id": face.id, "child_id": choice > 0 ? choice as Any : NSNull(), "ignored": choice == -1]
                 }
                 value = try await session.put(path + "/confirm", json: ["assignments": assignments])
-                autoLinkedCount = value.auto_linked ?? 0
-                notice = "人物已确认，另自动关联 \(value.auto_linked ?? 0) 张相关人脸。"
-                if let reset = value.auto_reset, reset > 0 { notice += "另撤回 \(reset) 条不再明确的自动关联。" }
+                notice = value.matching_queued == true ? "人物已确认，后台会继续整理相关影像。" : "人物已确认。"
             } else if action == "clear" {
                 try await session.write(path, method: "DELETE", json: [:])
                 value = try await session.get(path, refresh: true)

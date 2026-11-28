@@ -53,8 +53,8 @@ it("keeps superseded history readable and directs edits to the current source", 
   expect(host.querySelector(".source-entry")).not.toBeNull();
 });
 
-it("shows additional face matches returned by a review confirmation", async () => {
-  const host=await mount([{ ...entry, kind: "face" }]); vi.mocked(put).mockResolvedValue({auto_linked:2});
+it("shows queued face matching inline after a review confirmation", async () => {
+  const host=await mount([{ ...entry, kind: "face" }]); vi.mocked(put).mockResolvedValue({matching_queued:true});
   button(host,"保留结果").click();
-  await vi.waitFor(() => expect(host.querySelector('[role="dialog"]')?.textContent).toContain("另外 2 张"));
+  await vi.waitFor(() => expect(host.textContent).toContain("后台会继续整理"));
 });

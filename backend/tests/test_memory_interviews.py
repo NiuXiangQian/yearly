@@ -156,7 +156,7 @@ def test_queue_pagination_confirmation_and_identity_questions(context, interview
 
 def test_batch_analysis_does_not_need_opening_each_photo(context, detector):
     mids = [image_media(context) for _ in range(2)]
-    assert context.client.get("/api/faces/review").json()["unanalysed_photos"] == 2
+    assert context.client.get("/api/faces/review").json()["unanalysed_media"] == 2
     first = context.client.post("/api/faces/analyze-next?limit=1", json={})
     assert first.status_code == 200, first.text
     assert first.json()["remaining"] == 1

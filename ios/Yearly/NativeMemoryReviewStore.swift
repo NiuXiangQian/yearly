@@ -15,6 +15,7 @@ struct MemoryReviewFace: Decodable, Identifiable {
     let ignored: Bool
     let frame_seconds: Double?
     let auto_assigned: Bool?
+    let review_group_id: Int?
     let candidates: [MemoryMatchCandidate]
     let media: NativeTimelineItem?
     var choice: Int { ignored ? -1 : child_id ?? 0 }
@@ -27,12 +28,15 @@ struct MemoryFaceQueue: Decodable {
     let next_cursor: Int?
     let pending_faces: Int
     let pending_memories: Int
-    let unanalysed_photos: Int
+    let unanalysed_media: Int
     let auto_link_enabled: Bool?
 }
 struct MemoryFaceConfirmation: Decodable {
-    let auto_linked: Int
-    let auto_reset: Int
+    let matching_queued: Bool
+}
+struct MemoryFaceGroupConfirmation: Decodable {
+    let confirmed: Int
+    let matching_queued: Bool
 }
 struct MemoryDog: Decodable, Identifiable {
     let index: Int
@@ -82,7 +86,6 @@ struct MemoryReviewCursor {
     @Published private(set) var busy = false
     @Published private(set) var error = ""
     @Published private(set) var notice = ""
-    @Published var autoLinkedCount = 0
     @Published private(set) var subjects: [MemoryReviewSubject] = []
     @Published private(set) var nextCursor: MemoryReviewCursor?
     @Published private(set) var history: [MemoryReviewCursor] = []
@@ -97,6 +100,13 @@ struct MemoryReviewCursor {
     }
     var people: [UploadProfile] { profiles.filter { $0.profile_type != "pet" } }
     var dogs: [UploadProfile] { profiles.filter { $0.profile_type == "pet" && $0.species == "狗" } }
+    var faceGroups: [Int: [MemoryReviewFace]] {
+        var groups: [Int: [MemoryReviewFace]] = [:]
+        for face in faces?.items ?? [] {
+            if let id = face.review_group_id { groups[id, default: []].append(face) }
+        }
+        return groups.filter { $0.value.count > 1 }
+    }
     private func fetch() async throws {
         guard session.isAdmin else { throw NativeAPIError(status: 403, message: "整理照片需要管理员权限。") }
         profiles = try await session.get("/children", refresh: true)
@@ -148,19 +158,44 @@ struct MemoryReviewCursor {
         await load()
         if !error.isEmpty { before = oldBefore; history = oldHistory }
     }
-    func confirm(face: MemoryReviewFace, mediaID: Int) async {
-        busy = true; error = ""; notice = ""; autoLinkedCount = 0
+    @discardableResult
+    func confirm(face: MemoryReviewFace, mediaID: Int, rejecting childID: Int? = nil) async -> Bool {
+        guard !busy else { return false }
+        busy = true; error = ""; notice = ""
         defer { busy = false }
-        let choice = faceChoices[face.id] ?? face.choice
+        let choice = childID == nil ? faceChoices[face.id] ?? face.choice : 0
+        var assignment: [String: Any] = ["face_id": face.id,
+            "child_id": choice > 0 ? choice as Any : NSNull(), "ignored": choice == -1]
+        if let childID { assignment["rejected_child_id"] = childID }
         do {
-            let result: MemoryFaceConfirmation = try await session.put("/faces/media/\(mediaID)/confirm", json: ["assignments": [["face_id": face.id,
-                "child_id": choice > 0 ? choice as Any : NSNull(), "ignored": choice == -1]]])
+            let result: MemoryFaceConfirmation = try await session.put("/faces/media/\(mediaID)/confirm", json: ["assignments": [assignment]])
             faceChoices.removeValue(forKey: face.id)
-            autoLinkedCount = result.auto_linked
-            notice = "人脸确认已保存，另自动关联 \(result.auto_linked) 张相关人脸。"
-            if result.auto_reset > 0 { notice += "另撤回 \(result.auto_reset) 条不再明确的自动关联。" }
-            try await fetch()
-        } catch { self.error = friendly(error) }
+            if childID != nil { notice = "已排除这位候选，你仍可以选择其他人物。" }
+            else if choice == -1 { notice = "已忽略这张脸。" }
+            else if choice == 0 { notice = "已移除这个人物确认。" }
+            else { notice = "已确认人物。" }
+            if result.matching_queued { notice += "后台会继续整理相关影像。" }
+            await refreshAfterFaceWrite()
+            return true
+        } catch { self.error = friendly(error); return false }
+    }
+    @discardableResult
+    func confirmFaceGroup(ids: Set<Int>, childID: Int) async -> Bool {
+        guard !busy, !ids.isEmpty, childID > 0 else { return false }
+        busy = true; error = ""; notice = ""
+        defer { busy = false }
+        do {
+            let result: MemoryFaceGroupConfirmation = try await session.put("/faces/review/confirm-group",
+                json: ["face_ids": ids.sorted(), "child_id": childID])
+            for id in ids { faceChoices.removeValue(forKey: id) }
+            notice = "已确认 \(result.confirmed) 份影像。"
+            if result.matching_queued { notice += "后台会继续整理相关影像。" }
+            await refreshAfterFaceWrite()
+            return true
+        } catch { self.error = friendly(error); return false }
+    }
+    private func refreshAfterFaceWrite() async {
+        do { try await fetch() } catch { self.error = "保存成功，列表刷新失败。\(friendly(error))" }
     }
     func confirm(dog: MemoryDog, mediaID: Int) async {
         busy = true; error = ""; notice = ""
@@ -199,8 +234,8 @@ struct MemoryReviewCursor {
         else { body["child_id"] = childID > 0 ? childID as Any : NSNull() }
         do {
             let result: MemoryOrganizationEntry = try await session.put("/organization/reviews/\(entry.id)", json: body)
-            autoLinkedCount = result.auto_linked ?? 0
             notice = "审核已保存，变更与处理习惯已记录。"
+            if result.matching_queued == true { notice += "后台会继续整理相关影像。" }
             try await fetch()
         } catch { self.error = friendly(error) }
     }
@@ -214,7 +249,7 @@ struct MemoryReviewCursor {
             try await fetch()
         } catch { self.error = friendly(error) }
     }
-    func analyzeNext(pets: Bool = false) async {
+    func analyzeNext(pets: Bool = false, refresh: Bool = false, detailedPhoto: Bool = false) async {
         busy = true; error = ""; notice = ""
         defer { busy = false }
         struct Batch: Decodable {
@@ -224,7 +259,8 @@ struct MemoryReviewCursor {
         }
         do {
             if let mediaID {
-                try await session.write("/\(pets ? "pets" : "faces")/media/\(mediaID)/analyze", method: "POST", json: [:])
+                try await session.write("/\(pets ? "pets" : "faces")/media/\(mediaID)/analyze", method: "POST",
+                    json: pets ? [:] : ["refresh": refresh, "detailed_photo": detailedPhoto])
                 notice = "当前影像分析完成。"; try await fetch(); return
             }
             let result: Batch = try await session.post(pets ? "/pets/analyze-next" : "/faces/analyze-next?limit=5", json: [:])
@@ -288,8 +324,7 @@ struct MemoryOrganizationEntry: Decodable, Identifiable {
     let frame_seconds: Double?
     let created_at: String
     let updated_at: String
-    let auto_linked: Int?
-    let auto_reset: Int?
+    let matching_queued: Bool?
     var title: String { kind == "tags" ? "自动标签" : kind == "pet" ? "宠物关联" : "人物关联" }
     static func statusLabel(_ value: String) -> String {
         ["imported": "补录现有结果", "applied": "自动写入", "pending": "待审核", "automatic": "已自动确认", "approved": "已审核", "corrected": "已修改", "rejected": "已撤回", "superseded": "已有后续修改", "confirmed": "人工确认"][value] ?? value

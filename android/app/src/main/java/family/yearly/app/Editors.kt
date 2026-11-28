@@ -127,7 +127,7 @@ private fun FaceReview(model: AppModel, mediaID: Int, linkedIDs: Set<Int>, onLin
                 val path = "/faces/media/$mediaID"
                 val value = when (action) {
                     "analyze" -> model.api.write("$path/analyze", "POST")
-                    "refresh" -> model.api.write("$path/analyze", "POST", json("refresh" to true))
+                    "refresh" -> model.api.write("$path/analyze", "POST", json("refresh" to true, "detailed_photo" to true))
                     "confirm" -> model.api.write("$path/confirm", "PUT", json("assignments" to faces.map { face ->
                         val choice = choices[face.getInt("id")] ?: 0
                         json("face_id" to face.getInt("id"), "child_id" to choice.takeIf { it > 0 }, "ignored" to (choice == -1))
@@ -154,7 +154,7 @@ private fun FaceReview(model: AppModel, mediaID: Int, linkedIDs: Set<Int>, onLin
         Text(if (expanded) "收起人脸匹配" else "人脸匹配 · 确认这里面有谁")
     }
     if (!expanded) return
-    Text("选择每张脸对应的人物。确认后会关联档案，并作为后续匹配的参考；候选不会自动保存。", style = MaterialTheme.typography.bodySmall)
+    Text("选择每张脸对应的人物。确认后会关联档案，并作为后续匹配的参考。", style = MaterialTheme.typography.bodySmall)
     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
     if (error.isNotBlank()) ErrorBanner(error)
     val value = state

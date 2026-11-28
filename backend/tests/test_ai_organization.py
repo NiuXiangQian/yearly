@@ -4,7 +4,7 @@ from app.config import settings
 from app.models import Media, MediaOrganization, MediaSearchIndex, OrganizationReview, MediaFace, User
 from test_memory_interviews import memory, interviewer
 from test_accounts import act
-from test_auto_faces import indexed
+from test_auto_faces import drain_matching, indexed, reference_pair
 from test_faces import image_media, confirm
 from conftest import child
 
@@ -87,12 +87,14 @@ def test_person_matching_has_review_history_and_remembered_manual_override(conte
     monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
     person = child(context, '参考人物')
     source = image_media(context); seed = indexed(context, source, [1, 0])
+    indexed(context, image_media(context, taken="2024-02-01T10:30:00"), [1, 0], person["id"])
     target = image_media(context); fid = indexed(context, target, [1, 0])
-    assert confirm(context, source, seed, person['id']).json()['auto_linked'] == 1
+    assert confirm(context, source, seed, person['id']).json()['matching_queued']
+    drain_matching(context)
     queue = context.client.get('/api/organization/reviews?kind=face').json()
     assert queue['pending'] == 1
     entry = queue['items'][0]
-    assert entry['media']['id'] == target and entry['evidence']['reference_face_id'] == seed
+    assert entry['media']['id'] == target and entry['evidence']['reference_face_id']
     response = context.client.put(f"/api/organization/reviews/{entry['id']}", json=dict(action='reject', remember=True))
     assert response.status_code == 200, response.text
     assert response.json()['status'] == 'rejected' and response.json()['current']['child_id'] is None
@@ -172,18 +174,19 @@ def test_background_resumes_interrupted_processing_and_batch_retry_is_idempotent
     assert len(calls)==1
 
 
-def test_reviewing_a_face_also_returns_additional_automatic_match_counts(context, monkeypatch):
+def test_approving_automatic_face_queues_dependent_matching(context, monkeypatch):
     import math
     monkeypatch.setattr(settings(), 'face_auto_link_enabled', True)
     person=child(context,'参考人物')
-    seed_media=image_media(context); indexed(context,seed_media,[1,0],person['id'])
-    target=image_media(context); fid=indexed(context,target,[.9,math.sqrt(.19)])
-    chained=image_media(context); chained_id=indexed(context,chained,[.6,.8])
+    reference_pair(context,person['id'],[1,0])
+    target=image_media(context, taken='2024-05-01T10:00:00'); fid=indexed(context,target,[.87,math.sqrt(1-.87**2)])
+    chained=image_media(context); chained_id=indexed(context,chained,[.69,math.sqrt(1-.69**2)])
     assert context.client.post('/api/faces/auto-link').json()['linked_faces']==1
     row=context.client.get('/api/organization/reviews?kind=face').json()['items'][0]
     result=context.client.put(f"/api/organization/reviews/{row['id']}",json=dict(action='approve'))
     assert result.status_code==200, result.text
-    assert result.json()['auto_linked']==1 and result.json()['auto_reset']==0
+    assert result.json()['matching_queued']
+    drain_matching(context)
     with context.db() as db:
         assert db.get(MediaFace,chained_id).child_id==person['id'] and db.get(MediaFace,chained_id).confirmed_by is None
 

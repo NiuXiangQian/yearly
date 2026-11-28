@@ -12,7 +12,7 @@ from .models import Media, MediaFile, MediaMetadata, UploadTask, User
 from .schemas import UploadIn
 from .security import editor
 from .accounts import require_editable, can_edit
-from .services import require_row, set_children, apply_time, validate_children
+from .services import pin_manual_people, require_row, set_children, apply_time, validate_children
 from .models import MediaChild
 from .storage import get_storage, verify_object
 from .config import settings
@@ -210,6 +210,7 @@ def create_upload(
                 "tasks": [], "duplicate": True,
                 "notice": "相同原件已存在且已锁定，已跳过重复上传",
             }
+        pin_manual_people(db, existing.id, data.child_ids)
         existing_child_ids = db.scalars(select(MediaChild.child_id).where(
             MediaChild.media_id == existing.id
         ).with_for_update()).all()

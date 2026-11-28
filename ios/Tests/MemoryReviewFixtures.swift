@@ -11,14 +11,15 @@ final class MemoryReviewHTTP: URLProtocol {
     static var failCurationReads = false
     static var role = "admin"
     static var empty = false
-    static var omitConfirmationCounts = false
+    static var omitMatchingQueued = false
+    static var groupedFaces = false
     static let media: [String: Any] = ["id": 42, "title": "公园里的周末", "media_type": "photo", "timeline_day": "2026-11-01", "tags": ["周末"], "remark": "原有小记", "child_ids": [7], "files": []]
     static let candidate: [String: Any] = ["child_id": 7, "name": "家人甲", "similarity": 0.91, "reference_thumbnail": ""]
     static var face: [String: Any] { ["id": 21, "thumbnail": "", "child_id": NSNull(), "ignored": false, "frame_seconds": 2.5, "auto_assigned": false, "candidates": [candidate], "media": media] }
     static var dog: [String: Any] { ["index": 0, "thumbnail": "", "appearance": "浅色毛、垂耳的小狗", "child_id": NSNull(), "ignored": false, "frame_seconds": NSNull(), "candidates": [["child_id": 8, "name": "多多", "similarity": 0.88, "reference_thumbnail": ""]]] }
     static let organizationSettings: [String: Any] = ["tags_enabled": true, "people_enabled": true, "tag_rules": [String: String](), "person_rules": [String: String]()]
     static var organizationEntry: [String: Any] {
-        ["id": 31, "auto_linked": 2, "auto_reset": 0, "kind": "tags", "status": "pending", "automatic": true, "media": media,
+        ["id": 31, "matching_queued": true, "kind": "tags", "status": "pending", "automatic": true, "media": media,
          "before": ["tags": ["周末"]], "proposed": ["tags": ["公园"]], "current": ["tags": ["公园"], "decisions": ["公园": "公园"]],
          "evidence": ["tags": [["name": "公园", "evidence": "在公园散步", "rule": "default"]], "description": "家人在公园散步。", "model": "synthetic"],
          "events": [["action": "applied", "at": "2026-11-13T10:00:00", "actor_name": "自动整理", "value": ["tags": ["公园"]]]],
@@ -53,15 +54,29 @@ final class MemoryReviewHTTP: URLProtocol {
             case "/curation/batch": response = ["count": 1, "undo_token": "synthetic-batch"]
             case "/curation/undo/synthetic-batch": response = ["ok": true]
             case "/curation/media/42/quality": response = ["frames": [["frame": 0, "clarity": 4, "reason": "画面清楚"]], "representative": 0, "seconds": [NSNull()], "thumbnail": ""]
-            case "/faces/review": response = ["enabled": true, "ready": true, "message": "", "items": Self.empty ? [] : [Self.face], "next_cursor": Self.empty ? NSNull() : 21,
-                "pending_faces": Self.empty ? 0 : 12, "pending_memories": 8, "unanalysed_photos": 0, "auto_link_enabled": true]
+            case "/faces/review":
+                var items = Self.empty ? [] : [Self.face]
+                if Self.groupedFaces && !Self.empty {
+                    items[0]["review_group_id"] = 21
+                    var second = items[0]
+                    second["id"] = 22
+                    var source = Self.media
+                    source["id"] = 43
+                    second["media"] = source
+                    items.append(second)
+                }
+                response = ["enabled": true, "ready": true, "message": "", "items": items, "next_cursor": Self.empty ? NSNull() : 21,
+                    "pending_faces": Self.empty ? 0 : 12, "pending_memories": 8, "unanalysed_media": 0, "auto_link_enabled": true]
             case "/pets/review": response = ["items": Self.empty ? [] : [["media": Self.media, "dogs": [Self.dog]]], "pending_pets": Self.empty ? 0 : 3, "unanalysed_media": 0, "next_cursor": NSNull()]
             case "/organization/settings": response = Self.organizationSettings
             case "/organization/reviews": response = ["items": Self.empty ? [] : [Self.organizationEntry], "pending": 1, "next_cursor": NSNull(), "errors": []]
             case "/organization/reviews/31": response = Self.organizationEntry
             case "/organization/run": response = ["processed": 3, "busy": false]
             case "/faces/auto-link": response = ["linked_faces": 2, "reset_faces": 1]
-            case "/faces/media/42/confirm": response = Self.omitConfirmationCounts ? [:] : ["auto_linked": 2, "auto_reset": 1]
+            case "/faces/media/42/confirm": response = Self.omitMatchingQueued ? [:] : ["matching_queued": true]
+            case "/faces/review/confirm-group":
+                let ids = Self.body(request)["face_ids"] as? [Int] ?? []
+                response = ["confirmed": ids.count, "matching_queued": true]
             case "/faces/analyze-next", "/pets/analyze-next": response = ["processed": [42], "failed": []]
             case "/media/42": response = Self.media
             case "/timeline": response = ["items": [], "total": 0]

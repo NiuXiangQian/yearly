@@ -33,8 +33,8 @@ def detector(monkeypatch):
     return calls
 
 
-def image_media(context, people=()):
-    mid = upload(context, list(people))["media_id"]
+def image_media(context, people=(), **kwargs):
+    mid = upload(context, list(people), **kwargs)["media_id"]
     with context.db() as db:
         file = db.scalar(select(MediaFile).where(MediaFile.media_id == mid))
         db.add(DisplayPreview(sha256=file.sha256, status="ready", image_key=f"previews/{mid}.webp"))
@@ -222,12 +222,14 @@ def test_video_samples_compressed_preview_with_timestamps(context, detector, mon
             assert Image.open(io.BytesIO(raw)).size == (1280, 960)
             timestamps.append(frame_seconds)
             detected = [dict(face(), frame_seconds=frame_seconds, _quality=frame_seconds + 0.1)]
-            if multiple and frame_seconds == 0.5:
+            if multiple and .48 <= frame_seconds <= .55:
                 detected.append(dict(face([0.0, 1.0] + [0.0]*126), frame_seconds=frame_seconds, _quality=0.5))
             return detected
     monkeypatch.setattr(faces, "FaceEngine", Detector)
     state = analyze(context, mid)
-    assert state["faces"][0]["frame_seconds"] == 0.5 and timestamps == [0, 0.5]
+    assert timestamps[:2] == [0, .52]
+    assert max(item["frame_seconds"] for item in state["faces"]) > .52
+    assert all(item["frame_seconds"] in timestamps for item in state["faces"])
     assert len(state["faces"]) == (2 if multiple else 1)
     assert "_quality" not in str(state)
 
@@ -288,3 +290,24 @@ def test_refresh_empty_or_failed_detection_does_not_erase_existing_faces(context
     failed = context.client.post(f"/api/faces/media/{mid}/analyze", json={"refresh": True})
     assert failed.status_code == 503
     assert context.client.get(f"/api/faces/media/{mid}").json() == original
+
+
+def test_detail_photo_tiles_keep_original_coordinates_and_unique_faces():
+    raw = io.BytesIO()
+    Image.new("RGB", (1600, 1200)).save(raw, "JPEG")
+    calls = []
+
+    class Detector:
+        def detect(self, pixels):
+            calls.append(Image.open(io.BytesIO(pixels)).size)
+            if len(calls) == 1:
+                return [dict(face(), box=[.1, .1, .13, .13])]
+            if len(calls) == 2:
+                return [dict(face(), box=[.1 / .65, .1 / .65, .2, .2])]
+            if len(calls) == 5:
+                return [dict(face(), box=[.5, .5, .1, .1])]
+            return []
+
+    result = faces.photo_detections(raw.getvalue(), Detector(), detailed=True)
+    assert calls == [(1600, 1200)] + [(1040, 780)] * 4
+    assert len(result) == 2 and result[1]["box"] == pytest.approx([.675, .675, .065, .065])

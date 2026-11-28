@@ -61,7 +61,7 @@ from .services import (
     child_data,
     media_data,
     event_data,
-    set_children,
+    set_children, pin_manual_people,
     apply_time,
     save_event,
     filter_children,
@@ -608,6 +608,8 @@ def edit_media(mid: int, data: MediaEdit, db=Depends(get_db), user=Depends(edito
     previous_day = media.timeline_date or (
         media.taken_at_local.date() if media.taken_at_local else None
     )
+    current = {child.id for child in media.children}
+    pin_manual_people(db, mid, set(data.child_ids) - current)
     set_children(db, mid, data.child_ids, MediaChild)
     excluded = {"child_ids"} | (
         {"batch_name", "timeline_date", "share_allowed"} - data.model_fields_set
@@ -629,8 +631,10 @@ def edit_media(mid: int, data: MediaEdit, db=Depends(get_db), user=Depends(edito
 @app.post("/api/media/batch-children")
 def batch_children(data: BatchChildren, db=Depends(get_db), user=Depends(editor)):
     child_ids = validate_children(db, data.child_ids)
-    for mid in set(data.media_ids):
+    for mid in sorted(set(data.media_ids)):
         media = require_editable(user, require_active_media(db, mid, user))
+        if data.mode != "remove":
+            pin_manual_people(db, mid, child_ids)
         current = {c.id for c in media.children if c.status != "deleted"}
         ids = (
             child_ids

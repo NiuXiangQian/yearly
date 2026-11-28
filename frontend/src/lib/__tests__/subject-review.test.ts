@@ -21,7 +21,7 @@ const face = { id: 21, media, thumbnail: "", child_id: null, ignored: false, fra
 const dog = { index: 0, thumbnail: "", child_id: null, ignored: false, appearance: "浅色小狗", frame_seconds: null, candidates: [{ child_id: 8, name: "多多", similarity: .9, reference_thumbnail: "" }] };
 const profiles = [{ id: 7, name: "家人甲", profile_type: "person" }, { id: 8, name: "多多", profile_type: "pet", species: "狗" }];
 async function mount() {
-  vi.mocked(api).mockImplementation(async path => path.startsWith("/faces/") ? { enabled: true, ready: true, message: "", items: [face], pending_faces: 1, pending_memories: 1, unanalysed_photos: 0, next_cursor: 21 }
+  vi.mocked(api).mockImplementation(async path => path.startsWith("/faces/") ? { enabled: true, ready: true, message: "", items: [face], pending_faces: 1, pending_memories: 1, unanalysed_media: 0, next_cursor: 21 }
     : path.startsWith("/pets/") ? { items: [{ media, dogs: [dog] }], pending_pets: 1, unanalysed_media: 0, next_cursor: null } : profiles);
   const host = document.createElement("div"); document.body.append(host); app = createApp(FaceConsole); app.mount(host);
   await vi.waitFor(() => expect(host.querySelectorAll(".review-face")).toHaveLength(2)); return host;
@@ -64,19 +64,12 @@ it("opens source previews from either detection without discarding the selected 
   pet.querySelector<HTMLButtonElement>(".source-preview")!.click(); await nextTick();
   expect(host.querySelector('[role="dialog"][aria-label="识别来源"]')).not.toBeNull();
 });
-it("shows automatic matching counts after each confirmation and stays quiet for zero or old responses", async () => {
+it("reports background matching inline after confirmation", async () => {
   const host = await mount();
   const person = host.querySelector<HTMLElement>(".review-face")!;
   person.querySelector<HTMLButtonElement>(".candidate-choice")!.click(); await nextTick();
-  vi.mocked(put).mockResolvedValueOnce({ auto_linked: 3 });
+  vi.mocked(put).mockResolvedValueOnce({ matching_queued: true });
   person.querySelector<HTMLButtonElement>(".face-actions button")!.click();
-  await vi.waitFor(() => expect(host.querySelector('[role="dialog"][aria-label="已自动整理相似人脸"]')?.textContent).toContain("另外 3 张"));
-  [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "知道了")!.click(); await nextTick();
-  for (const response of [{ auto_linked: 0 }, {}]) {
-    person.querySelector<HTMLButtonElement>(".candidate-choice")!.click(); await nextTick();
-    vi.mocked(put).mockResolvedValueOnce(response);
-    person.querySelector<HTMLButtonElement>(".face-actions button")!.click();
-    await vi.waitFor(() => expect(host.textContent).toContain("人物确认已保存。"));
-    expect(host.querySelector('[role="dialog"][aria-label="已自动整理相似人脸"]')).toBeNull();
-  }
+  await vi.waitFor(() => expect(host.textContent).toContain("后台会继续整理相关影像。"));
+  expect(host.querySelector('[role="dialog"]')).toBeNull();
 });

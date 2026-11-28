@@ -91,7 +91,9 @@ class FaceEngine:
             right, bottom = min(width, int(x + w)), min(height, int(y + h))
             if right - left < 24 or bottom - top < 24:
                 continue
-            if source_quality(pixels[top:bottom, left:right], face, width, height):
+            crop_pixels = pixels[top:bottom, left:right]
+            usable = source_quality(crop_pixels, face, width, height) is None
+            if not usable and frame_seconds is None:
                 continue
             aligned = self.recognizer.alignCrop(pixels, face)
             vector = self.recognizer.feature(aligned).flatten()
@@ -107,6 +109,7 @@ class FaceEngine:
                                 embedding=vector.tolist(), thumbnail=base64.b64encode(output.getvalue()).decode(),
                                 frame_seconds=frame_seconds)
             if frame_seconds is not None:
-                item["_quality"] = self.quality(face, pixels[top:bottom, left:right])
+                item["_usable"] = usable
+                item["_quality"] = self.quality(face, crop_pixels) if usable else -1.0
             results.append(item)
         return results

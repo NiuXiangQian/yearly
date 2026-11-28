@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import MotionDialog from "./MotionDialog.vue";
 import { computed, ref, watch, onBeforeUnmount } from "vue";
 import { api, post, put, del } from "../lib/api";
 import { t } from "../lib/i18n";
@@ -7,14 +6,14 @@ import { useYearly } from "../stores/yearly";
 
 type Candidate = { child_id: number; name: string; similarity: number; reference_thumbnail: string };
 type Face = { id: number; thumbnail: string; child_id: number | null; ignored: boolean; frame_seconds: number | null; candidates: Candidate[] };
-type FaceState = { enabled: boolean; ready: boolean; message: string; analyzed: boolean; reference_people: number; faces: Face[]; child_ids: number[]; auto_linked?: number; auto_reset?: number };
+type FaceState = { enabled: boolean; ready: boolean; message: string; analyzed: boolean; reference_people: number; faces: Face[]; child_ids: number[]; matching_queued?: boolean };
 const props = defineProps<{ mediaId: number; linkedIds: number[] }>();
 const emit = defineEmits<{ updated: [ids: number[]]; processing: [value: boolean] }>();
 const yearly = useYearly();
 const open = ref(false), busy = ref(false), error = ref(""), notice = ref("");
 const state = ref<FaceState>();
 const choices = ref<Record<number, string>>({});
-const clearing = ref(false), autoLinkedCount = ref(0);
+const clearing = ref(false);
 watch(busy, value => emit("processing", value));
 let active = true;
 onBeforeUnmount(() => { active = false; emit("processing", false); });
@@ -42,7 +41,7 @@ async function toggle() {
 }
 async function analyze(refresh = false) {
   busy.value = true; error.value = ""; notice.value = "";
-  try { apply(await post<FaceState>(`/faces/media/${props.mediaId}/analyze`, { refresh }), true); }
+  try { apply(await post<FaceState>(`/faces/media/${props.mediaId}/analyze`, { refresh, detailed_photo: refresh }), true); }
   catch (e) { error.value = (e as Error).message; }
   finally { busy.value = false; }
 }
@@ -52,9 +51,7 @@ async function confirm() {
   try {
     const response = await put<FaceState>(`/faces/media/${props.mediaId}/confirm`, { assignments });
     apply(response, true);
-    autoLinkedCount.value = response.auto_linked ?? 0;
-    notice.value = t("人物已确认，另自动关联 {n} 张高相似人脸。", { n: response.auto_linked ?? 0 });
-    if (response.auto_reset) notice.value += " " + t("另撤回 {n} 条不再明确匹配的自动关联。", { n: response.auto_reset });
+    notice.value = t(response.matching_queued ? "人物确认已保存，后台会继续整理相关影像。" : "人物确认已保存。");
   } catch (e) { error.value = (e as Error).message; }
   finally { busy.value = false; }
 }
@@ -109,10 +106,7 @@ async function clear() {
         </template>
       </template>
     </div>
-    <MotionDialog :model-value="autoLinkedCount > 0" @update:model-value="(value: boolean) => { if (!value) autoLinkedCount = 0 }" :title="t('已自动整理相似人脸')" width="420px">
-      <p>{{ t("已将另外 {n} 张明确匹配的人脸关联到对应人物，可在已处理项中查看和修改。", { n: autoLinkedCount }) }}</p>
-      <template #footer><button class="button primary" @click="autoLinkedCount = 0">{{ t("知道了") }}</button></template>
-    </MotionDialog>
+
   </section>
 </template>
 

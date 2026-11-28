@@ -49,11 +49,11 @@ it("shows references without selecting automatically, and saves a reviewed ident
   expect(host.textContent).toContain("相似度 0.67");
   button(host, "选择").click(); await nextTick();
   expect(select.value).toBe("1"); expect(put).not.toHaveBeenCalled();
-  vi.mocked(put).mockResolvedValue(state({ auto_linked: 2, child_ids: [7, 1], faces: [{ ...state().faces[0], child_id: 1, candidates: [] }] }));
+  vi.mocked(put).mockResolvedValue(state({ matching_queued: true, child_ids: [7, 1], faces: [{ ...state().faces[0], child_id: 1, candidates: [] }] }));
   button(host, "确认人物").click();
   await vi.waitFor(() => expect(updated).toHaveBeenCalledWith([7, 9, 12, 1]));
   expect(put).toHaveBeenCalledWith("/faces/media/42/confirm", { assignments: [{ face_id: 21, child_id: 1, ignored: false }] });
-  expect(host.textContent).toContain("另自动关联 2 张");
+  expect(host.textContent).toContain("后台会继续整理");
   expect(button(host, "确认人物").disabled).toBe(true);
 });
 it("keeps choices on a failed confirmation and supports ignoring a face", async () => {
@@ -99,7 +99,7 @@ it("refreshes cached faces without clearing reviewed identities, and protects un
     state().faces[0], { ...state().faces[0], id: 22, child_id: 2 },
   ] }));
   refresh.click();
-  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/faces/media/42/analyze", { refresh: true }));
+  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/faces/media/42/analyze", { refresh: true, detailed_photo: true }));
   await vi.waitFor(() => expect(host.querySelectorAll("select")).toHaveLength(2));
   expect(del).not.toHaveBeenCalled();
   expect(updated).toHaveBeenCalledWith([7, 9, 12, 2]);

@@ -13,7 +13,7 @@ from .accounts import record_change
 from .ai_search import chat
 from .config import settings
 from .db import get_db, now, SessionLocal
-from .models import (Child, Media, MediaFace, MediaFaceIndex, MediaPetIndex, MediaSearchIndex,
+from .models import (Child, Media, MediaFace, MediaPetIndex, MediaSearchIndex,
                      OrganizationSettings, MediaOrganization, OrganizationReview, User)
 from .organization_history import preferences, review_event
 from .security import admin
@@ -151,7 +151,7 @@ def review(rid: int, data: ReviewIn, db=Depends(get_db), user=Depends(admin)):
         raise HTTPException(409, "此记录已有后续修改，请从当前影像重新审核；历史记录保留。")
     media = active_media(db, row.media_id, user)
     options = dict(preferences(db))
-    summary = dict(linked_faces=0, reset_faces=0)
+    summary = dict(matching_queued=False)
     if row.kind == "tags":
         suggested = row.proposed_value["tags"]
         if data.tag_decisions is not None and set(data.tag_decisions) != set(suggested):
@@ -196,7 +196,7 @@ def review(rid: int, data: ReviewIn, db=Depends(get_db), user=Depends(admin)):
             elif child_id is not None:
                 rules[str(child_id)] = "automatic"
             options["person_rules"] = rules
-            # Preferences must apply to the auto-link pass triggered by this correction.
+            # Persist the preference before queuing the correction.
             save_preferences(db, user, options)
         if row.kind == "face":
             summary = apply_assignments(db, media, ConfirmFaces(assignments=[dict(face_id=int(row.target_id), **after)]), user)
@@ -210,7 +210,7 @@ def review(rid: int, data: ReviewIn, db=Depends(get_db), user=Depends(admin)):
         save_preferences(db, user, options)
     db.commit()
     db.expire(media, ["children"])
-    return dict(**record_data(db, row, media), auto_linked=summary["linked_faces"], auto_reset=summary.get("reset_faces", 0))
+    return dict(**record_data(db, row, media), **summary)
 
 
 def apply_automatic_tags(db, media, tags, description, model):
@@ -305,7 +305,7 @@ def run(limit: int = Query(default=3, ge=1, le=10), retry_failed: bool = False, 
 
 
 def organize_background(watch=False, limit=10000):
-    from .faces import analyze, auto_link
+    from .faces import analyze, process_face_work, unanalysed_media
     from .pets import analyze as analyze_pet, auto_link_pets, dog_media
     from .face_engine import availability
     from .storage import OSSStorage
@@ -319,14 +319,18 @@ def organize_background(watch=False, limit=10000):
             db.info["actor"] = user
             processed = run_batch(db, user, 1)["processed"]
             options = preferences(db)
-            if options["people_enabled"] and availability()["ready"]:
-                media = db.scalar(select(Media).join(MediaSearchIndex).outerjoin(MediaFaceIndex).where(
-                    Media.status == "active", Media.purpose == "memory", MediaSearchIndex.status == "ready", MediaFaceIndex.media_id.is_(None)).order_by(Media.id.desc()))
-                if media:
-                    analyze(db, storage, media)
-                    auto_link(db, user)
-                    db.commit()
+            face_state = availability()
+            if options["people_enabled"] and face_state["enabled"] and face_state["ready"]:
+                if process_face_work(db, user):
                     processed += 1
+                for media in db.scalars(unanalysed_media().order_by(Media.id.desc()).limit(5)).all():
+                    try:
+                        analyze(db, storage, media)
+                    except HTTPException:
+                        db.rollback()
+                        continue
+                    processed += 1
+                    break
             if options["people_enabled"] and any(v == "automatic" for v in options["person_rules"].values()):
                 pet_media = db.scalar(dog_media().outerjoin(MediaPetIndex).where(MediaPetIndex.media_id.is_(None)).order_by(Media.id.desc()))
                 if pet_media:

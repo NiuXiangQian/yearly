@@ -1,7 +1,7 @@
 from datetime import timedelta
 from sqlalchemy import select, delete, or_, func, cast, DateTime
 from fastapi import HTTPException
-from .models import Child, Media, MediaChild, Event, EventMedia, EventChild
+from .models import Child, Media, MediaChild, MediaFaceIndex, Event, EventMedia, EventChild
 from sqlalchemy.orm import object_session
 from .visibility import visible_query
 from .age import age_at
@@ -35,6 +35,15 @@ def set_children(db, parent_id, ids, relation):
     db.execute(delete(relation).where(field == parent_id))
     key = "media_id" if relation is MediaChild else "event_id"
     db.add_all([relation(**{key: parent_id, "child_id": cid}) for cid in ids])
+
+
+def pin_manual_people(db, media_id, child_ids):
+    """Keep explicitly added album links independent of face assignments."""
+    if not child_ids:
+        return
+    index = db.scalar(select(MediaFaceIndex).where(MediaFaceIndex.media_id == media_id).with_for_update())
+    if index is not None:
+        index.managed_child_ids = sorted(set(index.managed_child_ids) - set(child_ids))
 
 
 def apply_time(media):

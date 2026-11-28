@@ -25,7 +25,6 @@ const subjects = computed<Subject[]>(() => [
 const queue = ref<ReviewQueue>(), memories = ref<ReviewMedia[]>([]);
 const selected = ref<ReviewMedia>(), revision = ref(0);
 const previewing = ref<Subject>();
-const autoLinkedCount = ref(0);
 const loading = ref(false), error = ref(""), notice = ref("");
 const cursor = ref<Cursor>({}), nextCursor = ref<Cursor | null>(null), history = ref<Cursor[]>([]);
 const filterMedia = ref<number | null>(null);
@@ -81,16 +80,14 @@ function reviewPets(id: number) { reviewFaces(id); }
 function reviewFaces(id: number) { tab.value = "faces"; filterMedia.value = id; reset(); }
 async function saveFace(face: Subject, ignore = false) {
   if (saving.value[face.key]) return;
-  saving.value[face.key] = true; error.value = ""; notice.value = ""; autoLinkedCount.value = 0;
+  saving.value[face.key] = true; error.value = ""; notice.value = "";
   const choice = ignore ? "ignore" : choices.value[face.key];
   try {
     const assignment = { child_id: choice && choice !== "ignore" ? Number(choice) : null, ignored: choice === "ignore" };
-    const response = await put<{ auto_linked?: number; auto_reset?: number }>(`/${face.pet ? "pets" : "faces"}/media/${face.media.id}/confirm`, face.pet ? { index: face.id, ...assignment } : { assignments: [{ face_id: face.id, ...assignment }] });
-    notice.value = face.pet ? t("宠物确认已保存，后续候选会参考这些样本。") : response.auto_linked ? t("人物已确认，另自动关联 {n} 张高相似人脸。", { n: response.auto_linked }) : t(ignore ? "已忽略这张脸。" : "人物确认已保存。");
-    if (response.auto_reset) notice.value += " " + t("另撤回 {n} 条不再明确匹配的自动关联。", { n: response.auto_reset });
-    autoLinkedCount.value = response.auto_linked ?? 0;
+    const response = await put<{ matching_queued?: boolean }>(`/${face.pet ? "pets" : "faces"}/media/${face.media.id}/confirm`, face.pet ? { index: face.id, ...assignment } : { assignments: [{ face_id: face.id, ...assignment }] });
+    notice.value = face.pet ? t("宠物确认已保存，后续候选会参考这些样本。") : response.matching_queued ? t("人物确认已保存，后台会继续整理相关影像。") : t(ignore ? "已忽略这张脸。" : "人物确认已保存。");
     delete choices.value[face.key];
-    if (selected.value && (selected.value.id === face.media.id || response.auto_linked || response.auto_reset)) revision.value++;
+    if (selected.value && (selected.value.id === face.media.id)) revision.value++;
     await load();
   } catch (e) { error.value = (e as Error).message; }
   finally { saving.value[face.key] = false; }
@@ -128,9 +125,9 @@ void load(true);
     <div class="console-summary" v-if="queue && tab !== 'organization'">
       <div><strong>{{ queue.pending_faces }}</strong><span>{{ t("张脸待确认") }}</span></div>
       <div><strong>{{ pets?.pending_pets ?? 0 }}</strong><span>{{ t("条宠物待确认") }}</span></div>
-      <div><strong>{{ queue.unanalysed_photos }}</strong><span>{{ t("份照片待分析") }}</span></div>
+      <div><strong>{{ queue.unanalysed_media }}</strong><span>{{ t("份影像待分析") }}</span></div>
       <div><strong>{{ queue.pending_memories }}</strong><span>{{ t("份回忆待补充") }}</span></div>
-      <div class="scan-action"><button class="button primary" :disabled="scanning || !queue.enabled || !queue.ready || !queue.unanalysed_photos" @click="scan"><ScanFace :size="17" />{{ t("分析下一批照片") }}</button><button class="button" :disabled="scanning || loading || !pets?.unanalysed_media" @click="scanPets"><PawPrint :size="17" />{{ t("补充宠物识别") }}</button><small>{{ t("每批最多20份，包含实况照片。") }}</small></div>
+      <div class="scan-action"><button class="button primary" :disabled="scanning || !queue.enabled || !queue.ready || !queue.unanalysed_media" @click="scan"><ScanFace :size="17" />{{ t("分析下一批影像") }}</button><button class="button" :disabled="scanning || loading || !pets?.unanalysed_media" @click="scanPets"><PawPrint :size="17" />{{ t("补充宠物识别") }}</button><small>{{ t("最多分析 20 份照片或视频。") }}</small></div>
     </div>
     <p v-if="tab !== 'organization' && queue?.auto_link_enabled" class="muted">{{ t("每次确认人物后会自动整理相似人脸，关联到其他人脸时弹窗提醒；可在已处理项中纠正。") }}</p>
     <p v-if="tab !== 'organization' && queue && (!queue.enabled || !queue.ready)" class="notice">{{ t(queue.message) }}</p>
@@ -155,7 +152,7 @@ void load(true);
               <button class="face-context" @click="choose(face.media)">{{ t("智能打标签") }}<ArrowRight :size="14" /></button>
             </article>
           </div>
-          <div v-else-if="!loading" class="console-empty"><ScanFace :size="28" /><h2>{{ t("当前没有待确认的人物或宠物") }}</h2><p>{{ t("可分析下一批照片，或使用智能打标签整理标签。") }}</p><button class="button" @click="switchTab('memories')">{{ t("去智能打标签") }}</button></div>
+          <div v-else-if="!loading" class="console-empty"><ScanFace :size="28" /><h2>{{ t("当前没有待确认的人物或宠物") }}</h2><p>{{ t("可分析下一批影像，或使用智能打标签整理标签。") }}</p><button class="button" @click="switchTab('memories')">{{ t("去智能打标签") }}</button></div>
         </template>
         <template v-else-if="tab === 'memories'"><div v-if="memories.length" class="memory-grid"><div v-for="media in memories" :key="media.id" class="memory-pick" :class="{ selected: selected?.id === media.id }"><MediaCard :media="media" thumbnail @open="choose(media)" /><button class="memory-pick-label" @click="choose(media)"><span>{{ media.title || localDate(media.timeline_day || media.taken_at_local || undefined) }}</span><small>{{ t(media.interview_status === 'completed' ? "已保存" : media.interview_status === 'draft' ? "继续完善标签" : "智能推荐标签") }}</small></button></div></div><div v-else-if="!loading" class="console-empty"><MessageCircle :size="28" /><h2>{{ t("当前回忆已处理完成") }}</h2><p>{{ t("可以勾选含已处理，继续查看和补充。") }}</p></div></template>
         <OrganizationReview v-if="tab === 'organization'" @updated="revision++" />
@@ -169,10 +166,7 @@ void load(true);
     <MotionDialog :model-value="!!previewing" @update:model-value="(value: boolean) => { if (!value) previewing = undefined }" :title="t('识别来源')" width="900px" destroy-on-close>
       <template v-if="previewing"><p>{{ localDate(previewing.media.timeline_day || undefined) }}<span v-if="previewing.frame_seconds != null"> · {{ t("视频 {seconds} 秒", { seconds: previewing.frame_seconds }) }}</span></p><MediaViewer :key="previewing.key" :media="previewing.media" :initial-seconds="previewing.frame_seconds ?? undefined" /></template>
     </MotionDialog>
-    <MotionDialog :model-value="autoLinkedCount > 0" @update:model-value="(value: boolean) => { if (!value) autoLinkedCount = 0 }" :title="t('已自动整理相似人脸')" width="420px">
-      <p>{{ t("已将另外 {n} 张明确匹配的人脸关联到对应人物，可在已处理项中查看和修改。", { n: autoLinkedCount }) }}</p>
-      <template #footer><button class="button primary" @click="autoLinkedCount = 0">{{ t("知道了") }}</button></template>
-    </MotionDialog>
+
   </div>
 </template>
 

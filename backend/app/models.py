@@ -225,6 +225,8 @@ class MediaFaceIndex(Base, Timestamp):
     model: Mapped[str] = mapped_column(String(64))
     source_sha256: Mapped[str] = mapped_column(String(64))
     managed_child_ids: Mapped[list] = mapped_column(JSON, default=list)
+    match_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
+    reference_cursor: Mapped[int | None] = mapped_column(ID)
 
 
 class MediaFace(Base, Timestamp):
@@ -234,6 +236,8 @@ class MediaFace(Base, Timestamp):
     box: Mapped[list] = mapped_column(JSON)
     frame_seconds: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     embedding: Mapped[list] = mapped_column(JSON)
+    alternate_embeddings: Mapped[list | None] = mapped_column(JSON)
+    rejected_child_ids: Mapped[list | None] = mapped_column(JSON)
     thumbnail: Mapped[str] = mapped_column(Text)
     child_id: Mapped[int | None] = mapped_column(ForeignKey("child.id"), index=True)
     ignored: Mapped[bool] = mapped_column(Boolean, default=False)

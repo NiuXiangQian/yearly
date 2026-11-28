@@ -14,7 +14,7 @@ export type ReviewFace = {
 };
 export type ReviewQueue = {
   enabled: boolean; ready: boolean; message: string; items: ReviewFace[]; next_cursor: number | null;
-  pending_faces: number; pending_memories: number; unanalysed_photos: number;
+  pending_faces: number; pending_memories: number; unanalysed_media: number;
   auto_link_enabled?: boolean;
 };
 export type InterviewState = {
