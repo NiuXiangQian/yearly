@@ -45,7 +45,36 @@ import Foundation
         precondition(savedGroup && review.notice.contains("1 份影像"))
         let group = MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/confirm-group") }!
         precondition(MemoryReviewHTTP.body(group)["face_ids"] as? [Int] == [22], "only checked items are saved")
+        let faceSubjects = review.subjects.filter { $0.kind == .face }
+        review.toggleBatchSelection(faceSubjects[0])
+        await review.page(next: true)
+        precondition(review.batchSelection.map(\.id) == [faceSubjects[0].id], "paging retains the checked item")
+        review.toggleBatchSelection(faceSubjects[1])
+        let savedFaces = await review.confirmSelected(childID: 7)
+        let facesRequest = MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/faces/review/confirm-group") }!
+        precondition(savedFaces && review.batchSelection.isEmpty && MemoryReviewHTTP.body(facesRequest)["face_ids"] as? [Int] == [21, 22])
+        await review.page(next: false)
         MemoryReviewHTTP.groupedFaces = false
+        MemoryReviewHTTP.multiplePets = true
+        await review.load()
+        let petSubjects = review.subjects.filter { $0.kind == .pet }
+        precondition(petSubjects.count == 2)
+        for pet in petSubjects { review.toggleBatchSelection(pet) }
+        if let face = review.subjects.first(where: { $0.kind == .face }) {
+            precondition(!review.canToggleBatchSelection(face), "a batch has one identity type")
+        }
+        MemoryReviewHTTP.failWrites = true
+        let failedPets = await review.confirmSelected(childID: 8)
+        precondition(!failedPets && review.batchSelection.count == 2, "a failed batch preserves all checked records")
+        MemoryReviewHTTP.failWrites = false
+        let savedPets = await review.confirmSelected(childID: 8)
+        precondition(savedPets && review.batchSelection.isEmpty && review.notice.contains("2 条宠物"))
+        let petsRequest = MemoryReviewHTTP.requests.last { $0.url!.path.hasSuffix("/pets/review/confirm-group") }!
+        let petsBody = MemoryReviewHTTP.body(petsRequest)
+        let targets = petsBody["targets"] as! [[String: Any]]
+        precondition(petsBody["child_id"] as? Int == 8 && targets.compactMap { $0["index"] as? Int } == [0, 1])
+        precondition(targets.allSatisfy { $0["media_id"] as? Int == 42 && $0["selection_key"] is String })
+        MemoryReviewHTTP.multiplePets = false
         let petReads = MemoryReviewHTTP.requests.filter { $0.url!.path.hasSuffix("/pets/review") }.count
         await review.page(next: true)
         precondition(MemoryReviewHTTP.requests.filter { $0.url!.path.hasSuffix("/pets/review") }.count == petReads, "finished pet pages do not repeat when faces continue")

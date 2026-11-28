@@ -247,3 +247,44 @@ def test_reference_correction_trash_profile_deletion_and_wrong_species(
     )
     with context.db() as db:
         assert db.get(MediaPetIndex, seed).detections[0]["child_id"] is None
+
+
+def test_batch_pet_confirmation_is_atomic_and_retries_do_not_duplicate_links(context, dog_detector, monkeypatch):
+    photo, _ = dog_detector
+    pet = profile(context)
+    person = child(context)
+    first, second = photo([person["id"]]), photo()
+
+    def targets(mid):
+        response = context.client.post(f"/api/pets/media/{mid}/analyze")
+        assert response.status_code == 200, response.text
+        return [dict(media_id=mid, index=dog["index"], selection_key=dog["selection_key"])
+                for dog in response.json()["dogs"]]
+
+    original_detect = pets.chat
+
+    def detect_multiple(db, system, content, schema):
+        detected = original_detect(db, system, content, schema)
+        other = detected.dogs[0].model_copy(update={"box": [0.2, 0.2, 0.5, 0.5]})
+        return schema(dogs=[*detected.dogs, other])
+
+    (second_target,) = targets(second)
+    with monkeypatch.context() as patch:
+        patch.setattr(pets, "chat", detect_multiple)
+        first_target, another_crop = targets(first)
+    path = "/api/pets/review/confirm-group"
+    body = dict(child_id=pet["id"], targets=[first_target, another_crop, second_target])
+    stale = dict(second_target, selection_key="0" * 64)
+    assert context.client.put(path, json=dict(body, targets=[first_target, stale])).status_code == 409
+    assert context.client.get(f"/api/media/{first}").json()["child_ids"] == [person["id"]]
+    assert context.client.get(f"/api/media/{second}").json()["child_ids"] == []
+    assert context.client.put(path, json=dict(body, targets=[first_target, first_target])).status_code == 422
+    for _ in range(2):
+        response = context.client.put(path, json=body)
+        assert response.status_code == 200 and response.json()["confirmed"] == 3
+    assert set(context.client.get(f"/api/media/{first}").json()["child_ids"]) == {person["id"], pet["id"]}
+    assert context.client.get(f"/api/media/{second}").json()["child_ids"] == [pet["id"]]
+    with context.db() as db:
+        assert all(dog["confirmed_by"] for mid in (first, second) for dog in db.get(MediaPetIndex, mid).detections)
+    act(context, "member")
+    assert context.client.put(path, json=body).status_code == 403

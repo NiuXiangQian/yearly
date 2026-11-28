@@ -1,7 +1,9 @@
 """Review real dogs and compare appearance descriptions with confirmed pet samples."""
 
 import base64
+import hashlib
 import io
+import json
 import math
 import subprocess
 import tempfile
@@ -67,6 +69,41 @@ class PetAssignment(BaseModel):
         if self.ignored and self.child_id is not None:
             raise ValueError("忽略的宠物不能同时关联档案")
         return self
+
+
+class PetConfirmTarget(BaseModel):
+    media_id: int = Field(ge=1)
+    index: int = Field(ge=0)
+    selection_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ConfirmPetGroup(BaseModel):
+    child_id: int = Field(ge=1)
+    targets: list[PetConfirmTarget] = Field(min_length=1, max_length=24)
+
+    @model_validator(mode="after")
+    def unique_targets(self):
+        if len({(target.media_id, target.index) for target in self.targets}) != len(self.targets):
+            raise ValueError("请只选择一次同一条宠物记录")
+        return self
+
+
+def pet_selection_key(row, index):
+    dog = row.detections[index]
+    value = [row.model, row.source_sha256, row.created_at.isoformat(), index,
+             dog["box"], dog.get("frame_seconds"), dog["appearance"], dog["thumbnail"]]
+    return hashlib.sha256(json.dumps(value, separators=(",", ":")).encode()).hexdigest()
+
+
+def locked_pet_index(db, mid):
+    return db.scalar(select(MediaPetIndex).where(MediaPetIndex.media_id == mid).with_for_update()
+                     .execution_options(populate_existing=True))
+
+
+def require_dog_profile(db, child_id):
+    profile = db.get(Child, child_id)
+    if not profile or profile.status == "deleted" or profile.profile_type != "pet" or profile.species != "狗":
+        raise HTTPException(422, "请选择有效的狗狗档案")
 
 
 def dog_media():
@@ -160,6 +197,7 @@ def items(db, rows):
             dogs.append(
                 dict(
                     index=number,
+                    selection_key=pet_selection_key(row, number),
                     child_id=child_id,
                     ignored=dog["ignored"],
                     appearance=dog["appearance"],
@@ -286,6 +324,7 @@ def analyze(db, storage, media):
     )
     db.add(row)
     db.commit()
+    db.refresh(row)
     return row
 
 
@@ -360,6 +399,27 @@ def confirm(mid: int, data: PetAssignment, db=Depends(get_db), user=Depends(admi
     return items(db, [db.get(MediaPetIndex, mid)])[0]
 
 
+@router.put("/review/confirm-group")
+def confirm_pet_group(data: ConfirmPetGroup, db=Depends(get_db), user=Depends(admin)):
+    require_dog_profile(db, data.child_id)
+    pending = []
+    for target in sorted(data.targets, key=lambda entry: (entry.media_id, entry.index)):
+        media = active_media(db, target.media_id, user)
+        row = locked_pet_index(db, target.media_id)
+        if (row is None or target.index >= len(row.detections)
+                or target.selection_key != pet_selection_key(row, target.index)):
+            raise HTTPException(409, "部分宠物记录已重新分析，请刷新后再选")
+        dog = row.detections[target.index]
+        if dog["ignored"] or dog["child_id"] not in (None, data.child_id):
+            raise HTTPException(409, "部分宠物记录已被处理，请刷新后再选")
+        if not dog["confirmed_by"]:
+            pending.append((media, target.index))
+    for media, index in pending:
+        apply_pet_assignment(db, media, PetAssignment(index=index, child_id=data.child_id), user)
+    db.commit()
+    return dict(confirmed=len(data.targets))
+
+
 @router.put("/media/{mid}/reference")
 def select_reference(mid: int, data: PetAssignment, db=Depends(get_db), user=Depends(admin)):
     active_media(db, mid, user)
@@ -396,20 +456,19 @@ def select_reference(mid: int, data: PetAssignment, db=Depends(get_db), user=Dep
     return dict(child_id=profile.id, **after)
 
 
-def apply_pet_assignment(db, media, data, user, automatic=False, match=None):
+def apply_pet_assignment(db, media, data, user, automatic=False, match=None, selection_key=None):
     mid = media.id
-    row = db.get(MediaPetIndex, mid)
+    row = locked_pet_index(db, mid)
     if row is None or data.index >= len(row.detections):
+        if automatic:
+            return False
         raise HTTPException(404, "宠物分析记录不存在")
+    current_dog = row.detections[data.index]
+    if automatic and (current_dog["child_id"] is not None or current_dog["ignored"]
+                      or current_dog.get("auto_link_blocked") or selection_key != pet_selection_key(row, data.index)):
+        return False
     if data.child_id is not None:
-        profile = db.get(Child, data.child_id)
-        if (
-            not profile
-            or profile.status == "deleted"
-            or profile.profile_type != "pet"
-            or profile.species != "狗"
-        ):
-            raise HTTPException(422, "请选择有效的狗狗档案")
+        require_dog_profile(db, data.child_id)
     dogs = [dict(d) for d in row.detections]
     dog = dogs[data.index]
     before = dict(index=data.index, child_id=dog["child_id"], ignored=dog["ignored"])
@@ -447,12 +506,13 @@ def apply_pet_assignment(db, media, data, user, automatic=False, match=None):
             }
         },
     )
+    return True
 
 
 @router.delete("/media/{mid}")
 def clear(mid: int, db=Depends(get_db), user=Depends(admin)):
     media = active_media(db, mid, user)
-    row = db.get(MediaPetIndex, mid)
+    row = locked_pet_index(db, mid)
     if row:
         current = set(
             db.scalars(select(MediaChild.child_id).where(MediaChild.media_id == mid))
@@ -469,7 +529,7 @@ def auto_link_pets(db, user):
     options = preferences(db)
     if not options["people_enabled"]:
         return 0
-    rows = pet_rows(db)
+    rows = sorted(pet_rows(db), key=lambda row: row.media_id)
     indexed = {r.media_id: r for r in rows}
     count = 0
     for group in items(db, rows):
@@ -486,7 +546,8 @@ def auto_link_pets(db, user):
             if options["person_rules"].get(str(best["child_id"])) != "automatic":
                 continue
             media = db.get(Media, group["media"]["id"])
-            apply_pet_assignment(db, media, PetAssignment(index=dog["index"], child_id=best["child_id"]), user, automatic=True,
-                match=dict(similarity=best["similarity"], reference_media_id=best["reference_media_id"], model=MODEL))
-            count += 1
+            if apply_pet_assignment(db, media, PetAssignment(index=dog["index"], child_id=best["child_id"]), user,
+                                    automatic=True, selection_key=dog["selection_key"],
+                                    match=dict(similarity=best["similarity"], reference_media_id=best["reference_media_id"], model=MODEL)):
+                count += 1
     return count

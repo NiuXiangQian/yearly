@@ -74,6 +74,8 @@ struct NativeMemoryReviewView: View {
     @State private var previewSeconds: Double?
     @State private var groupSelections: [Int: Set<Int>] = [:]
     @State private var groupPeople: [Int: Int] = [:]
+    @State private var selecting = false
+    @State private var batchProfile = 0
     @AccessibilityFocusState private var focusNotice: Bool
     init(session: NativeSession, mediaID: Int? = nil, tab: NativeMemoryReviewStore.Tab = .faces, onUpdated: @escaping () -> Void = {}) {
         _store = StateObject(wrappedValue: NativeMemoryReviewStore(session: session, mediaID: mediaID, tab: tab))
@@ -83,16 +85,18 @@ struct NativeMemoryReviewView: View {
         Group {
             if store.session.isAdmin {
                 List {
-                    Section {
-                        if store.tab == .organization {
-                            Text("查看、修改或撤回自动整理结果。")
-                                .font(.subheadline).foregroundStyle(.secondary)
+                    if !selecting {
+                        Section {
+                            if store.tab == .organization {
+                                Text("查看、修改或撤回自动整理结果。")
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            Picker("识别记录", selection: $store.includeReviewed) {
+                                Text("待确认").tag(false)
+                                Text("全部记录").tag(true)
+                            }.pickerStyle(.segmented).disabled(store.busy)
+                            if store.mediaID != nil { Text("仅查看当前影像的识别结果").font(.caption).foregroundStyle(.secondary) }
                         }
-                        Picker("识别记录", selection: $store.includeReviewed) {
-                            Text("待确认").tag(false)
-                            Text("全部记录").tag(true)
-                        }.pickerStyle(.segmented).disabled(store.busy)
-                        if store.mediaID != nil { Text("仅查看当前影像的识别结果").font(.caption).foregroundStyle(.secondary) }
                     }
                     if store.busy { Section { ProgressView("正在处理，请稍候…") } }
                     if !store.error.isEmpty {
@@ -129,6 +133,21 @@ struct NativeMemoryReviewView: View {
         }
         .onChange(of: store.notice) { if !$0.isEmpty { focusNotice = true } }
         .navigationTitle(store.tab.rawValue).navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if store.session.isAdmin && store.tab == .faces && !store.includeReviewed &&
+                (selecting || store.subjects.contains(where: \.canConfirmInBatch)) {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(selecting ? "取消多选" : "多选") {
+                        if selecting { endBatchSelection() }
+                        else { selecting = true }
+                    }.disabled(store.busy)
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if selecting { batchActions }
+        }
+        .onChange(of: store.batchSelection.count) { if $0 == 0 { batchProfile = 0 } }
         .nativeSheet(item: $previewing) { media in
             NativeMediaDetail(session: store.session, initial: media, profiles: store.profiles, pagePosition: nil, previous: nil, next: nil,
                 onSaved: { Task { await store.load(); onUpdated() } },
@@ -137,40 +156,141 @@ struct NativeMemoryReviewView: View {
     }
     @ViewBuilder private var subjectSections: some View {
         if let queue = store.faces {
-            Section {
-                Text("\(queue.pending_faces) 张人脸 · \(store.pets?.pending_pets ?? 0) 条宠物记录待确认")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                if !queue.enabled || !queue.ready { Text(queue.message).font(.caption).foregroundStyle(.secondary) }
-                if store.mediaID != nil || store.subjects.isEmpty {
-                    analysisActions(queue)
-                } else {
-                    Menu {
+            if !selecting {
+                Section {
+                    Text("\(queue.pending_faces) 张人脸 · \(store.pets?.pending_pets ?? 0) 条宠物记录待确认")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    if !queue.enabled || !queue.ready { Text(queue.message).font(.caption).foregroundStyle(.secondary) }
+                    if store.mediaID != nil || store.subjects.isEmpty {
                         analysisActions(queue)
-                    } label: {
-                        Label("查找更多", systemImage: "viewfinder")
-                            .frame(minHeight: 44)
-                    }.accessibilityLabel("查找更多人物与宠物")
-                }
-            }
-            ForEach(store.subjects) { subject in
-                switch subject {
-                case .face(let face, let media):
-                    if let groupID = face.review_group_id, let group = store.faceGroups[groupID] {
-                        if face.id == groupID { Section { faceGroup(group, id: groupID) } }
                     } else {
-                        Section { faceRow(face, media) }
+                        Menu {
+                            analysisActions(queue)
+                        } label: {
+                            Label("查找更多", systemImage: "viewfinder")
+                                .frame(minHeight: 44)
+                        }.accessibilityLabel("查找更多人物与宠物")
                     }
-                case .pet(let dog, let media):
-                    Section { petRow(dog, media) }
                 }
             }
-            if store.subjects.isEmpty && !store.busy {
+            if selecting {
+                let kind = store.batchSelection.first?.kind
+                let available = store.subjects.filter { $0.canConfirmInBatch && (kind == nil || $0.kind == kind) }
+                ForEach(available) { batchRow($0) }
+                if available.isEmpty && !store.busy {
+                    Text(kind == nil ? "本页没有可勾选的记录" : "本页没有可勾选的同类记录")
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                ForEach(store.subjects) { subject in
+                    switch subject {
+                    case .face(let face, let media):
+                        if let groupID = face.review_group_id, let group = store.faceGroups[groupID] {
+                            if face.id == groupID { Section { faceGroup(group, id: groupID) } }
+                        } else {
+                            Section { faceRow(face, media) }
+                        }
+                    case .pet(let dog, let media):
+                        Section { petRow(dog, media) }
+                    }
+                }
+            }
+            if !selecting && store.subjects.isEmpty && !store.busy {
                 Section {
                     Label(store.includeReviewed ? "还没有识别记录" : "暂时没有待确认的影像", systemImage: "checkmark.circle")
                         .foregroundStyle(.secondary).padding(.vertical, 8)
                 }
             }
         }
+    }
+
+    private var batchActions: some View {
+        let count = store.batchSelection.count
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(count > 0 ? "已选 \(count) 项" : "勾选属于同一人物或宠物的记录")
+                .font(.subheadline).foregroundStyle(.secondary)
+            if count > 0 {
+                Picker(store.batchSelection.first?.kind == .pet ? "关联宠物" : "关联人物", selection: $batchProfile) {
+                    Text("请选择").tag(0)
+                    ForEach(store.batchProfiles) { profile in
+                        Text(profile.nickname.isEmpty ? profile.name : profile.nickname).tag(profile.id)
+                    }
+                }
+                .frame(minHeight: 44)
+                .disabled(store.busy)
+                Button {
+                    Task {
+                        if await store.confirmSelected(childID: batchProfile) {
+                            endBatchSelection()
+                            onUpdated()
+                        }
+                    }
+                } label: {
+                    Label("确认 \(count) 项", systemImage: "checkmark")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(NativeActionStyle(kind: .primary))
+                .disabled(store.busy || !store.batchProfiles.contains { $0.id == batchProfile })
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial)
+    }
+
+    private func endBatchSelection() {
+        store.clearBatchSelection()
+        selecting = false
+        batchProfile = 0
+    }
+
+    @ViewBuilder private func batchRow(_ subject: MemoryReviewSubject) -> some View {
+        switch subject {
+        case .face(let face, let media):
+            batchRow(subject, media: media, image: face.thumbnail, seconds: face.frame_seconds,
+                     candidate: face.candidates.first?.name)
+        case .pet(let dog, let media):
+            batchRow(subject, media: media, image: dog.thumbnail, seconds: dog.frame_seconds,
+                     candidate: dog.candidates.first?.name)
+        }
+    }
+
+    private func batchRow(_ subject: MemoryReviewSubject, media: NativeTimelineItem, image: String,
+                          seconds: Double?, candidate: String?) -> some View {
+        let selected = store.isBatchSelected(subject)
+        let kind = subject.kind == .pet ? "宠物" : "人物"
+        return HStack(spacing: 12) {
+            Button {
+                store.toggleBatchSelection(subject)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3).foregroundStyle(selected ? NativeTheme.accent : Color.secondary)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(candidate.map { "可能是 \($0)" } ?? "待确认\(kind)").foregroundStyle(.primary)
+                        Text(media.day).font(.caption).foregroundStyle(.secondary)
+                        if let seconds { Text("视频 \(seconds, specifier: "%.1f") 秒").font(.caption).foregroundStyle(.secondary) }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityValue(selected ? "已选中" : "未选中")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .disabled(!store.canToggleBatchSelection(subject))
+            Button {
+                previewSeconds = seconds; previewing = media
+            } label: {
+                MemoryReviewThumbnail(source: image, width: 46, height: 50)
+                    .accessibilityHidden(true)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(media.media_type == "video" ? "查看来源视频" : "查看来源照片")
+            .disabled(store.busy)
+        }.padding(.vertical, 4)
     }
 
     @ViewBuilder private func analysisActions(_ queue: MemoryFaceQueue) -> some View {

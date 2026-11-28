@@ -38,8 +38,12 @@ struct MemoryFaceGroupConfirmation: Decodable {
     let confirmed: Int
     let matching_queued: Bool
 }
+struct MemoryPetGroupConfirmation: Decodable {
+    let confirmed: Int
+}
 struct MemoryDog: Decodable, Identifiable {
     let index: Int
+    let selection_key: String
     let thumbnail: String
     let appearance: String
     let child_id: Int?
@@ -66,6 +70,24 @@ enum MemoryReviewSubject: Identifiable {
     var id: String { switch self { case .face(let face, _): return "face-\(face.id)"; case .pet(let dog, let media): return "pet-\(media.id)-\(dog.index)" } }
     var mediaID: Int { switch self { case .face(_, let media), .pet(_, let media): return media.id } }
 }
+
+extension MemoryReviewSubject {
+    enum Kind { case face, pet }
+
+    var kind: Kind {
+        switch self {
+        case .face: return .face
+        case .pet: return .pet
+        }
+    }
+    var canConfirmInBatch: Bool {
+        switch self {
+        case .face(let face, _): return face.choice == 0
+        case .pet(let dog, _): return dog.choice == 0
+        }
+    }
+}
+
 struct MemoryReviewCursor {
     var face: Int?
     var pet: Int?
@@ -94,6 +116,8 @@ struct MemoryReviewCursor {
     @Published var organizationKind = ""
     @Published var faceChoices: [Int: Int] = [:]
     @Published var dogChoices: [String: Int] = [:]
+    @Published private(set) var batchSelection: [MemoryReviewSubject] = []
+    static let batchLimit = 24
     private var before = MemoryReviewCursor()
     init(session: NativeSession, mediaID: Int? = nil, tab: Tab = .faces) {
         self.session = session; self.mediaID = mediaID; self.tab = tab
@@ -107,6 +131,77 @@ struct MemoryReviewCursor {
         }
         return groups.filter { $0.value.count > 1 }
     }
+    var batchProfiles: [UploadProfile] {
+        switch batchSelection.first?.kind {
+        case .face: return people
+        case .pet: return dogs
+        case nil: return []
+        }
+    }
+
+    func isBatchSelected(_ subject: MemoryReviewSubject) -> Bool {
+        batchSelection.contains { $0.id == subject.id }
+    }
+
+    func canToggleBatchSelection(_ subject: MemoryReviewSubject) -> Bool {
+        guard !busy else { return false }
+        if isBatchSelected(subject) { return true }
+        guard subject.canConfirmInBatch, batchSelection.count < Self.batchLimit else { return false }
+        guard let first = batchSelection.first else { return true }
+        return first.kind == subject.kind &&
+            (subject.kind == .pet || !batchSelection.contains { $0.mediaID == subject.mediaID })
+    }
+
+    func toggleBatchSelection(_ subject: MemoryReviewSubject) {
+        guard canToggleBatchSelection(subject) else { return }
+        if let index = batchSelection.firstIndex(where: { $0.id == subject.id }) {
+            batchSelection.remove(at: index)
+        } else {
+            batchSelection.append(subject)
+        }
+    }
+
+    func clearBatchSelection() {
+        batchSelection = []
+    }
+
+    @discardableResult
+    func confirmSelected(childID: Int) async -> Bool {
+        guard !busy, let first = batchSelection.first,
+              batchProfiles.contains(where: { $0.id == childID }) else { return false }
+        switch first.kind {
+        case .face:
+            let ids = Set(batchSelection.compactMap { subject -> Int? in
+                if case .face(let face, _) = subject { return face.id }
+                return nil
+            })
+            guard await confirmFaceGroup(ids: ids, childID: childID) else { return false }
+        case .pet:
+            guard await confirmSelectedPets(childID: childID) else { return false }
+        }
+        clearBatchSelection()
+        return true
+    }
+
+    private func confirmSelectedPets(childID: Int) async -> Bool {
+        let targets = batchSelection.compactMap { subject -> [String: Any]? in
+            guard case .pet(let dog, let media) = subject else { return nil }
+            return ["media_id": media.id, "index": dog.index, "selection_key": dog.selection_key]
+        }
+        busy = true; error = ""; notice = ""
+        defer { busy = false }
+        do {
+            let result: MemoryPetGroupConfirmation = try await session.put("/pets/review/confirm-group",
+                json: ["targets": targets, "child_id": childID])
+            for target in batchSelection {
+                if case .pet(let dog, let media) = target { dogChoices.removeValue(forKey: "\(media.id):\(dog.index)") }
+            }
+            notice = "已确认 \(result.confirmed) 条宠物记录。"
+            await refreshAfterReviewWrite()
+            return true
+        } catch { self.error = friendly(error); return false }
+    }
+
     private func fetch() async throws {
         guard session.isAdmin else { throw NativeAPIError(status: 403, message: "整理照片需要管理员权限。") }
         profiles = try await session.get("/children", refresh: true)
@@ -175,7 +270,7 @@ struct MemoryReviewCursor {
             else if choice == 0 { notice = "已移除这个人物确认。" }
             else { notice = "已确认人物。" }
             if result.matching_queued { notice += "后台会继续整理相关影像。" }
-            await refreshAfterFaceWrite()
+            await refreshAfterReviewWrite()
             return true
         } catch { self.error = friendly(error); return false }
     }
@@ -190,11 +285,11 @@ struct MemoryReviewCursor {
             for id in ids { faceChoices.removeValue(forKey: id) }
             notice = "已确认 \(result.confirmed) 份影像。"
             if result.matching_queued { notice += "后台会继续整理相关影像。" }
-            await refreshAfterFaceWrite()
+            await refreshAfterReviewWrite()
             return true
         } catch { self.error = friendly(error); return false }
     }
-    private func refreshAfterFaceWrite() async {
+    private func refreshAfterReviewWrite() async {
         do { try await fetch() } catch { self.error = "保存成功，列表刷新失败。\(friendly(error))" }
     }
     func confirm(dog: MemoryDog, mediaID: Int) async {
