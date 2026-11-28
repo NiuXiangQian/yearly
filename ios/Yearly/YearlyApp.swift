@@ -49,6 +49,8 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
 }
 
 @MainActor enum IOSUploadNotifications {
+    private static let startedIdentifier = "yearly.upload.started"
+
     static func requestPermission(openSettingsOtherwise: Bool = false) {
         Task {
             let center = UNUserNotificationCenter.current()
@@ -61,17 +63,25 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
     }
 
     static func post(_ update: UploadQueue.BackgroundUpdate) {
+        let center = UNUserNotificationCenter.current()
         let content = UNMutableNotificationContent()
+        let identifier: String
+        let trigger: UNNotificationTrigger?
         switch update {
         case .started(let count):
             content.title = "后台上传"
             content.body = "正在处理 \(count) 项。可返回上传页查看进度。"
+            identifier = startedIdentifier
+            // Let the Home Screen transition finish before iOS presents the notification.
+            trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
         case .finished(let completed, let interrupted):
             content.title = interrupted == 0 ? "后台上传完成" : "有上传任务中断"
             content.body = interrupted == 0 ? "已处理 \(completed) 项。" : "\(interrupted) 项待重试。可在上传页点「全部重试」。"
+            center.removePendingNotificationRequests(withIdentifiers: [startedIdentifier])
+            identifier = "yearly.upload.\(UUID().uuidString)"
+            trigger = nil
         }
-        let request = UNNotificationRequest(identifier: "yearly.upload.\(UUID().uuidString)", content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
     }
 }
 

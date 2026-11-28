@@ -272,7 +272,7 @@ struct NativeUploadView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(NativeActionStyle(compact: true))
-                .disabled(account == nil)
+                .disabled(!session.canEdit)
                 .accessibilityIdentifier("upload-retry-all")
             }
             if !queue.duplicateNotice.isEmpty {
@@ -565,7 +565,10 @@ struct NativeUploadView: View {
             if !item.isTerminal {
                 HStack {
                     if [.paused, .failed].contains(item.phase) {
-                        Button(item.phase == .failed ? "重试" : "继续") { queue.resume(item.id) }.disabled(account == nil)
+                        Button(item.phase == .failed ? "重试" : "继续") {
+                            IOSUploadNotifications.requestPermission()
+                            queue.resume(item.id)
+                        }.disabled(!session.canEdit)
                     } else if item.phase != .ready {
                         Button("暂停") { queue.pause(item.id) }
                     }
