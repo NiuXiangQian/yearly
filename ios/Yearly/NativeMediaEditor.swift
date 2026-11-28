@@ -185,7 +185,7 @@ struct NativeMediaInfo: View {
     @ObservedObject var session: NativeSession
     let item: NativeTimelineItem
     let profiles: [UploadProfile]
-    let onSaved: () -> Void
+    let onSaved: (NativeTimelineItem?) -> Void
     @NativeDismiss private var dismiss
     @State private var draft: NativeTimelineItem?
     @State private var tags = ""
@@ -268,7 +268,7 @@ struct NativeMediaInfo: View {
                         if session.isAdmin {
                             NativeFaceReview(session: session, mediaID: item.id, profiles: profiles,
                                 linkedIDs: Binding(get: { draft?.child_ids ?? [] }, set: { draft?.child_ids = $0 }),
-                                busy: $faceBusy, onSaved: onSaved)
+                                busy: $faceBusy, onSaved: { onSaved(nil) })
                         }
                         if NativeDay.date(current.day) != nil || current.folder_id != nil {
                             Section("文件夹") {
@@ -332,7 +332,7 @@ struct NativeMediaInfo: View {
             .nativeInteractiveDismissDisabled(saving)
             .task { await load() }
             .nativeSheet(isPresented: $moving) {
-                NativeFolderMove(session: session, items: [current]) { onSaved() }
+                NativeFolderMove(session: session, items: [current]) { onSaved(nil) }
             }
         }
     }
@@ -405,8 +405,8 @@ struct NativeMediaInfo: View {
                 "latitude": lat as Any? ?? NSNull(), "longitude": lon as Any? ?? NSNull(),
                 "tags": labels, "child_ids": draft.child_ids ?? [],
             ]
-            try await session.write("/media/\(item.id)", json: payload)
-            onSaved()
+            let saved: NativeTimelineItem = try await session.put("/media/\(item.id)", json: payload)
+            onSaved(saved.day == draft.day ? nil : saved)
             dismiss()
         } catch { message = friendly(error) }
     }

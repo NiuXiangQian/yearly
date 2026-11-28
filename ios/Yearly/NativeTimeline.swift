@@ -169,6 +169,7 @@ struct NativeTimelineView: View {
     @State private var dragToken = UUID().uuidString
     @State private var showingTrash = false
     @State private var editingItem: NativeTimelineItem?
+    @State private var pendingArchiveLocation: NativeTimelineItem?
     @State private var daySettings: String?
     @State private var batchEdit = false
     @State private var diaryRequest: NativeDiaryRequest?
@@ -186,7 +187,7 @@ struct NativeTimelineView: View {
     @State private var collapsingDay: String?
     @State private var viewport = NativeTimelineViewport()
     @State private var refreshing = false
-    @State private var uploadRefreshRequest = 0
+    @State private var loadRequest = 0
     @State private var scrollRevision = 0
     private var timelineScroll: UIScrollView? { viewport.scroll }
     private var dayFrames: [String: CGRect] { viewport.days }
@@ -602,7 +603,7 @@ struct NativeTimelineView: View {
             currentDay = store.items.first.map(store.groupDay) ?? ""
             pendingRailDay = store.anchorDay
             scrollRevision += 1
-            if store.needsLoad { uploadRefreshRequest += 1 }
+            if store.needsLoad { loadRequest += 1 }
         }
     }
 
@@ -852,9 +853,9 @@ struct NativeTimelineView: View {
                 guard isActive, !refreshing, !selecting, !store.isFocused, store.anchorDay == nil, !railHeld else { return }
                 if let scroll = timelineScroll,
                    scroll.isTracking || scroll.isDecelerating || scroll.contentOffset.y + scroll.adjustedContentInset.top > 24 { return }
-                uploadRefreshRequest += 1
+                loadRequest += 1
             }
-            .task(id: isActive ? "\(store.queryKey)|\(uploadRefreshRequest)" : nil) {
+            .task(id: isActive ? "\(store.queryKey)|\(loadRequest)" : nil) {
                 guard isActive, store.needsLoad else { return }
                 pendingRailDay = store.anchorDay
                 if !store.isFocused && store.anchorDay == nil {
@@ -909,11 +910,14 @@ struct NativeTimelineView: View {
                 })
             }
             .nativeSheet(isPresented: $showingTrash) { NativeMediaTrash(store: store) }
-            .nativeSheet(item: $editingItem) { item in
+            .nativeSheet(item: $editingItem, onDismiss: revealEditedArchive) { item in
                 if item.kind == "event" {
                     NativeDiaryEditor(session: store.session, profiles: store.profiles, existing: item) { Task { await store.reloadAfterEdit() } }
                 } else {
-                    NativeMediaInfo(session: store.session, item: item, profiles: store.profiles) { Task { await store.reloadAfterEdit() } }
+                    NativeMediaInfo(session: store.session, item: item, profiles: store.profiles) { movedItem in
+                        if let movedItem { pendingArchiveLocation = movedItem }
+                        else { Task { await store.reloadAfterEdit() } }
+                    }
                 }
             }
             .nativeSheet(item: $diaryRequest) { request in
@@ -932,15 +936,29 @@ struct NativeTimelineView: View {
                     selecting = false
                 }
             }
-            .fullScreenCover(item: $selectedItem) { item in
+            .fullScreenCover(item: $selectedItem, onDismiss: revealEditedArchive) { item in
                 if item.kind == "event" {
                     NativeDiaryPreview(session: store.session, initial: item, profiles: store.profiles,
                                        onChanged: { Task { await store.reloadAfterEdit() } })
                 } else {
-                    NativeMediaPager(store: store, initial: item)
+                    NativeMediaPager(store: store, initial: item) { pendingArchiveLocation = $0 }
                 }
             }
         }
+    }
+
+    private func revealEditedArchive() {
+        guard let item = pendingArchiveLocation else { return }
+        pendingArchiveLocation = nil
+        scrubDay = nil
+        pendingRailDay = nil
+        positionBeforePrepend = nil
+        returningToStart = false
+        railHeld = false
+        collapsedMonths[String(item.day.prefix(7))] = false
+        scrollRevision += 1
+        store.locate(item)
+        loadRequest += 1
     }
 
     private func selectLoadedDay(_ items: [NativeTimelineItem]) {
@@ -987,6 +1005,7 @@ struct NativePreviewPosition {
 
 private struct NativeMediaPager: View {
     @ObservedObject var store: NativeTimelineStore
+    let onArchiveMoved: (NativeTimelineItem) -> Void
     @NativeDismiss private var dismiss
     @State private var pages: [NativeTimelineItem]
     @State private var selection: String
@@ -995,8 +1014,9 @@ private struct NativeMediaPager: View {
     @State private var paging = false
     @State private var pendingStep: Int?
 
-    init(store: NativeTimelineStore, initial: NativeTimelineItem) {
+    init(store: NativeTimelineStore, initial: NativeTimelineItem, onArchiveMoved: @escaping (NativeTimelineItem) -> Void) {
         self.store = store
+        self.onArchiveMoved = onArchiveMoved
         let media = store.mediaPages(store.items)
         _pages = State(initialValue: !media.contains(where: { $0.stableID == initial.stableID }) ? [initial] : media)
         _selection = State(initialValue: initial.stableID)
@@ -1015,7 +1035,8 @@ private struct NativeMediaPager: View {
                     next: activeIndex + 1 < pages.count || store.cursor != nil ? { move(1) } : nil,
                     onSaved: { Task { await store.reloadAfterEdit() } },
                     onDeleted: { remove(item) },
-                    onLocate: store.usesUploadOrder ? { current in dismiss(); store.locate(current) } : nil
+                    onLocate: store.usesUploadOrder ? { current in dismiss(); store.locate(current) } : nil,
+                    onArchiveMoved: onArchiveMoved
                 ).id(item.stableID)
             }
         }
@@ -1132,6 +1153,7 @@ struct NativeMediaDetail: View {
     let onSaved: () -> Void
     let onDeleted: () -> Void
     let onLocate: ((NativeTimelineItem) -> Void)?
+    var onArchiveMoved: ((NativeTimelineItem) -> Void)? = nil
     var initialPlaybackSeconds: Double? = nil
     var restoreFromTrash: (() async throws -> Void)? = nil
     @NativeDismiss private var dismiss
@@ -1144,6 +1166,7 @@ struct NativeMediaDetail: View {
     @State private var playbackTask: Task<Void, Never>?
     @State private var startedAutomaticPlayback = false
     @State private var showingInfo = false
+    @State private var movedArchiveItem: NativeTimelineItem?
     @State private var showingShare = false
     @State private var zoom = 1.0
     @State private var imageScale = 1.0
@@ -1321,10 +1344,14 @@ struct NativeMediaDetail: View {
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showingPeople = false } } }
                 }
             }
-            .nativeSheet(isPresented: $showingInfo) {
-                NativeMediaInfo(session: session, item: item, profiles: profiles) {
-                    onSaved()
-                    Task { do { detail = try await session.get("/media/\(initial.id)") } catch { message = friendly(error) } }
+            .nativeSheet(isPresented: $showingInfo, onDismiss: openMovedArchive) {
+                NativeMediaInfo(session: session, item: item, profiles: profiles) { movedItem in
+                    if let movedItem, onArchiveMoved != nil {
+                        movedArchiveItem = movedItem
+                    } else {
+                        onSaved()
+                        Task { do { detail = try await session.get("/media/\(initial.id)") } catch { message = friendly(error) } }
+                    }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
@@ -1334,6 +1361,13 @@ struct NativeMediaDetail: View {
             .onChange(of: scenePhase) { if $0 != .active { stop() } }
         }
     }
+    private func openMovedArchive() {
+        guard let movedArchiveItem, let onArchiveMoved else { return }
+        self.movedArchiveItem = nil
+        onArchiveMoved(movedArchiveItem)
+        dismiss()
+    }
+
     private func resetZoom() {
         zoom = 1
         imageScale = 1
