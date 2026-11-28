@@ -39,6 +39,8 @@ for key in configurations:
     assert settings['GENERATE_INFOPLIST_FILE'] == 'NO'
 info = plistlib.loads((root / 'Yearly/Info.plist').read_bytes())
 assert not info.get('NSAppTransportSecurity', {}).get('NSAllowsArbitraryLoads', False)
+assert 'processing' in info['UIBackgroundModes']
+assert '$(PRODUCT_BUNDLE_IDENTIFIER).upload' in info['BGTaskSchedulerPermittedIdentifiers']
 assert info['YearlyPrivacyPolicyURL'] == '$(YEARLY_PRIVACY_URL)'
 manifest = plistlib.loads((root / 'Yearly/PrivacyInfo.xcprivacy').read_bytes())
 assert manifest['NSPrivacyTracking'] is False

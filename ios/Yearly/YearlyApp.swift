@@ -1,3 +1,6 @@
+import BackgroundTasks
+import Combine
+import OSLog
 import SwiftUI
 import UserNotifications
 
@@ -10,6 +13,7 @@ struct YearlyApp: App {
 @MainActor
 final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
     let uploads = UploadQueue(backgroundExecution: IOSUploadBackgroundExecution(), reportBackgroundUpdate: IOSUploadNotifications.post)
+    private lazy var continuedUploads = IOSContinuedUploads(queue: uploads)
     private var currentSession: NativeSession?
 
     func session(for site: SiteOrigin) -> NativeSession {
@@ -21,6 +25,7 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         _ = BackgroundUploadTransport.shared // Reconnect the stable daemon session on every launch.
+        continuedUploads.register()
         return true
     }
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
@@ -48,10 +53,125 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
     }
 }
 
+@MainActor final class IOSContinuedUploads {
+    private static let title = "上传照片与视频"
+    private let queue: UploadQueue
+    private let identifier = "\(Bundle.main.bundleIdentifier ?? "family.yearly.app").upload"
+    private let logger = Logger(subsystem: "family.yearly.app", category: "BackgroundUpload")
+    private var observation: AnyCancellable?
+    private var batch: Set<UUID> = []
+    private var awaitingTask = false
+    private var task: BGTask?
+    private var lastProgress: UploadQueue.BatchProgress?
+    private var lastSubtitle: String?
+
+    init(queue: UploadQueue) { self.queue = queue }
+
+    func register() {
+        guard #available(iOS 26.0, *) else { return }
+        let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { [weak self] task in
+            MainActor.assumeIsolated {
+                guard let self else { task.setTaskCompleted(success: false); return }
+                self.receive(task)
+            }
+        }
+        guard registered else {
+            logger.error("Could not register the continued upload task")
+            return
+        }
+        queue.requestContinuedExecution = { [weak self] in self?.request() }
+        observation = queue.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .throttle(for: .milliseconds(450), scheduler: DispatchQueue.main, latest: true)
+            .sink { [weak self] _ in self?.refresh() }
+    }
+
+    private func request() {
+        guard #available(iOS 26.0, *), UIApplication.shared.applicationState == .active else { return }
+        let requested = queue.activeConfirmedUploadIDs
+        guard !requested.isEmpty else { return }
+        batch.formUnion(requested)
+        if task != nil || awaitingTask { refresh(); return }
+
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: Self.title,
+                                                       subtitle: subtitle(for: queue.batchProgress(for: batch)))
+        queue.continuedExecutionNotice = nil
+        awaitingTask = true
+        do { try BGTaskScheduler.shared.submit(request) }
+        catch {
+            logger.info("Continued execution unavailable: \(error.localizedDescription, privacy: .public)")
+            queue.continuedExecutionNotice = "iOS 暂时无法开启后台进度。"
+            awaitingTask = false
+            batch = []
+        }
+    }
+
+    private func receive(_ incoming: BGTask) {
+        guard #available(iOS 26.0, *), let continued = incoming as? BGContinuedProcessingTask, awaitingTask else {
+            incoming.setTaskCompleted(success: false)
+            return
+        }
+        awaitingTask = false
+        task = continued
+        continued.expirationHandler = { [weak self, weak continued] in
+            DispatchQueue.main.async {
+                guard let self, let continued, self.task === continued else { return }
+                self.queue.pauseAll()
+                self.finish(success: false)
+            }
+        }
+        logger.info("Continued upload execution granted")
+        queue.setContinuedExecution(true)
+        IOSUploadNotifications.cancelStartedReminder()
+        refresh()
+    }
+
+    private func refresh() {
+        guard !batch.isEmpty else { return }
+        let progress = queue.batchProgress(for: batch)
+        if #available(iOS 26.0, *), let task = task as? BGContinuedProcessingTask, lastProgress != progress {
+            lastProgress = progress
+            task.progress.totalUnitCount = max(progress.totalBytes, 1)
+            task.progress.completedUnitCount = progress.succeeded ? task.progress.totalUnitCount : progress.uploadedBytes
+            let subtitle = subtitle(for: progress)
+            if subtitle != lastSubtitle {
+                lastSubtitle = subtitle
+                task.updateTitle(Self.title, subtitle: subtitle)
+            }
+        }
+        if !progress.hasActiveUploads { finish(success: progress.succeeded) }
+    }
+
+    private func finish(success: Bool) {
+        if awaitingTask { BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier) }
+        let completedTask = task
+        awaitingTask = false
+        task = nil
+        batch = []
+        lastProgress = nil
+        lastSubtitle = nil
+        queue.setContinuedExecution(false)
+        completedTask?.expirationHandler = nil
+        completedTask?.setTaskCompleted(success: success)
+    }
+
+    private func subtitle(for progress: UploadQueue.BatchProgress) -> String {
+        if progress.succeeded { return "已完成 \(progress.totalItems) 项" }
+        let sent = ByteCountFormatter.string(fromByteCount: progress.uploadedBytes, countStyle: .file)
+        let total = ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file)
+        let count = "\(progress.completedItems)/\(progress.totalItems) 项"
+        if progress.totalBytes > 0 && progress.uploadedBytes == progress.totalBytes && progress.hasActiveUploads {
+            return "正在校验 · \(count)"
+        }
+        return "\(sent) / \(total) · \(count)"
+    }
+}
+
 @MainActor enum IOSUploadNotifications {
     private static let startedIdentifier = "yearly.upload.started"
 
     static func requestPermission(openSettingsOtherwise: Bool = false) {
+        if #available(iOS 26.0, *), !openSettingsOtherwise { return }
         Task {
             let center = UNUserNotificationCenter.current()
             if await center.notificationSettings().authorizationStatus == .notDetermined {
@@ -60,6 +180,12 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
                 await UIApplication.shared.open(url)
             }
         }
+    }
+
+    static func cancelStartedReminder() {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [startedIdentifier])
+        center.removeDeliveredNotifications(withIdentifiers: [startedIdentifier])
     }
 
     static func post(_ update: UploadQueue.BackgroundUpdate) {

@@ -275,6 +275,16 @@ struct NativeUploadView: View {
                 .disabled(!session.canEdit)
                 .accessibilityIdentifier("upload-retry-all")
             }
+            if let showProgress = queue.requestContinuedExecution,
+               !queue.hasContinuedExecution, !queue.activeConfirmedUploadIDs.isEmpty {
+                Button(action: showProgress) {
+                    Label("显示后台进度", systemImage: "chart.bar.xaxis").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(NativeActionStyle(kind: .quiet, compact: true))
+                if let notice = queue.continuedExecutionNotice {
+                    Text(notice).font(.footnote).foregroundStyle(NativeTheme.secondaryText)
+                }
+            }
             if !queue.duplicateNotice.isEmpty {
                 Button { showingDuplicate = true } label: {
                     HStack(spacing: 8) {

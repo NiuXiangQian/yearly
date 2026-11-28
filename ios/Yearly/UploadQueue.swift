@@ -22,6 +22,15 @@ import Photos
         let sampledAt: Date
     }
 
+    struct BatchProgress: Equatable {
+        let uploadedBytes: Int64
+        let totalBytes: Int64
+        let completedItems: Int
+        let totalItems: Int
+        let hasActiveUploads: Bool
+        let succeeded: Bool
+    }
+
     @Published private(set) var items: [UploadItem] = []
     @Published var error = ""
     @Published private(set) var duplicateNotice = ""
@@ -31,6 +40,9 @@ import Photos
     @Published private(set) var uploadRate: Double?
     @Published private(set) var preparation: Preparation?
     @Published private(set) var uploadGroup: Set<UUID> = []
+    @Published private(set) var hasContinuedExecution = false
+    @Published var continuedExecutionNotice: String?
+    var requestContinuedExecution: (() -> Void)?
     private var store: UploadStore?
     private var worker: Task<Void, Never>?
     private var activeID: UUID?
@@ -88,6 +100,37 @@ import Photos
             suspended = false
             start()
         }
+    }
+
+    var activeConfirmedUploadIDs: Set<UUID> {
+        guard let site, let ownerID = configuredOwnerID else { return [] }
+        let address = site.url.absoluteString
+        return Set(items.lazy.filter {
+            $0.site == address && $0.ownerID == ownerID && $0.confirmed &&
+                ($0.phase == .queued || $0.phase == .uploading || self.pendingResumes.contains($0.id))
+        }.map(\.id))
+    }
+
+    func batchProgress(for ids: Set<UUID>) -> BatchProgress {
+        let batch = items.filter { ids.contains($0.id) }
+        let transfers = batch.filter { $0.phase != .skipped && $0.phase != .cancelled }
+        let uploaded = transfers.reduce(Int64(0)) { bytes, item in
+            let inFlight = transfer?.itemID == item.id && item.phase == .uploading ? transfer?.inFlightBytes ?? 0 : 0
+            return bytes + min(item.size, item.uploadedBytes + inFlight)
+        }
+        let completed = batch.filter { $0.phase == .complete || $0.phase == .skipped }.count
+        return BatchProgress(uploadedBytes: uploaded, totalBytes: transfers.reduce(0) { $0 + $1.size },
+                             completedItems: completed, totalItems: batch.count,
+                             hasActiveUploads: batch.contains { $0.phase == .queued || $0.phase == .uploading || pendingResumes.contains($0.id) },
+                             succeeded: !batch.isEmpty && completed == batch.count)
+    }
+
+    func setContinuedExecution(_ active: Bool) {
+        guard hasContinuedExecution != active else { return }
+        hasContinuedExecution = active
+        activeService?.setBackground(preparingForBackground && !active)
+        if active { backgroundExecution?.end() }
+        else { beginBackgroundExecution() }
     }
 
     func previewFile(for item: UploadItem, role: String = "original") -> URL? {
@@ -191,18 +234,19 @@ import Photos
             try persist()
             for id in skipped { try store?.removeFiles(id) }
             suspended = false
+            if !activeConfirmedUploadIDs.isEmpty { requestContinuedExecution?() }
             start()
         } catch { }
     }
     func resume(_ id: UUID) {
-        resume(phases: [.paused, .failed], ids: [id])
+        resume(phases: [.paused, .failed], ids: [id], userInitiated: true)
     }
 
     func retryInterrupted() {
-        resume(phases: [.paused, .failed])
+        resume(phases: [.paused, .failed], userInitiated: true)
     }
 
-    private func resume(phases: Set<UploadPhase>, ids: Set<UUID>? = nil) {
+    private func resume(phases: Set<UploadPhase>, ids: Set<UUID>? = nil, userInitiated: Bool = false) {
         guard let site, let session, session.canEdit, let ownerID = session.account?.id else { return }
         let matches = items.indices.filter { index in
             let item = items[index]
@@ -225,6 +269,7 @@ import Photos
         do {
             try persist()
             suspended = false
+            if userInitiated && !uploads.isEmpty { requestContinuedExecution?() }
             start()
         } catch { }
     }
@@ -274,7 +319,7 @@ import Photos
     func prepareForBackground() {
         guard backgroundExecution != nil, !preparingForBackground else { return }
         preparingForBackground = true
-        activeService?.setBackground(true)
+        activeService?.setBackground(!hasContinuedExecution)
     }
 
     func enteredBackground() {
@@ -297,7 +342,7 @@ import Photos
     }
 
     private func reportBackgroundStart() {
-        guard inBackground, worker != nil, backgroundBatch.isEmpty, let site, let ownerID = configuredOwnerID else { return }
+        guard inBackground, !hasContinuedExecution, worker != nil, backgroundBatch.isEmpty, let site, let ownerID = configuredOwnerID else { return }
         let running = items.filter { $0.site == site.url.absoluteString && $0.ownerID == ownerID &&
             $0.confirmed && ($0.phase == .queued || $0.phase == .uploading) }
         guard !running.isEmpty else { return }
@@ -316,7 +361,7 @@ import Photos
     }
 
     private func beginBackgroundExecution() {
-        guard inBackground, worker != nil, !suspended else { return }
+        guard inBackground, worker != nil, !suspended, !hasContinuedExecution else { return }
         backgroundExecution?.begin { [weak self] in
             guard let self, self.backgroundTransport?.hasPendingTransfers != true else { return }
             let ids = Set(self.items.filter { $0.phase.canPause }.map(\.id))
@@ -382,7 +427,7 @@ import Photos
                     }
                     let service = serviceFactory(session, items[index].ownerID, backgroundTransport)
                     activeService = service
-                    service.setBackground(preparingForBackground)
+                    service.setBackground(preparingForBackground && !hasContinuedExecution)
                     service.onBackgroundWake = { [weak self] in self?.beginBackgroundExecution() }
                     service.onPartProgress = { [weak self] bytes, rate in
                         guard let self, self.activeID == id, self.items[index].phase == .uploading else { return }
@@ -436,7 +481,11 @@ import Photos
                                 self.items[index].resources[r].uploadedBytes = bytes
                                 self.items[index].resources[r].complete = complete
                                 self.transfer = nil
-                                if bytes == resource.size && !complete { self.items[index].message = "分片已传完，等待服务端完整性校验…" }
+                                if bytes == resource.size && !complete {
+                                    self.items[index].message = "分片已传完，等待服务端完整性校验…"
+                                } else if self.inBackground && self.hasContinuedExecution {
+                                    self.items[index].message = "正在后台上传原件"
+                                }
                                 try self.persist()
                             }
                         }

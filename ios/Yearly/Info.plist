@@ -13,6 +13,8 @@
     <key>LSRequiresIPhoneOS</key><true/>
     <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
     <key>UILaunchScreen</key><dict/>
+    <key>UIBackgroundModes</key><array><string>processing</string></array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>$(PRODUCT_BUNDLE_IDENTIFIER).upload</string></array>
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
     <key>NSCameraUsageDescription</key><string>在你选择拍摄时使用相机，为家庭档案添加照片或视频。</string>
     <key>NSMicrophoneUsageDescription</key><string>在你选择录制视频时记录声音。</string>

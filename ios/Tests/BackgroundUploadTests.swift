@@ -277,6 +277,30 @@ private struct SyntheticCredentials: SessionCredentialStore {
         restored.retryInterrupted()
         try await wait("bulk retry resumes paused and failed tasks") { !restored.running }
         precondition(restored.items.allSatisfy { $0.phase == .complete })
-        print("Passed background upload checks: early daemon handoff, file bytes, Live Photo multipart continuation, lease expiration/wake, credential isolation, pause/resume, relaunch recovery, background notices, extension lifetime and bulk retry.")
+
+        BackgroundHTTP.reset(hold: "/parts/")
+        let systemLease = ExecutionLease()
+        var notifications: [UploadQueue.BackgroundUpdate] = []
+        let continued = try queue("continued-processing", count: 2, execution: systemLease) { notifications.append($0) }
+        var requests = 0
+        continued.requestContinuedExecution = { [weak continued] in
+            requests += 1
+            continued?.setContinuedExecution(true)
+        }
+        continued.retryInterrupted()
+        try await wait("first direct PUT while continued processing is granted") { BackgroundHTTP.waiting() }
+        let continuedIDs = continued.activeConfirmedUploadIDs
+        continued.prepareForBackground()
+        continued.enteredBackground()
+        precondition(requests == 1 && continuedIDs.count == 2)
+        precondition(!transport.hasPendingTransfers && systemLease.begins == 0 && notifications.isEmpty,
+                     "A continued processing task must keep direct transfers and avoid duplicate alerts")
+        let initial = continued.batchProgress(for: continuedIDs)
+        precondition(initial.totalBytes > 0 && initial.totalItems == 2 && initial.hasActiveUploads && !initial.succeeded)
+        BackgroundHTTP.release()
+        try await wait("both uploads complete during continued processing") { !continued.running }
+        let done = continued.batchProgress(for: continuedIDs)
+        precondition(done.completedItems == 2 && done.uploadedBytes == done.totalBytes && done.succeeded && !done.hasActiveUploads)
+        print("Passed background upload checks: early daemon handoff, continued processing progress, file bytes, Live Photo multipart continuation, lease expiration/wake, credential isolation, pause/resume, relaunch recovery, background notices, extension lifetime and bulk retry.")
     }
 }
