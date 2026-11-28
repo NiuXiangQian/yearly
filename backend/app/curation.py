@@ -180,15 +180,11 @@ def sampled_images(db, storage, media, file):
         preview = db.get(DisplayPreview, file.sha256)
         if preview is None or preview.status != "ready": raise HTTPException(409, "请等待影像预览生成完成")
         return [(None, storage.bucket.get_object(preview.image_key).read())]
-    preview = db.get(VideoPreview, file.sha256)
-    if preview is None or preview.status != "ready": raise HTTPException(409, "请等待视频预览生成完成")
-    return sampled_video_images(storage, preview)
-
-
-def sampled_video_images(storage, preview, frame_count=5):
     import imageio_ffmpeg
     with tempfile.TemporaryDirectory(prefix="yearly-quality-") as directory:
         source = Path(directory) / "preview.mp4"
+        preview = db.get(VideoPreview, file.sha256)
+        if preview is None or preview.status != "ready": raise HTTPException(409, "请等待视频预览生成完成")
         storage.bucket.get_object_to_file(preview.object_key, str(source))
         # Read actual preview duration instead of trusting historical duration metadata.
         probe = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-i", str(source)], capture_output=True, timeout=20)
@@ -197,8 +193,8 @@ def sampled_video_images(storage, preview, frame_count=5):
         if not match: raise HTTPException(422, "无法读取视频时长")
         h, m, s = map(float, match.groups());duration = h * 3600 + m * 60 + s
         result = []
-        for i in range(frame_count):
-            seconds = round(max(0, duration - .1) * i / (frame_count - 1), 3)
+        for i in range(5):
+            seconds = round(max(0, duration - .1) * i / 4, 3)
             output = Path(directory) / f"{i}.jpg"
             # Sparse/VFR video or an audio tail can leave no frame at duration-.1.
             # Try earlier positions and retain the actual seek used in the result.

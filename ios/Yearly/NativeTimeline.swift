@@ -162,8 +162,6 @@ struct NativeTimelineView: View {
     @State private var showingAISearch = false
     @State private var showingPhotoMap = false
     @State private var shareRequest: NativeShareRequest?
-    @State private var stickerRequest: NativeStickerRequest?
-    @State private var invalidStickerSelection = false
     @State private var selecting = false
     @State private var chosen: [NativeTimelineItem] = []
     @State private var selectionLimit = false
@@ -883,28 +881,12 @@ struct NativeTimelineView: View {
                             Button("用所选影像写日记", systemImage: "book") {
                                 diaryRequest = NativeDiaryRequest(day: chosen.first?.day, items: chosen)
                             }
-                            Button("做表情包", systemImage: "face.smiling") {
-                                if chosen.count <= 6 && chosen.allSatisfy({ item in
-                                    item.kind == "media" && !item.sharingLocked && item.primary != nil &&
-                                        ["photo", "live_photo", "video"].contains(item.media_type ?? "")
-                                }) {
-                                    stickerRequest = NativeStickerRequest(items: chosen)
-                                } else {
-                                    invalidStickerSelection = true
-                                }
-                            }
                         }.disabled(chosen.isEmpty)
                         Button("分享所选") { shareRequest = NativeShareRequest(items: chosen) }.buttonStyle(.borderedProminent).disabled(chosen.isEmpty)
                     }.padding().background(.regularMaterial)
                 }
             }
             .alert("一次最多选择 200 项", isPresented: $selectionLimit) { Button("知道了", role: .cancel) { } }
-            .alert("请选择 1 至 6 项允许分享的照片、实况照片或视频", isPresented: $invalidStickerSelection) {
-                Button("知道了", role: .cancel) { }
-            }
-            .nativeSheet(item: $stickerRequest) { request in
-                NativeStickerPackView(session: store.session, items: request.items)
-            }
             .nativeSheet(item: $shareRequest) { request in
                 NativeSharingView(session: store.session, day: request.day, selectedItems: request.items)
             }

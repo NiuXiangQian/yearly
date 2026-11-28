@@ -120,7 +120,6 @@ struct LoginCaptcha: Decodable {
         request.httpMethod = method
         if path.hasPrefix("/organization/run") { request.timeoutInterval = 300 }
         if path.hasPrefix("/curation/media/") && path.hasSuffix("/quality") { request.timeoutInterval = 180 }
-        if path == "/sticker-packs/suggestions" { request.timeoutInterval = 180 }
         if path == "/ai-search" { request.timeoutInterval = 150 }
         if path.hasPrefix("/faces/media/") && path.hasSuffix("/analyze") { request.timeoutInterval = 180 }
         if path.hasPrefix("/faces/analyze-next") || path.hasPrefix("/pets/") && path.contains("analyze") {
