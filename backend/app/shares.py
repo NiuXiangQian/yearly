@@ -34,7 +34,7 @@ from .models import (
 )
 from .security import editor, admin
 from .services import timeline_time, filter_children
-from .share_cover import group_cover, share_avatar_ids
+from .share_cover import default_share_avatar_ids, group_cover, share_avatar_ids
 from .visibility import sharing_visibility
 from .storage import get_storage, preview_resource
 
@@ -62,7 +62,7 @@ class ShareCreate(BaseModel):
         return self
 
 
-def share_info(share):
+def share_info(db, share, default_avatar_ids=None):
     profiles = share.profiles
     profile = profiles[0] if len(profiles) == 1 else None
     names = "、".join(p.nickname or p.name for p in profiles[:2])
@@ -80,7 +80,7 @@ def share_info(share):
         "title": share.title,
         "profile_ids": share.profile_ids,
         "profile_name": (profile.nickname or profile.name) if profile else None,
-        "has_avatar": bool(share_avatar_ids(share)),
+        "has_avatar": bool(share_avatar_ids(db, share, default_avatar_ids)),
         "card_title": title,
         "card_description": description,
         "start_date": share.start_date,
@@ -163,7 +163,7 @@ def save_share(data, response, db, user, owner_scope_id):
     db.commit()
     response.headers["Cache-Control"] = "no-store"
     return {
-        **share_info(share), "token": token, "link_available": True,
+        **share_info(db, share), "token": token, "link_available": True,
         "can_copy": True, "visit_count": 0, "visitor_count": 0,
     }
 
@@ -174,6 +174,7 @@ def list_shares(db=Depends(get_db), user=Depends(editor)):
     if user.role != "admin":
         query = query.where(TimelineShare.created_by == user.id)
     shares = db.scalars(query.order_by(TimelineShare.id.desc()).limit(100)).all()
+    default_avatar_ids = default_share_avatar_ids(db) if any(not s.profiles for s in shares) else []
     counts = {
         row.share_id: {"visit_count": row.visits, "visitor_count": row.visitors}
         for row in db.execute(
@@ -188,7 +189,7 @@ def list_shares(db=Depends(get_db), user=Depends(editor)):
     }
     return [
         {
-            **share_info(s),
+            **share_info(db, s, default_avatar_ids),
             **counts.get(s.id, {"visit_count": 0, "visitor_count": 0}),
             "link_available": saved_token(s) is not None,
             "can_copy": True,
@@ -252,7 +253,7 @@ def public_share(token: str, response: Response, db=Depends(get_db)):
 def share_page(token: str, response: Response, db=Depends(get_db)):
     status = 200
     try:
-        info = share_info(public_share(token, response, db))
+        info = share_info(db, public_share(token, response, db))
     except HTTPException as error:
         status = error.status_code
         info = {
@@ -328,10 +329,10 @@ def share_avatar(
     db=Depends(get_db),
     storage=Depends(get_storage),
 ):
-    avatar_ids = share_avatar_ids(share)
+    avatar_ids = share_avatar_ids(db, share)
     if not avatar_ids:
         raise HTTPException(404, "分享头像不存在")
-    if len(share.profiles) > 1:
+    if len(share.profiles) != 1:
         site = share_site()
         if not redirect:
             return {
@@ -632,7 +633,7 @@ def read_share(
     if backward:
         page.reverse()
     return {
-        "share": share_info(share),
+        "share": share_info(db, share),
         "days": [entries(db, share, d, order=order) for d in page],
         "next_before": days[6] if len(days) > 7 and not ascending else None,
         "next_after": days[6] if len(days) > 7 and ascending else None,

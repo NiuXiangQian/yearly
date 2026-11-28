@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from app.db import now
-from app.models import Media, TimelineShare
+from app.models import Child, Media, TimelineShare
 from conftest import child, upload
 from test_folders import folder
 from test_people import person as create_person
@@ -149,16 +149,29 @@ def test_deleting_a_selected_profile_invalidates_the_link(context):
     assert context.client.post(f"/api/shares/{data['id']}/copy", json={"hours": 24}).status_code == 422
 
 
-def test_group_cover_uses_the_first_nine_selected_avatars_in_profile_order(context):
-    colors = [(20 + i * 20, 50, 200 - i * 10) for i in range(11)]
-    profiles = [avatar_profile(context, f"档案 {i}", color, -1 if i == 9 else 0)[0] for i, color in enumerate(colors)]
+@pytest.mark.parametrize("scope", ["selected", "all"])
+def test_group_cover_uses_the_first_nine_avatars_in_profile_order(context, scope):
+    colors = [(20 + i * 20, 50, 200 - i * 10) for i in range(12)]
+    profiles = [
+        avatar_profile(context, f"档案 {i}", color, -max(0, i - 8))[0]
+        for i, color in enumerate(colors)
+    ]
+    with context.db() as db:
+        db.get(Child, profiles[11]).status = "archived"
+        db.commit()
     unpictured = child(context, "没有头像")["id"]
-    data = share(context, profile_ids=[unpictured, *reversed(profiles[:10])])
+    selected = [unpictured, *reversed(profiles[:10])] if scope == "selected" else []
+    expected = [colors[9], *colors[:8]] if selected else [colors[10], colors[9], *colors[:7]]
+    data = share(context, profile_ids=selected)
     assert data["has_avatar"] is True and data["profile_name"] is None
+    saved = context.client.get("/api/shares").json()[0]
+    assert saved["has_avatar"] is True and saved["profile_ids"] == sorted(selected)
     base = "/api/public/shares/" + data["token"]
     context.client.cookies.clear()
 
     page = context.client.get(base + "/page")
+    published = context.client.get(base).json()["share"]
+    assert published["has_avatar"] is True and published["profile_ids"] == sorted(selected)
     resource = context.client.get(base + "/avatar?redirect=false").json()
     assert resource["mime_type"] == "image/png"
     assert resource["url"].endswith(base + "/avatar")
@@ -172,7 +185,7 @@ def test_group_cover_uses_the_first_nine_selected_avatars_in_profile_order(conte
     with Image.open(BytesIO(response.content)) as cover:
         assert cover.size == (360, 360)
         pixels = [cover.getpixel((x, y)) for y in (66, 180, 294) for x in (66, 180, 294)]
-        assert pixels == [colors[9], *colors[:8]]
+        assert pixels == expected
 
     with context.db() as db:
         db.get(TimelineShare, data["id"]).revoked = True

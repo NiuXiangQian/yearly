@@ -111,10 +111,10 @@ it("provides a family-sharing title and the site logo for an untitled share", as
   await vi.waitFor(() => expect(document.title).toBe("我们的家庭时光"));
   expect(host.querySelector(".shared-brand img")?.getAttribute("src")).toBe("/share-logo.png");
 });
-it("shows the group cover as a square avatar", async () => {
+it.each([{ profiles: [] }, { profiles: [1, 2] }])("shows a square cover for profiles $profiles", async ({ profiles }) => {
   const data = response();
   vi.mocked(api).mockResolvedValue({
-    ...data, share: { ...data.share, profile_ids: [1, 2], has_avatar: true },
+    ...data, share: { ...data.share, profile_ids: profiles, has_avatar: true },
   });
   await mount();
   await vi.waitFor(() => {
@@ -144,7 +144,7 @@ it("shows the selected person's title and avatar and updates the expiry countdow
   const timestamp = Date.now();
   const date = vi.spyOn(Date, "now").mockReturnValue(timestamp);
   const data = response();
-  const share = { ...data.share, card_title: "小禾的时光", profile_name: "小禾", has_avatar: true,
+  const share = { ...data.share, card_title: "小禾的时光", profile_name: "小禾", profile_ids: [1], has_avatar: true,
     expires_at: new Date(timestamp + 7200000).toISOString() };
   vi.mocked(api).mockResolvedValue({ ...data, share });
   try {

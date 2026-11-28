@@ -6,11 +6,22 @@ from fastapi import HTTPException
 from PIL import Image, ImageOps
 from sqlalchemy import or_, select
 
-from .models import DisplayPreview, Media, MediaFile, TimelineFolder
+from .models import Child, DisplayPreview, Media, MediaFile, TimelineFolder
 from .visibility import sharing_visibility
 
 
-def share_avatar_ids(share):
+def default_share_avatar_ids(db):
+    return db.scalars(
+        select(Child.avatar_media_id)
+        .where(Child.status == "active", Child.avatar_media_id.is_not(None))
+        .order_by(Child.sort_order, Child.id)
+        .limit(9)
+    ).all()
+
+
+def share_avatar_ids(db, share, default_ids=None):
+    if not share.profiles:
+        return default_share_avatar_ids(db) if default_ids is None else default_ids
     profiles = sorted(share.profiles, key=lambda profile: (profile.sort_order, profile.id))
     return [profile.avatar_media_id for profile in profiles if profile.avatar_media_id][:9]
 

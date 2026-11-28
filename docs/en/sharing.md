@@ -33,7 +33,7 @@ The left rail appears when the share has multiple dates. Dragging follows dates 
 
 Open media fullscreen and use swipes, arrow keys, or the previous and next buttons to browse across days. The viewer shows the item’s position within its day and the share. Journals open in a separate fullscreen reader.
 
-Group shares use the same collage on the link card and the shared page. The cover takes the first nine configured avatars from the selected profiles in profile-list order and omits unavailable images. The Yearly logo appears if no avatars are available.
+Group shares use the same collage on the link card and the shared page. The cover takes the first nine configured avatars in profile-list order. **All content** draws from active family profiles by default. Unavailable images are omitted, and the Yearly logo appears if no avatars are available.
 
 ## Preview
 

@@ -542,7 +542,7 @@ onBeforeUnmount(() => {
       <section class="shared-intro">
         <div class="shared-title">
           <img v-if="avatar" :src="avatar" :alt="share.profile_name || t('分享人物头像')"
-            class="shared-avatar" :class="{ 'group-avatar': share.profile_ids.length > 1 }" />
+            class="shared-avatar" :class="{ 'group-avatar': share.profile_ids.length !== 1 }" />
           <div>
             <h1>{{ share.card_title || share.title || t("一起长大的日子") }}</h1>
             <p v-if="showingSelection">{{ t("指定影像分享") }}</p>
