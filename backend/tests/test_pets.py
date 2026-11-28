@@ -166,7 +166,7 @@ def test_pet_profiles_keep_role_and_public_sharing_boundaries(context):
     from test_shares import share, public
 
     client = context.client
-    a, p = child(context), pet(context)
+    a, p = child(context), pet(context, birthday="2021-01-31", growth_enabled=True)
     mid = upload(context, [a["id"], p["id"]])["media_id"]
     link = share(context)
     client.cookies.set("yearly_session", "viewer")
@@ -191,7 +191,8 @@ def test_pet_profiles_keep_role_and_public_sharing_boundaries(context):
     assert response.status_code == 200
     entry = response.json()["days"][0]["items"][0]
     assert entry["id"] == mid
-    assert set(entry) == {"kind", "id", "title", "media_type"}
+    assert set(entry) == {"kind", "id", "title", "media_type", "child_ages"}
+    assert entry["child_ages"] == [{"name": a["name"], "age": "3 岁 2 个月"}]
     assert p["name"] not in response.text and p["breed"] not in response.text
     assert client.get("/api/children").status_code == 401
     assert client.get(f"/api/media/{mid}").status_code == 401
