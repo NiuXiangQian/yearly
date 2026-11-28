@@ -9,6 +9,9 @@ final class MemoryReviewHTTP: URLProtocol {
     static var requests: [URLRequest] = []
     static var failWrites = false
     static var failCurationReads = false
+    static var failFaceCount = false
+    static var failPetReviews = false
+    static var pendingFaces = 12
     static var role = "admin"
     static var empty = false
     static var omitMatchingQueued = false
@@ -44,6 +47,10 @@ final class MemoryReviewHTTP: URLProtocol {
         var response: Any = [String: String]()
         var status = 200
         if Self.failCurationReads && path == "/curation/groups" { status = 503; response = ["detail": "模拟刷新失败"] }
+        else if Self.failFaceCount && path == "/faces/review" && request.url!.query == "scope=pending&limit=1" {
+            status = 503; response = ["detail": "模拟后台人脸计数失败"]
+        }
+        else if Self.failPetReviews && path == "/pets/review" { status = 503; response = ["detail": "模拟宠物列表刷新失败"] }
         else if Self.failWrites && writing { status = 503; response = ["detail": "模拟保存失败"] }
         else {
             switch path {
@@ -67,7 +74,7 @@ final class MemoryReviewHTTP: URLProtocol {
                     items.append(second)
                 }
                 response = ["enabled": true, "ready": true, "message": "", "items": items, "next_cursor": Self.empty ? NSNull() : 21,
-                    "pending_faces": Self.empty ? 0 : 12, "pending_memories": 8, "unanalysed_media": 0, "auto_link_enabled": true]
+                    "pending_faces": Self.empty ? 0 : Self.pendingFaces, "pending_memories": 8, "unanalysed_media": 0, "auto_link_enabled": true]
             case "/pets/review":
                 var dogs = [Self.dog]
                 if Self.multiplePets {

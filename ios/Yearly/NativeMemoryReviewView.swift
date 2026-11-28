@@ -68,6 +68,7 @@ private struct NativeOrganizationTaskLabel: View {
 }
 
 struct NativeMemoryReviewView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var store: NativeMemoryReviewStore
     let onUpdated: () -> Void
     @State private var previewing: NativeTimelineItem?
@@ -127,8 +128,15 @@ struct NativeMemoryReviewView: View {
                     }
                 }
                 .listStyle(.insetGrouped).scrollContentBackground(.hidden).background(NativeTheme.background)
-                .refreshable { if !store.busy { await store.load() } }
+                .refreshable { if !store.busy { await store.load(reset: true) } }
                 .task(id: "\(store.tab)-\(store.includeReviewed)-\(store.organizationKind)") { await store.load(reset: true) }
+                .task(id: scenePhase == .active && store.tab == .faces) {
+                    guard scenePhase == .active && store.tab == .faces else { return }
+                    while !Task.isCancelled {
+                        if !selecting && previewing == nil { await store.refreshPendingFaceCount() }
+                        do { try await Task.sleep(for: .seconds(15)) } catch { return }
+                    }
+                }
             } else { Text("整理照片需要管理员权限。").padding() }
         }
         .onChange(of: store.notice) { if !$0.isEmpty { focusNotice = true } }
@@ -158,7 +166,7 @@ struct NativeMemoryReviewView: View {
         if let queue = store.faces {
             if !selecting {
                 Section {
-                    Text("\(queue.pending_faces) 张人脸 · \(store.pets?.pending_pets ?? 0) 条宠物记录待确认")
+                    Text("\(store.pendingFaceCount) 张人脸 · \(store.pets?.pending_pets ?? 0) 条宠物记录待确认")
                         .font(.subheadline).foregroundStyle(.secondary)
                     if !queue.enabled || !queue.ready { Text(queue.message).font(.caption).foregroundStyle(.secondary) }
                     if store.mediaID != nil || store.subjects.isEmpty {

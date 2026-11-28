@@ -31,6 +31,9 @@ struct MemoryFaceQueue: Decodable {
     let unanalysed_media: Int
     let auto_link_enabled: Bool?
 }
+private struct MemoryPendingFaceCount: Decodable {
+    let pending_faces: Int
+}
 struct MemoryFaceConfirmation: Decodable {
     let matching_queued: Bool
 }
@@ -103,6 +106,7 @@ struct MemoryReviewCursor {
     @Published var tab = Tab.faces
     @Published var includeReviewed = false
     @Published private(set) var faces: MemoryFaceQueue?
+    @Published private(set) var pendingFaceCount = 0
     @Published private(set) var pets: MemoryDogQueue?
     @Published private(set) var profiles: [UploadProfile] = []
     @Published private(set) var busy = false
@@ -119,6 +123,7 @@ struct MemoryReviewCursor {
     @Published private(set) var batchSelection: [MemoryReviewSubject] = []
     static let batchLimit = 24
     private var before = MemoryReviewCursor()
+    private var checkingPendingFaceCount = false
     init(session: NativeSession, mediaID: Int? = nil, tab: Tab = .faces) {
         self.session = session; self.mediaID = mediaID; self.tab = tab
     }
@@ -211,10 +216,12 @@ struct MemoryReviewCursor {
         case .faces:
             var items: [MemoryReviewSubject] = []
             var next = before
+            var updatedFaces: MemoryFaceQueue?
             if !before.facesFinished {
                 let previous = Dictionary(uniqueKeysWithValues: (faces?.items ?? []).map { ($0.id, $0.choice) })
                 let data: MemoryFaceQueue = try await session.get("/faces/review?" + query + filter + (before.face.map { "&before=\($0)" } ?? ""))
-                faces = data; next.face = data.next_cursor; next.facesFinished = data.next_cursor == nil
+                updatedFaces = data
+                next.face = data.next_cursor; next.facesFinished = data.next_cursor == nil
                 for face in data.items {
                     if faceChoices[face.id] == nil || faceChoices[face.id] == previous[face.id] { faceChoices[face.id] = face.choice }
                     if let media = face.media { items.append(.face(face, media)) }
@@ -231,6 +238,10 @@ struct MemoryReviewCursor {
                 } }
             }
             subjects = items.sorted { $0.mediaID == $1.mediaID ? $0.id < $1.id : $0.mediaID > $1.mediaID }
+            if let updatedFaces {
+                faces = updatedFaces
+                pendingFaceCount = updatedFaces.pending_faces
+            }
             nextCursor = next.facesFinished && next.petsFinished ? nil : next
         case .organization:
             organizationSettings = try await session.get("/organization/settings", refresh: true)
@@ -238,6 +249,17 @@ struct MemoryReviewCursor {
                 + (before.memory.map { "&before=\($0)" } ?? "") + (organizationKind.isEmpty ? "" : "&kind=\(organizationKind)"), refresh: true)
             organizationQueue = data; nextCursor = data.next_cursor.map { MemoryReviewCursor(memory: $0) }
         }
+    }
+
+    func refreshPendingFaceCount() async {
+        guard tab == .faces, faces != nil, !busy, !checkingPendingFaceCount else { return }
+        checkingPendingFaceCount = true
+        defer { checkingPendingFaceCount = false }
+        // A polling failure leaves the last successful count and visible list in place.
+        guard let status: MemoryPendingFaceCount = try? await session.get("/faces/review?scope=pending&limit=1"),
+              !Task.isCancelled, tab == .faces, !busy else { return }
+        if status.pending_faces != pendingFaceCount { pendingFaceCount = status.pending_faces }
+        if !before.facesFinished, batchSelection.isEmpty, faces?.pending_faces != status.pending_faces { await load() }
     }
 
     func load(reset: Bool = false) async {

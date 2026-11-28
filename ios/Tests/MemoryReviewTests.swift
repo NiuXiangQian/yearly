@@ -11,6 +11,23 @@ import Foundation
         precondition(review.faces?.items[0].frame_seconds == 2.5)
         precondition(review.subjects.count == 2, "person and pet share one list")
         precondition(Set(review.subjects.map(\.id)) == ["face-21", "pet-42-0"], "face and pet identifiers cannot collide")
+        precondition(review.pendingFaceCount == 12)
+        let beforeUnchangedPoll = MemoryReviewHTTP.requests.count
+        await review.refreshPendingFaceCount()
+        precondition(MemoryReviewHTTP.requests.count == beforeUnchangedPoll + 1, "an unchanged count does not reload the page")
+        MemoryReviewHTTP.pendingFaces = 8
+        MemoryReviewHTTP.failFaceCount = true
+        await review.refreshPendingFaceCount()
+        precondition(review.pendingFaceCount == 12 && review.error.isEmpty, "a failed check leaves the last good count visible")
+        MemoryReviewHTTP.failFaceCount = false
+        MemoryReviewHTTP.failPetReviews = true
+        await review.refreshPendingFaceCount()
+        precondition(review.pendingFaceCount == 8 && review.faces?.pending_faces == 12, "an incomplete page reload can be retried")
+        MemoryReviewHTTP.failPetReviews = false
+        await review.refreshPendingFaceCount()
+        precondition(review.pendingFaceCount == 8 && review.faces?.pending_faces == 8, "a background change refreshes the count and list")
+        MemoryReviewHTTP.pendingFaces = 12
+        await review.refreshPendingFaceCount()
         let firstFace = review.faces!.items[0]
         review.faceChoices[firstFace.id] = 7
         MemoryReviewHTTP.failWrites = true
@@ -79,6 +96,11 @@ import Foundation
         await review.page(next: true)
         precondition(MemoryReviewHTTP.requests.filter { $0.url!.path.hasSuffix("/pets/review") }.count == petReads, "finished pet pages do not repeat when faces continue")
         precondition(MemoryReviewHTTP.requests.last!.url!.query!.contains("before=21"))
+        MemoryReviewHTTP.pendingFaces = 7
+        await review.refreshPendingFaceCount()
+        precondition(review.pendingFaceCount == 7 && review.history.count == 1)
+        precondition(MemoryReviewHTTP.requests.last!.url!.query!.contains("before=21"), "background refresh keeps the current page")
+        MemoryReviewHTTP.pendingFaces = 12
         await review.page(next: false)
         precondition(!MemoryReviewHTTP.requests.last!.url!.query!.contains("before="))
         await review.autoLink(); precondition(review.notice.contains("2") && review.notice.contains("1"))
