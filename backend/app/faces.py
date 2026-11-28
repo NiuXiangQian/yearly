@@ -3,6 +3,7 @@ import tempfile
 import subprocess
 from collections import defaultdict
 from io import BytesIO
+from itertools import islice
 from pathlib import Path
 from typing import Literal
 
@@ -93,6 +94,12 @@ def active_media(db, mid, user):
     return media
 
 
+def reviewable_face(face):
+    # Keep past decisions visible. Only a definite failure hides an unconfirmed crop.
+    return (face.child_id is not None or face.confirmed_by is not None
+            or assess_crop(face.thumbnail, face.box)[0] is not False)
+
+
 def face_items(db, rows, matching=True, review_automatic=False, round_scores=True):
     rows = list(rows)
     excluded = set(preferences(db)["face_excluded_child_ids"])
@@ -173,7 +180,8 @@ def video_reference_support(samples, media_id):
 def result(db, media):
     index = db.get(MediaFaceIndex, media.id)
     rows = db.scalars(select(MediaFace).where(MediaFace.media_id == media.id).order_by(MediaFace.id)).all()
-    items, references = face_items(db, rows, index is not None and index.model == MODEL_VERSION)
+    items, references = face_items(db, (face for face in rows if reviewable_face(face)),
+                                  index is not None and index.model == MODEL_VERSION)
     return dict(**availability(), analyzed=index is not None, faces=items,
                 reference_people=len({person.id for sample, person in references if sample.media_id != media.id}),
                 child_ids=list(db.scalars(select(MediaChild.child_id).where(MediaChild.media_id == media.id))))
@@ -195,14 +203,34 @@ def review_queue(scope: Literal["pending", "all"] = "pending", before: int | Non
                  limit: int = Query(default=24, ge=1, le=48), media_id: int | None = Query(default=None, ge=1), db=Depends(get_db), user=Depends(admin)):
     base = select(MediaFace).join(Media, Media.id == MediaFace.media_id).where(Media.status == "active", Media.purpose == "memory")
     pending = base.where(MediaFace.child_id.is_(None), MediaFace.ignored.is_(False))
-    query = pending if scope == "pending" else base
-    if media_id is not None:
-        query = query.where(MediaFace.media_id == media_id)
-    if before is not None:
-        query = query.where(MediaFace.id < before)
-    rows = list(db.scalars(query.order_by(MediaFace.id.desc()).limit(limit + 1)))
-    more = len(rows) > limit
-    rows = rows[:limit]
+    columns = (MediaFace.id, MediaFace.media_id, MediaFace.child_id,
+               MediaFace.confirmed_by, MediaFace.thumbnail, MediaFace.box)
+    pending_total, page_ids = 0, []
+    # Load crops for the quality check without fetching every face's embeddings or media.
+    pending_keys = pending.with_only_columns(*columns).order_by(MediaFace.id.desc())
+    with db.execute(pending_keys.execution_options(yield_per=128)) as keys:
+        for face in keys:
+            if not reviewable_face(face):
+                continue
+            pending_total += 1
+            if (scope == "pending" and len(page_ids) <= limit
+                    and (before is None or face.id < before) and (media_id is None or face.media_id == media_id)):
+                page_ids.append(face.id)
+    if scope == "all":
+        query = base.with_only_columns(*columns).order_by(MediaFace.id.desc())
+        if media_id is not None:
+            query = query.where(MediaFace.media_id == media_id)
+        if before is not None:
+            query = query.where(MediaFace.id < before)
+        while len(page_ids) <= limit:
+            keys = db.execute(query.limit(128)).all()
+            remaining = limit + 1 - len(page_ids)
+            page_ids.extend(islice((face.id for face in keys if reviewable_face(face)), remaining))
+            if len(keys) < 128:
+                break
+            query = query.where(MediaFace.id < keys[-1].id)
+    more = len(page_ids) > limit
+    rows = list(db.scalars(select(MediaFace).where(MediaFace.id.in_(page_ids[:limit])).order_by(MediaFace.id.desc())))
     media = {m.id: m for m in db.scalars(select(Media).where(Media.id.in_({f.media_id for f in rows}))).unique()}
     items, _ = face_items(db, rows)
     if scope == "pending" and media_id is None:
@@ -228,7 +256,7 @@ def review_queue(scope: Literal["pending", "all"] = "pending", before: int | Non
     return dict(**availability(), items=[dict(**item, media=media_data(media[face.media_id])) for item, face in zip(items, rows, strict=True)],
         auto_link_enabled=settings().face_auto_link_enabled,
         next_cursor=rows[-1].id if more else None,
-        pending_faces=db.scalar(select(func.count()).select_from(pending.subquery())),
+        pending_faces=pending_total,
         unanalysed_media=db.scalar(select(func.count()).select_from(unanalysed_media().subquery())),
         pending_memories=db.scalar(select(func.count()).select_from(todo.subquery())))
 
@@ -390,12 +418,14 @@ def process_face_work(db, user):
         return False
     samples = list(db.scalars(select(MediaFace).where(MediaFace.media_id == source.media_id,
         MediaFace.confirmed_by.is_not(None), MediaFace.child_id.is_not(None), MediaFace.ignored.is_(False))))
+    samples = [sample for sample in samples if assess_crop(sample.thumbnail, sample.box)[0] is True]
     targets = list(db.scalars(select(MediaFace).join(Media, Media.id == MediaFace.media_id)
         .join(MediaFaceIndex, MediaFaceIndex.media_id == MediaFace.media_id)
         .where(Media.status == "active", Media.purpose == "memory", MediaFaceIndex.model == MODEL_VERSION,
                MediaFace.id > source.reference_cursor, matchable_face(), MediaFace.auto_link_blocked.is_(False),
                MediaFace.confirmed_by.is_(None)).order_by(MediaFace.id).limit(REFERENCE_BATCH_SIZE)))
-    affected = {face.media_id for face in targets if any(track_similarity(face, sample) >= .68 for sample in samples)}
+    affected = {face.media_id for face in targets if samples and assess_crop(face.thumbnail, face.box)[0] is True
+                and any(track_similarity(face, sample) >= .68 for sample in samples)}
     if affected:
         db.execute(update(MediaFaceIndex).where(MediaFaceIndex.media_id.in_(affected)).values(match_pending=True))
     source.reference_cursor = targets[-1].id if samples and len(targets) == REFERENCE_BATCH_SIZE else None
@@ -566,6 +596,9 @@ def apply_assignments(db, media, data, user):
     changed_references = []
     for assignment in data.assignments:
         face = rows[assignment.face_id]
+        if (assignment.child_id is not None and (assignment.child_id != face.child_id or face.confirmed_by is None)
+                and assess_crop(face.thumbnail, face.box)[0] is False):
+            raise HTTPException(409, "这张人脸的图像质量不足，请选择更清晰的人脸")
         before = dict(child_id=face.child_id, ignored=face.ignored)
         if assignment.rejected_child_id is not None and face.child_id not in (None, assignment.rejected_child_id):
             raise HTTPException(409, "人物已被修改，请刷新后再排除候选")

@@ -130,3 +130,42 @@ def test_quality_gate_preserves_existing_automatic_history(context, monkeypatch)
         assert db.get(MediaFace, assigned).child_id == person["id"]
         assert db.get(MediaFace, reference).confirmed_by is not None
         assert list(db.scalars(select(MediaChild.child_id).where(MediaChild.media_id == mid))) == [person["id"]]
+
+
+def test_review_excludes_low_quality_before_counting_and_pagination(context, monkeypatch):
+    person = child(context)
+    clear_photo, blurred_video, clear_video = [image_media(context) for _ in range(3)]
+    clear_photo_face = indexed(context, clear_photo, [1, 0])
+    historical = indexed(context, blurred_video, [1, 0], person["id"], frame_seconds=1)
+    blurred = indexed(context, blurred_video, [1, 0], frame_seconds=2)
+    clear_video_face = indexed(context, clear_video, [1, 0], frame_seconds=3)
+    newest_blurred = indexed(context, clear_video, [1, 0], frame_seconds=4)
+    with context.db() as db:
+        for fid in (historical, blurred, newest_blurred):
+            db.get(MediaFace, fid).thumbnail = "blurred-fixture"
+        db.commit()
+    monkeypatch.setattr(faces, "assess_crop", lambda thumbnail, box:
+                        (False, "blurred") if thumbnail == "blurred-fixture" else (True, "accepted"))
+
+    path = "/api/faces/review"
+    first = context.client.get(path, params={"limit": 1}).json()
+    assert [item["id"] for item in first["items"]] == [clear_video_face]
+    assert first["pending_faces"] == 2 and first["next_cursor"] == clear_video_face
+    second = context.client.get(path, params={"limit": 1, "before": first["next_cursor"]}).json()
+    assert [item["id"] for item in second["items"]] == [clear_photo_face]
+    assert second["pending_faces"] == 2 and second["next_cursor"] is None
+    assert context.client.get(path, params={"media_id": blurred_video}).json()["items"] == []
+    all_items = context.client.get(path, params={"scope": "all"}).json()["items"]
+    assert [item["id"] for item in all_items] == [clear_video_face, historical, clear_photo_face]
+    details = context.client.get(f"/api/faces/media/{blurred_video}").json()
+    assert [(face["id"], face["child_id"]) for face in details["faces"]] == [(historical, person["id"])]
+
+    group = context.client.put(f"{path}/confirm-group", json=dict(
+        child_id=person["id"], face_ids=[clear_photo_face, blurred]))
+    assert group.status_code == 409
+    assert context.client.get(f"/api/media/{clear_photo}").json()["child_ids"] == []
+    single = context.client.put(f"/api/faces/media/{blurred_video}/confirm", json={"assignments": [
+        dict(face_id=blurred, child_id=person["id"])]})
+    assert single.status_code == 409
+    with context.db() as db:
+        assert not db.get(MediaFace, blurred).ignored  # Viewing does not rewrite review history.
