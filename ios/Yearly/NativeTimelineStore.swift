@@ -227,6 +227,8 @@ struct NativeTimelineScale {
     @Published var total = 0
     @Published private(set) var cursor: String?
     private var previousCursor: String?
+    private var olderPages = 0
+    private var newerPages = 0
     private var generation = 0
     private var loadedQuery = ""
     private var loadedCacheRevision = -1
@@ -303,6 +305,10 @@ struct NativeTimelineScale {
         await loadPage(more ? .older : .first, refresh: refresh)
         if !more && archiveExpanded && anchorDay == nil && error.isEmpty { await loadNewer() }
     }
+    func reloadAfterEdit() async {
+        guard hasLoadedQuery else { return }
+        await loadPage(.first, refresh: true, preservingWindow: true)
+    }
     func expandArchive(onPrepend: (() -> Void)? = nil) async {
         guard anchorMediaID != nil, !archiveExpanded, !loading, loadedQuery == queryKey else { return }
         archiveExpanded = true
@@ -354,7 +360,8 @@ struct NativeTimelineScale {
         return request == queryKey ? result.total : nil
     }
 
-    private func loadPage(_ direction: Page, refresh: Bool = false, onPrepend: (() -> Void)? = nil) async {
+    private func loadPage(_ direction: Page, refresh: Bool = false, preservingWindow: Bool = false,
+                          onPrepend: (() -> Void)? = nil) async {
         if direction != .first && (loading || loadedQuery != queryKey) { return }
         if direction == .older && cursor == nil { return }
         if !showingUploads && useDateRange && NativeDay.string(startDate) > NativeDay.string(endDate) {
@@ -385,9 +392,7 @@ struct NativeTimelineScale {
             } catch { if ticket == generation && !Task.isCancelled { self.error = friendly(error) } }
             return
         }
-        var query = URLComponents()
         var params = timelineFilters + [URLQueryItem(name: "page_size", value: "40")]
-        if direction == .first && !isFocused { params.append(URLQueryItem(name: "include_dates", value: "true")) }
         if !usesUploadOrder { params.append(URLQueryItem(name: "media_positions", value: "true")) }
         if useDateRange {
             if usesUploadOrder {
@@ -397,54 +402,78 @@ struct NativeTimelineScale {
                 params.append(URLQueryItem(name: "end", value: NativeDay.following(endDate) + "T00:00:00"))
             }
         }
-        if direction == .newer { params.append(URLQueryItem(name: "before", value: "true")) }
-        let position = direction == .newer ? previousCursor : direction == .older ? cursor : nil
-        if let position { params.append(URLQueryItem(name: "cursor", value: position)) }
-        query.queryItems = params
         do {
-            let path = "/timeline?" + (query.percentEncodedQuery ?? "")
-            let page: NativeTimelinePage
-            let preceding: NativeTimelinePage?
-            if direction == .first && anchorDay != nil {
-                query.queryItems = params.filter { $0.name != "include_dates" } + [URLQueryItem(name: "before", value: "true")]
-                let beforePath = "/timeline?" + (query.percentEncodedQuery ?? "")
-                async let followingPage: NativeTimelinePage = session.get(path, refresh: refresh)
-                async let beforePage: NativeTimelinePage = session.get(beforePath, refresh: refresh)
-                let (following, before) = try await (followingPage, beforePage)
-                page = following
-                preceding = before
-            } else {
-                page = try await session.get(path, refresh: refresh)
-                preceding = nil
-            }
-            guard ticket == generation, requestedQuery == queryKey, !Task.isCancelled else { return }
-            let existing = Set(items.map(\.stableID))
-            if direction == .first { daySharing = preceding?.day_sharing ?? [:] }
-            daySharing.merge(page.day_sharing ?? [:]) { _, current in current }
-            switch direction {
-            case .first:
-                items = (preceding?.items ?? []) + page.items
+            if direction == .first {
+                // Replace the window only after every requested page has arrived, so the
+                // scroll view never briefly shrinks to the first page after an edit.
+                let followingCount = preservingWindow ? max(1, olderPages) : 1
+                let precedingCount = preservingWindow ? max(archiveExpanded ? 1 : 0, newerPages) : (anchorDay == nil ? 0 : 1)
+                let requestParams = params
+                let includeDates = !isFocused
+                async let following = fetchPages(requestParams, count: followingCount, refresh: refresh, includeDates: includeDates)
+                async let preceding = fetchPages(requestParams, count: precedingCount, refresh: refresh, before: true)
+                let (after, before) = try await (following, preceding)
+                guard ticket == generation, requestedQuery == queryKey, !Task.isCancelled, let first = after.first else { return }
+                let pages = Array(before.reversed()) + after
+                var seen = Set<String>()
+                daySharing = pages.reduce(into: [:]) { result, page in
+                    result.merge(page.day_sharing ?? [:]) { _, current in current }
+                }
+                items = pages.flatMap(\.items).filter { seen.insert($0.stableID).inserted }
+                total = first.total
+                dates = first.dates ?? []
+                cursor = after.last?.next_cursor
+                previousCursor = before.last?.previous_cursor
+                olderPages = after.count
+                newerPages = before.count
+                if anchorMediaID == nil { archiveExpanded = anchorDay != nil }
+                hasNewer = before.isEmpty ? archiveExpanded && anchorDay == nil : previousCursor != nil
                 loadedQuery = requestedQuery
                 loadedCacheRevision = requestedRevision
-                dates = page.dates ?? []
-                cursor = page.next_cursor
-                previousCursor = preceding?.previous_cursor
-                if anchorMediaID == nil { archiveExpanded = anchorDay != nil }
-                hasNewer = anchorDay == nil ? archiveExpanded : previousCursor != nil
-            case .older:
-                items += page.items.filter { !existing.contains($0.stableID) }
-                cursor = page.next_cursor
-            case .newer:
+            } else {
+                let before = direction == .newer
+                let pages = try await fetchPages(params, count: 1, refresh: refresh, before: before,
+                                                 cursor: before ? previousCursor : cursor)
+                guard ticket == generation, requestedQuery == queryKey, !Task.isCancelled, let page = pages.first else { return }
+                let existing = Set(items.map(\.stableID))
                 let added = page.items.filter { !existing.contains($0.stableID) }
-                if !added.isEmpty {
-                    onPrepend?()
-                    items.insert(contentsOf: added, at: 0)
+                daySharing.merge(page.day_sharing ?? [:]) { _, current in current }
+                if before {
+                    if !added.isEmpty {
+                        onPrepend?()
+                        items.insert(contentsOf: added, at: 0)
+                    }
+                    previousCursor = page.previous_cursor
+                    hasNewer = previousCursor != nil
+                    newerPages += 1
+                } else {
+                    items += added
+                    cursor = page.next_cursor
+                    olderPages += 1
                 }
-                previousCursor = page.previous_cursor
-                hasNewer = previousCursor != nil
+                total = page.total
             }
-            total = page.total
         } catch { if ticket == generation && !Task.isCancelled { self.error = friendly(error) } }
+    }
+
+    private func fetchPages(_ params: [URLQueryItem], count: Int, refresh: Bool, includeDates: Bool = false,
+                            before: Bool = false, cursor: String? = nil) async throws -> [NativeTimelinePage] {
+        var pages: [NativeTimelinePage] = []
+        var next = cursor
+        for index in 0..<count {
+            try Task.checkCancellation()
+            var pageParams = params
+            if before { pageParams.append(URLQueryItem(name: "before", value: "true")) }
+            if let next { pageParams.append(URLQueryItem(name: "cursor", value: next)) }
+            if index == 0 && includeDates { pageParams.append(URLQueryItem(name: "include_dates", value: "true")) }
+            var query = URLComponents()
+            query.queryItems = pageParams
+            let page: NativeTimelinePage = try await session.get("/timeline?" + (query.percentEncodedQuery ?? ""), refresh: refresh)
+            pages.append(page)
+            next = before ? page.previous_cursor : page.next_cursor
+            if next == nil { break }
+        }
+        return pages
     }
 
     func setDaySharing(_ day: String, allowed: Bool) async throws {

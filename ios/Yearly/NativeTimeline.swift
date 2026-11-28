@@ -911,9 +911,9 @@ struct NativeTimelineView: View {
             .nativeSheet(isPresented: $showingTrash) { NativeMediaTrash(store: store) }
             .nativeSheet(item: $editingItem) { item in
                 if item.kind == "event" {
-                    NativeDiaryEditor(session: store.session, profiles: store.profiles, existing: item) { Task { await store.load() } }
+                    NativeDiaryEditor(session: store.session, profiles: store.profiles, existing: item) { Task { await store.reloadAfterEdit() } }
                 } else {
-                    NativeMediaInfo(session: store.session, item: item, profiles: store.profiles) { Task { await store.load() } }
+                    NativeMediaInfo(session: store.session, item: item, profiles: store.profiles) { Task { await store.reloadAfterEdit() } }
                 }
             }
             .nativeSheet(item: $diaryRequest) { request in
@@ -935,7 +935,7 @@ struct NativeTimelineView: View {
             .fullScreenCover(item: $selectedItem) { item in
                 if item.kind == "event" {
                     NativeDiaryPreview(session: store.session, initial: item, profiles: store.profiles,
-                                       onChanged: { Task { await store.load(refresh: true) } })
+                                       onChanged: { Task { await store.reloadAfterEdit() } })
                 } else {
                     NativeMediaPager(store: store, initial: item)
                 }
@@ -1013,7 +1013,7 @@ private struct NativeMediaPager: View {
                     pagePosition: position(at: activeIndex),
                     previous: activeIndex > 0 || store.hasNewer ? { move(-1) } : nil,
                     next: activeIndex + 1 < pages.count || store.cursor != nil ? { move(1) } : nil,
-                    onSaved: { Task { await store.load() } },
+                    onSaved: { Task { await store.reloadAfterEdit() } },
                     onDeleted: { remove(item) },
                     onLocate: store.usesUploadOrder ? { current in dismiss(); store.locate(current) } : nil
                 ).id(item.stableID)

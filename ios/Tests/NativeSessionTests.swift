@@ -12,6 +12,8 @@ private final class SessionHTTP: URLProtocol {
     static var authorized = true
     static var secureCookie = true
     static var timelineFails = false
+    static var olderTimelineFails = false
+    static var olderMediaTitle = ""
     static var shareRevoked = false
     static var sharesFail = false
     static var lastShareBody: [String: Any] = [:]
@@ -86,6 +88,7 @@ private final class SessionHTTP: URLProtocol {
             if Self.timelineFails { status = 503; body = "{}"; break }
             let params = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let more = params.contains { $0.name == "cursor" }
+            if more && Self.olderTimelineFails { status = 503; break }
             if params.contains(URLQueryItem(name: "anchor_day", value: "2020-01-03")) {
                 if params.contains(URLQueryItem(name: "before", value: "true")) {
                     body = more
@@ -111,6 +114,9 @@ private final class SessionHTTP: URLProtocol {
                 break
             }
             body = more ? #"{"items":[{"id":7,"kind":"media","media_type":"live_photo"},{"id":8,"kind":"media","media_type":"video","timeline_day":"2026-11-07"}],"total":3,"next_cursor":null}"# : #"{"items":[{"id":7,"kind":"media","media_type":"live_photo","timeline_day":"2026-11-08","media_position":{"index":1,"total":2,"day_index":1,"day_total":1},"child_ids":[1,2],"files":[{"id":10,"file_role":"original","original_filename":"test.heic","mime_type":"image/heic","file_size":8},{"id":11,"file_role":"live_video","original_filename":"test.mov","mime_type":"video/quicktime","file_size":9}]},{"id":7,"kind":"event","content":"synthetic diary"}],"total":3,"next_cursor":"next+cursor/=="}"#
+            if more && !Self.olderMediaTitle.isEmpty {
+                body = body.replacingOccurrences(of: #""id":8,"#, with: #""id":8,"title":"\#(Self.olderMediaTitle)","#)
+            }
         default: break
         }
         if request.url?.path == "/yearly/api/users/1", request.httpMethod == "PUT",
@@ -318,6 +324,19 @@ private final class SessionHTTP: URLProtocol {
         precondition(afterDeletion.index == 3 && afterDeletion.total == 4 && afterDeletion.day_index == 2 && afterDeletion.day_total == 3)
         let cursorQuery = URLComponents(url: SessionHTTP.requests.last!.url!, resolvingAgainstBaseURL: false)!.queryItems!
         precondition(cursorQuery.first { $0.name == "cursor" }?.value == "next+cursor/==")
+        try await session.write("/media/8", json: ["title": "edited on page two"])
+        SessionHTTP.olderMediaTitle = "edited on page two"
+        let idsBeforeEdit = timeline.items.map(\.stableID)
+        SessionHTTP.olderTimelineFails = true
+        await timeline.reloadAfterEdit()
+        precondition(timeline.items.map(\.stableID) == idsBeforeEdit && timeline.cursor == nil && !timeline.error.isEmpty,
+                     "a later page failure keeps the whole previous window")
+        SessionHTTP.olderTimelineFails = false
+        await timeline.reloadAfterEdit()
+        precondition(timeline.items.map(\.stableID) == idsBeforeEdit && timeline.items.last?.title == "edited on page two",
+                     "saving an older item refreshes its data without dropping the page")
+        precondition(timeline.cursor == nil && !timeline.needsLoad && timeline.error.isEmpty)
+        SessionHTTP.olderMediaTitle = ""
         let beforeReset = SessionHTTP.requests.count
         timeline.resetForAccountChange()
         precondition(timeline.items.isEmpty && timeline.profiles.isEmpty && timeline.cursor == nil && timeline.total == 0)
@@ -459,6 +478,9 @@ private final class SessionHTTP: URLProtocol {
         await timeline.load(more: true)
         await timeline.loadNewer()
         precondition(timeline.items.map(\.id) == [40, 41, 42, 43] && !timeline.hasNewer && timeline.cursor == nil)
+        await timeline.reloadAfterEdit()
+        precondition(timeline.items.map(\.id) == [40, 41, 42, 43] && !timeline.hasNewer && timeline.cursor == nil,
+                     "saving a file in the expanded archive refreshes both directions")
         timeline.locate(uploaded, expandingArchive: true)
         await timeline.loadIfNeeded()
         precondition(timeline.archiveExpanded && timeline.items.map(\.id) == [41, 42], "relocating after deletion keeps the complete timeline expanded and reloads newer memories")
