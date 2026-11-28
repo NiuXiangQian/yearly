@@ -35,6 +35,7 @@ from .storage import get_storage
 
 router = APIRouter(prefix="/api/pets", tags=["宠物确认"])
 MODEL = "gpt-4.1-mini-dog-appearance-v1"
+AUTO_LINK_MINIMUM_SIMILARITY = 0.70
 Coordinate = Annotated[float, Field(ge=0, le=1)]
 
 
@@ -477,7 +478,7 @@ def auto_link_pets(db, user):
             if dog["child_id"] is not None or dog["ignored"] or raw.get("auto_link_blocked"):
                 continue
             candidates = dog["candidates"]
-            if not candidates or candidates[0]["similarity"] < 0.95:
+            if not candidates or candidates[0]["similarity"] < AUTO_LINK_MINIMUM_SIMILARITY:
                 continue
             best = candidates[0]
             if len(candidates) > 1 and best["similarity"] - candidates[1]["similarity"] < 0.12:

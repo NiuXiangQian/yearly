@@ -1,3 +1,5 @@
+import math
+
 from sqlalchemy import select
 from app import organization
 from app.config import settings
@@ -124,14 +126,16 @@ def test_failures_retry_access_and_preference_audit(context, monkeypatch):
             assert context.client.request(method,path,json=body).status_code == 403
 
 
-def test_pet_habit_automatically_matches_without_creating_reference_feedback(context, monkeypatch):
+def test_pet_habit_automatically_matches_at_threshold_without_creating_reference_feedback(context):
     from app import pets
     from app.models import MediaPetIndex
     pet = context.client.post('/api/children', json=dict(name='示例狗狗', profile_type='pet', species='狗')).json()
-    source, target = image_media(context), image_media(context)
+    source, target, below = [image_media(context) for _ in range(3)]
     detection = dict(box=[0,0,1,1], frame_seconds=None, appearance='棕白色竖耳小狗', embedding=[1,0], thumbnail='', child_id=None, ignored=False, confirmed_by=None)
     with context.db() as db:
-        db.add_all([MediaPetIndex(media_id=mid, model=pets.MODEL, source_sha256='a'*64, detections=[dict(detection)]) for mid in [source,target]])
+        for mid, score in [(source, 1), (target, .70), (below, .6999)]:
+            dog = dict(detection, embedding=[score, math.sqrt(1 - score**2)])
+            db.add(MediaPetIndex(media_id=mid, model=pets.MODEL, source_sha256='a'*64, detections=[dog]))
         db.commit()
     assert context.client.put(f'/api/pets/media/{source}/confirm', json=dict(index=0, child_id=pet['id'])).status_code == 200
     with context.db() as db:
@@ -142,6 +146,7 @@ def test_pet_habit_automatically_matches_without_creating_reference_feedback(con
     with context.db() as db:
         dog = db.get(MediaPetIndex,target).detections[0]
         assert dog['child_id'] == pet['id'] and dog['confirmed_by'] is None and dog['auto_assigned']
+        assert db.get(MediaPetIndex, below).detections[0]['child_id'] is None
     records = context.client.get('/api/organization/reviews?scope=all&kind=pet').json()['items']
     assert any(r['status']=='automatic' and r['media']['id']==target and r['evidence']['reference_media_id']==source for r in records)
     assert context.client.delete(f'/api/pets/media/{target}').status_code == 200
