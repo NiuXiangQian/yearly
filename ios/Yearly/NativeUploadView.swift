@@ -18,48 +18,51 @@ struct NativeUploadView: View {
     @State private var useArchiveDate = false
     @State private var archiveDate = Date()
     @State private var showPicker = false
-    @State private var confirming = false
-    @State private var confirmationFromPreparation = false
-    @State private var addingPhotos = false
+    @State private var addingCount = 0
     @State private var excluded: Set<UUID> = []
     @State private var message = ""
     @State private var showingDuplicate = false
     @State private var loadingAccount = false
     @State private var openingPicker = false
-    @State private var hasLoaded = false
     @State private var loadedProfileRevision: Int?
-    @State private var showingPeople = false
-    @State private var choosingPeopleForUpload = false
-    @State private var confirmingAfterPeople = false
+    @State private var showingBatchSettings = false
     @State private var profileSearch = ""
     @State private var showFinished = false
-    @State private var showAllPending = false
+    @State private var listRevision = 0
     @State private var expandedTaskID: UUID?
     @State private var previewItem: UploadItem?
-    @State private var confirmingIDs: Set<UUID> = []
+    @State private var warningConfirmation: Set<UUID>?
     @State private var cancelling: UploadItem?
+
     private var chosenNames: String {
         let names = profiles.filter { children.contains($0.id) }.map { $0.nickname.isEmpty ? $0.name : $0.nickname }
         return names.isEmpty ? "仅家庭时光" : names.joined(separator: "、")
     }
-    private var confirmationItems: [UploadItem] { items.filter { confirmingIDs.contains($0.id) } }
-    private var items: [UploadItem] {
-        queue.items.filter { $0.site == site.url.absoluteString && $0.ownerID == session.account?.id }
+    private var batchNameError: String? {
+        batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255
+            ? "批次名称最多 255 个字符，请缩短后上传。" : nil
     }
-    private var ready: [UploadItem] { items.filter { $0.phase == .ready && !excluded.contains($0.id) } }
+    private var batchSettingsSummary: String {
+        var details = [chosenNames]
+        if useArchiveDate {
+            details.insert("归档到 \(archiveDate.formatted(.dateTime.year().month().day()))", at: 0)
+        }
+        let title = batchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty { details.append(title) }
+        return details.joined(separator: " · ")
+    }
+    private var items: [UploadItem] {
+        guard let ownerID = session.account?.id else { return [] }
+        let siteAddress = site.url.absoluteString
+        return queue.items.filter { $0.ownerID == ownerID && $0.site == siteAddress }
+    }
+    private var ready: [UploadItem] { readyItems.filter { !excluded.contains($0.id) } }
     private var pending: [UploadItem] { items.filter { !$0.isTerminal } }
     private var finished: [UploadItem] { items.filter(\.isTerminal) }
-    private var failedCount: Int { items.filter { $0.phase == .failed }.count }
-    private var canPause: Bool { items.contains { $0.phase.canPause } }
-    private var hasPaused: Bool { items.contains { $0.phase == .paused } }
-    private var pendingPreview: [UploadItem] {
-        let active = pending.filter { [.preparing, .uploading].contains($0.phase) }
-        let waiting = pending.filter { ![.preparing, .uploading].contains($0.phase) }
-        return active + Array(waiting.prefix(3))
-    }
-    private var preparing: [UploadItem] { items.filter { [.selected, .preparing].contains($0.phase) } }
-    private var readyItems: [UploadItem] { items.filter { $0.phase == .ready } }
-    private var readyCount: Int { readyItems.count }
+    private var preparing: [UploadItem] { pending.filter { $0.phase == .selected || $0.phase == .preparing } }
+    private var readyItems: [UploadItem] { pending.filter { $0.phase == .ready } }
+    private var canAdd: Bool { account != nil && !openingPicker && addingCount == 0 }
+    private var canUpload: Bool { account != nil && addingCount == 0 && !ready.isEmpty && batchNameError == nil }
     private var preparation: UploadQueue.Preparation? {
         guard let sample = queue.preparation,
               preparing.contains(where: { $0.id == sample.itemID && $0.phase == .preparing }) else { return nil }
@@ -111,52 +114,32 @@ struct NativeUploadView: View {
     }
 
     @ViewBuilder private var preparationSummary: some View {
-        let readyBytes = readyItems.reduce(Int64(0)) { $0 + $1.size }
         let preparingItems = preparing
-        let count = readyCount + preparingItems.count
-        if preparingItems.isEmpty && readyCount > 0 {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("准备完成 · \(readyCount) 项原件", systemImage: "checkmark.circle.fill")
-                    .font(.headline).foregroundStyle(NativeTheme.accent)
-                Text("共 \(bytesLabel(readyBytes))，待上传")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                Button("立即上传所选 \(ready.count) 项") {
-                    requestUpload()
-                }.buttonStyle(NativeActionStyle(kind: .primary))
-                    .disabled(ready.isEmpty || account == nil || batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255)
-            }
-            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
-        } else if count > 0 {
+        if !preparingItems.isEmpty {
+            let ready = readyItems
+            let readyBytes = ready.reduce(Int64(0)) { $0 + $1.size }
             let knownSizes = preparingItems.compactMap(\.sourceByteCount)
             let total = knownSizes.count == preparingItems.count ? readyBytes + knownSizes.reduce(0, +) : nil
             let progress = ByteProgress(processed: readyBytes + (preparation?.bytesRead ?? 0), total: total)
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text("准备原件 · \(readyCount) / \(count) 项就绪")
-                    Spacer()
-                    if let fraction = progress.fraction {
-                        Text(fraction.formatted(.percent.precision(.fractionLength(0...1))))
-                            .monospacedDigit()
-                    }
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("准备原件 · \(ready.count) / \(ready.count + preparingItems.count) 项就绪")
+                    .font(.subheadline.weight(.semibold)).monospacedDigit()
                 if let fraction = progress.fraction { ProgressView(value: fraction) }
                 else { ProgressView() }
-                Text("已读取 \(progressLabel(progress))").font(.caption).foregroundStyle(.secondary)
                 Group {
-                    if preparingItems.isEmpty { Text("原件已就绪") }
-                    else if progress.fraction == 1 { Text("原件已读取，正在校验") }
-                    else if progress.total == nil { Text("确认总大小后显示预计时间") }
-                    else if let sample = preparation {
+                    let read = "已读取 \(progressLabel(progress))"
+                    if progress.fraction == 1 { Text("原件已读取，正在校验") }
+                    else if progress.total != nil, let sample = preparation {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             if context.date.timeIntervalSince(sample.sampledAt) < 5,
                                let seconds = progress.remainingTime(bytesPerSecond: sample.bytesPerSecond) {
-                                Text("预计剩余 \(eta(seconds))")
-                            } else { Text("预计剩余时间估算中…") }
+                                Text("\(read) · 预计剩余 \(eta(seconds))")
+                            } else { Text(read) }
                         }
-                    } else { Text("预计剩余时间估算中…") }
-                }.font(.caption).foregroundStyle(.secondary)
+                    } else { Text(read) }
+                }.font(.caption).foregroundStyle(NativeTheme.secondaryText)
             }
+            .padding(.vertical, 6)
         }
     }
 
@@ -168,6 +151,7 @@ struct NativeUploadView: View {
             let fraction = progress.fraction ?? 0
             ProgressView(value: fraction) {
                 Text("上传进度 · \(fraction.formatted(.percent.precision(.fractionLength(0...1))))")
+                    .font(.subheadline.weight(.semibold))
             } currentValueLabel: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("已上传 \(progressLabel(progress))")
@@ -180,11 +164,12 @@ struct NativeUploadView: View {
                         let remaining = blocked ? "进行中任务预计剩余" : "预计剩余"
                         Text("\(bytesLabel(Int64(rate)))/秒 · \(remaining) \(eta(seconds))")
                             .monospacedDigit()
-                    } else {
-                        Text("收到上传进度后显示剩余时间")
                     }
                 }
+                .font(.caption)
+                .foregroundStyle(NativeTheme.secondaryText)
             }
+            .padding(.vertical, 6)
         }
     }
     @ViewBuilder private var completionBanner: some View {
@@ -208,87 +193,234 @@ struct NativeUploadView: View {
             .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
         }
     }
-    private var intakeSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 14) {
-                NativeSettingsLabel(
-                    title: "选取原片",
-                    symbol: "photo.on.rectangle.angled",
-                    detail: "从系统相册选取照片、视频和实况照片。"
-                )
-                Button { Task { await choosePhotos() } } label: {
-                    Label("选择照片与视频", systemImage: "plus").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(NativeActionStyle(kind: .primary))
-                .disabled(account == nil || openingPicker || addingPhotos)
-            }
-            .padding(.vertical, 8)
-            if loadingAccount || openingPicker || addingPhotos { ProgressView(addingPhotos ? "正在加入所选原件…" : openingPicker ? "正在打开系统相册…" : "正在读取人物与登录状态…") }
-            if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited {
-                Text("当前为有限访问。若某项无法读取，请在系统照片权限中将它加入允许列表后重试。")
-                    .font(.caption).foregroundStyle(.orange)
-                Button("管理允许访问的照片") { presentLimitedPicker() }
-            }
-            if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.red) }
-            if !queue.error.isEmpty { Text(queue.error).font(.caption).foregroundStyle(.red) }
-            if account == nil { Button("刷新登录状态") { Task { await loadAccount() } } }
+    private var addMediaButton: some View {
+        Button { Task { await choosePhotos() } } label: {
+            Label("添加照片与视频", systemImage: "plus")
         }
-        .listRowBackground(NativeTheme.surface)
+        .disabled(!canAdd)
+        .accessibilityIdentifier("upload-add-media")
     }
 
-    private var batchSettings: some View {
+    private var taskFilters: some View {
+        HStack(spacing: 4) {
+            taskFilter("当前", count: pending.count, finished: false)
+            taskFilter("已结束", count: finished.count, finished: true)
+        }
+        .padding(4)
+        .background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+    }
+
+    private func taskFilter(_ title: String, count: Int, finished: Bool) -> some View {
+        let selected = showFinished == finished
+        return Button {
+            if !selected { showTasks(finished: finished) }
+        } label: {
+            Text("\(title) \(count)")
+                .monospacedDigit()
+                .foregroundStyle(selected ? NativeTheme.accent : NativeTheme.secondaryText)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(NativeActionStyle(kind: selected ? .secondary : .quiet, compact: true))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier(finished ? "upload-finished-tasks" : "upload-current-tasks")
+    }
+
+    private var canPause: Bool { pending.contains { $0.phase.canPause } }
+    private var hasPaused: Bool { pending.contains { $0.phase == .paused } }
+    private var failedCount: Int { pending.filter { $0.phase == .failed }.count }
+    private var hasLimitedAccess: Bool { PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited }
+
+    private var taskMenu: some View {
+        Menu {
+            if canPause {
+                Button { queue.pauseAll() } label: { Label("全部暂停", systemImage: "pause.circle") }
+            }
+            if hasPaused {
+                Button { queue.resumeAll() } label: { Label("继续暂停的任务", systemImage: "play.circle") }
+                    .disabled(account == nil)
+            }
+            if failedCount > 0 {
+                Button { queue.retryFailed() } label: { Label("重试 \(failedCount) 项失败任务", systemImage: "arrow.clockwise") }
+                    .disabled(account == nil)
+            }
+            if hasLimitedAccess {
+                Button { presentLimitedPicker() } label: { Label("管理允许访问的照片", systemImage: "photo.on.rectangle") }
+            }
+        } label: {
+            Label("任务操作", systemImage: "ellipsis.circle")
+        }
+        .labelStyle(.iconOnly)
+    }
+
+    private var currentStatus: some View {
         Section {
-            NativeFormField(
-                title: "批次名称",
-                error: batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255
-                    ? "批次名称最多 255 个字符，请缩短后上传。" : nil
-            ) {
-                TextField("", text: $batchName, prompt: NativeTheme.inputPrompt("可留空"))
+            if addingCount > 0 {
+                ProgressView("正在加入 \(addingCount) 项…")
+            } else if openingPicker {
+                ProgressView("正在打开系统相册…")
+            } else if loadingAccount && account == nil {
+                ProgressView("正在读取登录状态…")
             }
-            Toggle("设置本批归档日期", isOn: $useArchiveDate)
-            if useArchiveDate {
-                DatePicker("归档日期", selection: $archiveDate, displayedComponents: .date)
-                    .accessibilityIdentifier("upload-archive-date")
-            }
-            Button { showingPeople = true } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Label("关联人物与宠物", systemImage: "person.2")
-                        Text(chosenNames).font(.subheadline).foregroundStyle(NativeTheme.secondaryText)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-                }
-            }.disabled(!hasLoaded || account == nil)
-
-        } header: { Text("批次设置") }
-    }
-
-    private var transferStatus: some View {
-        Section("上传任务") {
-            if items.isEmpty {
-                Text("暂无上传任务").foregroundStyle(NativeTheme.secondaryText)
+            if !message.isEmpty { Text(message).font(.footnote).foregroundStyle(NativeTheme.inputError) }
+            if !queue.error.isEmpty { Text(queue.error).font(.footnote).foregroundStyle(NativeTheme.inputError) }
+            if account == nil && !loadingAccount {
+                Button("刷新登录状态") { Task { await loadAccount() } }
             }
             if !queue.duplicateNotice.isEmpty {
-                Label("发现重复文件", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                Text(queue.duplicateNotice).font(.callout)
-                Button("查看重复提醒") { showingDuplicate = true }
-                    .alert("发现重复文件", isPresented: $showingDuplicate) {
-                        Button("知道了", role: .cancel) { }
-                    } message: { Text(queue.duplicateNotice) }
+                Button { showingDuplicate = true } label: {
+                    HStack(spacing: 8) {
+                        Label("发现重复文件", systemImage: "exclamationmark.triangle")
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").font(.caption).accessibilityHidden(true)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(NativeTheme.accent)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("查看已跳过的文件")
             }
             preparationSummary
             uploadSummary
-            completionBanner
-            if failedCount > 0 {
+        }
+        .listRowBackground(NativeTheme.background)
+    }
+
+    private var emptyQueue: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.title2)
+                .foregroundStyle(NativeTheme.accent)
+                .accessibilityHidden(true)
+            Text("当前没有任务").font(.title3.weight(.semibold))
+            addMediaButton.buttonStyle(NativeActionStyle(kind: .primary))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(NativeTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+        .padding(.vertical, 8)
+        .listRowBackground(NativeTheme.background)
+        .listRowSeparator(.hidden)
+    }
+
+    private var batchActions: some View {
+        VStack(spacing: 0) {
+            Divider()
+            VStack(spacing: 6) {
                 Button {
-                    queue.retryFailed()
+                    profileSearch = ""
+                    showingBatchSettings = true
                 } label: {
-                    Label("全部重试（\(failedCount) 项失败）", systemImage: "arrow.clockwise")
-                }.disabled(account == nil)
+                    HStack(spacing: 10) {
+                        Image(systemName: "slider.horizontal.3")
+                            .foregroundStyle(NativeTheme.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("批次设置").font(.subheadline.weight(.semibold))
+                            Text(batchNameError ?? batchSettingsSummary)
+                                .font(.caption)
+                                .foregroundStyle(batchNameError == nil ? NativeTheme.secondaryText : NativeTheme.inputError)
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(NativeTheme.secondaryText)
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("批次设置")
+                .accessibilityValue(batchNameError ?? batchSettingsSummary)
+                .accessibilityIdentifier("upload-batch-settings")
+                if !readyItems.isEmpty {
+                    let count = ready.count
+                    Button { requestUpload() } label: {
+                        Text(count == 0 ? "选择要上传的文件" : "上传\(preparing.isEmpty ? "所选" : "已就绪的") \(count) 项")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(NativeActionStyle(kind: .primary))
+                    .disabled(!canUpload)
+                    .accessibilityIdentifier("upload-start")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+        }
+        .background(NativeTheme.surface)
+    }
+
+    private var batchSettings: some View {
+        NavigationStack {
+            Form {
+                if profileSearch.isEmpty {
+                    Section {
+                        NativeFormField(title: "批次名称", error: batchNameError) {
+                            TextField("", text: $batchName, prompt: NativeTheme.inputPrompt("可留空"))
+                        }
+                        Toggle("设置本批归档日期", isOn: $useArchiveDate)
+                        if useArchiveDate {
+                            DatePicker("归档日期", selection: $archiveDate, displayedComponents: .date)
+                                .accessibilityIdentifier("upload-archive-date")
+                        }
+                    }
+                    .listRowBackground(NativeTheme.surface)
+                }
+                Section("关联人物与宠物") {
+                    if profileSearch.isEmpty {
+                        profileOption("仅家庭时光", symbol: "house", selected: children.isEmpty) { selectPeople([]) }
+                    }
+                    let matches = profiles.filter { profileSearch.isEmpty || $0.label.localizedCaseInsensitiveContains(profileSearch) }
+                    ForEach(matches) { profile in
+                        profileOption(profile.label, symbol: profile.profile_type == "pet" ? "pawprint" : "person.crop.circle",
+                                      selected: children.contains(profile.id)) {
+                            var updated = children
+                            if !updated.insert(profile.id).inserted { updated.remove(profile.id) }
+                            selectPeople(updated)
+                        }
+                    }
+                    if !profileSearch.isEmpty && matches.isEmpty {
+                        Text("没有匹配的人物或宠物").foregroundStyle(NativeTheme.secondaryText)
+                    }
+                }
+                .listRowBackground(NativeTheme.surface)
+            }
+            .navigationTitle("批次设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .scrollContentBackground(.hidden)
+            .background(NativeTheme.background)
+            .searchable(text: $profileSearch, prompt: "搜索人物或宠物")
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showingBatchSettings = false }
+                }
             }
         }
+    }
+
+    private func profileOption(_ title: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            UISelectionFeedbackGenerator().selectionChanged()
+        } label: {
+            HStack(spacing: 8) {
+                Label(title, systemImage: symbol)
+                Spacer(minLength: 0)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(NativeTheme.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func taskProgress(_ item: UploadItem) -> ByteProgress? {
@@ -306,7 +438,16 @@ struct NativeUploadView: View {
         let progress = taskProgress(item)
         let isActive = item.phase == .preparing || item.phase == .uploading
         let isExcluded = item.phase == .ready && excluded.contains(item.id)
-        let status = isExcluded ? "不在本批上传" : item.phase.label
+        let status: String
+        switch item.phase {
+        case .selected: status = "等待准备"
+        case .preparing: status = "准备中"
+        case .ready: status = isExcluded ? "未选入本批" : "待上传"
+        case .queued: status = "排队上传"
+        case .complete: status = "已上传"
+        default: status = item.phase.label
+        }
+        let statusColor = item.phase == .failed ? NativeTheme.inputError : isActive ? NativeTheme.accent : NativeTheme.secondaryText
         let detail = isActive
             ? progress?.fraction?.formatted(.percent.precision(.fractionLength(0)))
             : size.map(bytesLabel)
@@ -332,7 +473,7 @@ struct NativeUploadView: View {
                                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                             Text(detail.map { "\(status) · \($0)" } ?? status)
                                 .font(.caption)
-                                .foregroundStyle(NativeTheme.secondaryText)
+                                .foregroundStyle(statusColor)
                         }
                         if !item.warning.isEmpty {
                             Image(systemName: "exclamationmark.triangle")
@@ -342,7 +483,8 @@ struct NativeUploadView: View {
                         }
                         Spacer(minLength: 0)
                         Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(NativeTheme.secondaryText)
                             .accessibilityHidden(true)
                     }
                     .frame(minHeight: 44)
@@ -351,14 +493,30 @@ struct NativeUploadView: View {
                 .buttonStyle(.plain)
                 .accessibilityValue(expanded ? "已展开" : "已收起")
                 .accessibilityHint(expanded ? "收起任务详情" : "展开任务详情")
+                if item.phase == .ready {
+                    Button {
+                        if isExcluded { excluded.remove(item.id) } else { excluded.insert(item.id) }
+                    } label: {
+                        Image(systemName: isExcluded ? "circle" : "checkmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(isExcluded ? NativeTheme.secondaryText : NativeTheme.accent)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isExcluded ? "选择 \(item.name) 上传" : "取消选择 \(item.name)")
+                    .accessibilityAddTraits(isExcluded ? [] : .isSelected)
+                }
             }
             if expanded {
                 Divider()
                 taskDetails(item, progress: progress)
-                    .padding(.leading, 52)
+                    .padding(.leading, dynamicTypeSize.isAccessibilitySize ? 0 : 52)
             }
         }
         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .listRowBackground(NativeTheme.background)
+        .listRowSeparatorTint(NativeTheme.line)
     }
 
     @ViewBuilder private func taskDetails(_ item: UploadItem, progress: ByteProgress?) -> some View {
@@ -383,14 +541,7 @@ struct NativeUploadView: View {
                     .font(.caption)
             }
             if !item.message.isEmpty {
-                Text(item.message).font(.caption).foregroundStyle(item.phase == .failed ? .red : .secondary)
-            }
-            if item.phase == .ready {
-                Toggle("选择此项上传", isOn: Binding(
-                    get: { !excluded.contains(item.id) },
-                    set: { if $0 { excluded.remove(item.id) } else { excluded.insert(item.id) } }
-                ))
-                .frame(minHeight: 44)
+                Text(item.message).font(.caption).foregroundStyle(item.phase == .failed ? NativeTheme.inputError : NativeTheme.secondaryText)
             }
             if !item.isTerminal {
                 HStack {
@@ -408,140 +559,78 @@ struct NativeUploadView: View {
         .padding(.vertical, 8)
     }
 
+    private var taskList: some View {
+        let current = pending
+        let visibleItems = showFinished ? finished : current
+        return List {
+            if showFinished || (current.isEmpty && addingCount == 0) {
+                completionBanner
+                    .listRowBackground(NativeTheme.background)
+                    .listRowSeparator(.hidden)
+            }
+            if !showFinished { currentStatus }
+            if visibleItems.isEmpty {
+                if showFinished {
+                    Text("暂无已结束的任务")
+                        .foregroundStyle(NativeTheme.secondaryText)
+                        .listRowBackground(NativeTheme.background)
+                } else if addingCount == 0 && !openingPicker && batchResult == nil {
+                    emptyQueue
+                }
+            }
+            ForEach(visibleItems.reversed()) { item in
+                taskRow(item)
+            }
+            if showFinished {
+                Button("查看家庭时间线") { onTimeline(.timeline) }
+                    .listRowBackground(NativeTheme.background)
+                    .listRowSeparator(.hidden)
+            }
+        }
+        .id(listRevision)
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .refreshable { await loadAccount() }
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                intakeSection
-                batchSettings
-                transferStatus
-                if !items.isEmpty {
-                    let preview = pendingPreview
-                    let visibleItems = (showAllPending ? pending : preview) + (showFinished ? finished : [])
-                    Section {
-                        Text("\(items.filter { $0.phase == .complete }.count) 成功 · \(items.filter { $0.phase == .skipped }.count) 重复已跳过 · \(failedCount) 失败 · \(items.count) 项")
-                        Text("照片 \(items.filter { $0.mediaType == "photo" }.count) · Live Photo \(items.filter { $0.mediaType == "live_photo" }.count) · 视频 \(items.filter { $0.mediaType == "video" }.count)")
-                            .font(.caption).foregroundStyle(.secondary)
-                        if canPause || hasPaused {
-                            HStack {
-                                if canPause { Button("全部暂停") { queue.pauseAll() } }
-                                Spacer()
-                                if hasPaused { Button("继续暂停任务") { queue.resumeAll() }.disabled(account == nil) }
-                            }.buttonStyle(NativeActionStyle(compact: true))
-                        }
-                        if preview.count < pending.count {
-                            Button(showAllPending ? "收起任务列表" : "展开全部 \(pending.count) 项任务") { showAllPending.toggle() }
-                        }
-                        if !finished.isEmpty { Toggle("显示已结束记录（\(finished.count) 项）", isOn: $showFinished) }
-                        Text("系统允许时可在后台继续上传；暂停后可从已完成的分片继续。")
-                            .font(.caption).foregroundStyle(.secondary)
-                        ForEach(visibleItems) { item in
-                            taskRow(item)
-                        }
-                    } header: { Text("任务列表") }
-                }
-                Section {
-                    Button("查看家庭时间线") { onTimeline(.timeline) }
-                }
+            VStack(spacing: 0) {
+                taskFilters
+                taskList
             }
-            .navigationTitle("上传照片与视频")
+            .navigationTitle("上传任务")
             .navigationBarTitleDisplayMode(.inline)
-            .scrollContentBackground(.hidden).background(NativeTheme.background)
-            .scrollDismissesKeyboard(.interactively)
-            .safeAreaInset(edge: .bottom) {
-                if !ready.isEmpty || !preparing.isEmpty || batchResult?.ids.isEmpty == false {
-                HStack(spacing: 12) {
-                    if !ready.isEmpty {
-                        Button {
-                            requestUpload()
-                        } label: {
-                            Text("上传所选 \(ready.count) 项").frame(maxWidth: .infinity)
-                        }.buttonStyle(NativeActionStyle(kind: .primary))
-                            .disabled(account == nil || batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255)
-                    } else if !preparing.isEmpty {
-                        ProgressView("正在准备原件…").frame(maxWidth: .infinity)
-                    } else if let result = batchResult, !result.ids.isEmpty {
-                        Button {
-                            onTimeline(result.ids.count <= 5 ? .batch(result.ids) : .recentUploads)
-                        } label: {
-                            Label(result.success ? "上传完成 · 查看" : "查看已上传", systemImage: "checkmark.circle")
-                                .frame(maxWidth: .infinity)
-                        }.buttonStyle(.borderedProminent)
-                    } else {
-                        Spacer()
+            .background(NativeTheme.background)
+            .tint(NativeTheme.accent)
+            .toolbar {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    if hasLimitedAccess || (!showFinished && (canPause || hasPaused || failedCount > 0)) {
+                        taskMenu
                     }
-                }.padding().background(.regularMaterial)
+                    if showFinished || !pending.isEmpty || batchResult != nil || addingCount > 0 {
+                        addMediaButton.labelStyle(.iconOnly)
+                    }
                 }
             }
-            .refreshable { await loadAccount() }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !showFinished && account != nil && (useArchiveDate || pending.isEmpty || pending.contains(where: { !$0.confirmed })) {
+                    batchActions
+                }
+            }
             .nativeSheet(item: $previewItem) { item in
                 UploadTaskPreview(item: items.first { $0.id == item.id } ?? item, queue: queue, session: session)
             }
-            .nativeSheet(isPresented: $showingPeople, onDismiss: {
-                choosingPeopleForUpload = false
-                if confirmingAfterPeople {
-                    confirmingAfterPeople = false
-                    confirming = true
-                }
-            }) {
-                NavigationStack {
-                    List {
-                        Section {
-                            if choosingPeopleForUpload {
-                                if confirmationFromPreparation {
-                                    Label("准备完成 · \(confirmationItems.count) 项原件", systemImage: "checkmark.circle.fill")
-                                        .font(.headline).foregroundStyle(NativeTheme.accent)
-                                }
-                                Text("可以选择本批关联的人物与宠物，也可以暂不选择，以家庭时光继续上传。")
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            Button("仅家庭时光 · 取消全部关联") { selectPeople([]) }
-                            Text("已选：\(chosenNames)").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Section("人物、孩子与宠物可多选") {
-                            ForEach(profiles.filter { profileSearch.isEmpty || $0.label.localizedCaseInsensitiveContains(profileSearch) }) { profile in
-                                Button {
-                                    var updated = children
-                                    if !updated.insert(profile.id).inserted { updated.remove(profile.id) }
-                                    selectPeople(updated)
-                                    UISelectionFeedbackGenerator().selectionChanged()
-                                } label: {
-                                    HStack {
-                                        Label(profile.label, systemImage: profile.profile_type == "pet" ? "pawprint" : "person.crop.circle")
-                                        Spacer()
-                                        if children.contains(profile.id) { Image(systemName: "checkmark.circle.fill") }
-                                    }.contentShape(Rectangle())
-                                }.buttonStyle(.plain).accessibilityAddTraits(children.contains(profile.id) ? .isSelected : [])
-                            }
-                        }
-                    }.navigationTitle("关联人物与宠物")
-                        .searchable(text: $profileSearch, prompt: "搜索人物或宠物")
-                        .toolbar {
-                            if choosingPeopleForUpload {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button("取消", role: .cancel) { showingPeople = false }
-                                }
-                            }
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button(choosingPeopleForUpload ? (children.isEmpty ? "暂不选择" : "继续") : "完成") {
-                                    selectPeople(children)
-                                    confirmingAfterPeople = choosingPeopleForUpload
-                                    showingPeople = false
-                                }
-                            }
-                        }
-                }
+            .nativeSheet(isPresented: $showingBatchSettings) {
+                batchSettings
             }
             .confirmationDialog("取消后会删除本机缓存，继续上传需要重新选择原件", isPresented: Binding(get: { cancelling != nil }, set: { if !$0 { cancelling = nil } }), titleVisibility: .visible) {
                 if let item = cancelling { Button("取消此任务", role: .destructive) { queue.cancel(item.id); cancelling = nil } }
             }
-            .onChange(of: queue.duplicateNotice.isEmpty) { empty in
-                if !empty { showingDuplicate = true }
-            }
-            .onChange(of: preparing.isEmpty) { finished in
-                if finished && !ready.isEmpty && !confirming && !showPicker && !showingPeople &&
-                    !pending.contains(where: { $0.phase == .paused && !$0.confirmed }) {
-                    requestUpload(prepared: true)
-                }
+            .alert("发现重复文件", isPresented: $showingDuplicate) {
+                Button("知道了", role: .cancel) { }
+            } message: {
+                Text(queue.duplicateNotice)
             }
             .onChange(of: batchResult?.title) { title in
                 if let title { UIAccessibility.post(notification: .announcement, argument: title) }
@@ -550,6 +639,7 @@ struct NativeUploadView: View {
                 if let day = requestedDay {
                     archiveDate = day
                     useArchiveDate = true
+                    showTasks(finished: false)
                     requestedDay = nil
                 }
             }
@@ -558,40 +648,59 @@ struct NativeUploadView: View {
                 if loadedProfileRevision != profileRevision { await loadAccount() }
             }
             .sheet(isPresented: $showPicker) {
-                NativePhotoPicker { identifiers, unavailable in
-                    showPicker = false
-                    if unavailable > 0 { message = "\(unavailable) 项未交付可访问的照片标识，请调整图库权限后重新选择。" }
-                    if let account, !identifiers.isEmpty {
-                        addingPhotos = true
-                        Task { await queue.add(identifiers: identifiers, account: account); addingPhotos = false }
-                    }
-                }
+                NativePhotoPicker(onFinish: addSelectedMedia)
             }
-            .alert(confirmationFromPreparation ? "原件已就绪，可以立即上传" : "确认珍藏所选原件", isPresented: $confirming) {
-                Button(confirmationFromPreparation ? "立即上传" : "确认上传") {
-                    let formatter = DateFormatter()
-                    formatter.locale = Locale(identifier: "en_US_POSIX")
-                    formatter.dateFormat = "yyyy-MM-dd"
-                    queue.confirm(ids: confirmingIDs, childIDs: Array(children), batchName: batchName,
-                                  archiveDate: useArchiveDate ? formatter.string(from: archiveDate) : nil)
-                }
-                .disabled(account == nil || confirmationItems.isEmpty || batchName.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 255)
-                Button(confirmationFromPreparation ? "稍后上传" : "返回检查", role: .cancel) { }
-            } message: {
-                Text("\(confirmationItems.count) 项，\(ByteCountFormatter.string(fromByteCount: confirmationItems.reduce(0) { $0 + $1.size }, countStyle: .file))。关联：\(chosenNames)。\(useArchiveDate ? "全部归档到所选日期，保留原始拍摄时间。" : "优先按原件拍摄日期归档，其次用相册日期。")\(confirmationItems.contains { !$0.warning.isEmpty } ? "部分项目含原件或元数据提示，请确认已阅读每项说明。" : "")")
+            .alert("部分原件有说明", isPresented: Binding(
+                get: { warningConfirmation != nil },
+                set: { if !$0 { warningConfirmation = nil } }
+            ), presenting: warningConfirmation) { ids in
+                Button("继续上传") { startUpload(ids) }
+                Button("返回检查", role: .cancel) { }
+            } message: { _ in
+                Text("部分文件包含编辑版本或元数据提示。可返回任务列表，展开对应文件查看。")
             }
         }
     }
-    private func requestUpload(prepared: Bool = false) {
-        confirmationFromPreparation = prepared
-        confirmingIDs = Set(ready.map(\.id))
-        choosingPeopleForUpload = children.isEmpty
-        if choosingPeopleForUpload { showingPeople = true }
-        else { confirming = true }
+
+    private func showTasks(finished: Bool) {
+        showFinished = finished
+        expandedTaskID = nil
+        listRevision += 1
+    }
+
+    private func addSelectedMedia(_ identifiers: [String], unavailable: Int) {
+        showPicker = false
+        guard !identifiers.isEmpty || unavailable > 0 else { return }
+        message = unavailable > 0 ? "有 \(unavailable) 项无法读取，请调整照片权限后重新选择。" : ""
+        showTasks(finished: false)
+        guard let account, !identifiers.isEmpty else { return }
+        addingCount = identifiers.count
+        Task {
+            await queue.add(identifiers: identifiers, account: account)
+            addingCount = 0
+            if !showFinished { listRevision += 1 }
+        }
+    }
+
+    private func requestUpload() {
+        guard canUpload else { return }
+        let selected = ready
+        let ids = Set(selected.map(\.id))
+        if selected.contains(where: { !$0.warning.isEmpty }) { warningConfirmation = ids }
+        else { startUpload(ids) }
+    }
+
+    private func startUpload(_ ids: Set<UUID>) {
+        guard account != nil, batchNameError == nil else { return }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        queue.confirm(ids: ids, childIDs: Array(children), batchName: batchName,
+                      archiveDate: useArchiveDate ? formatter.string(from: archiveDate) : nil)
     }
 
     private func selectPeople(_ ids: Set<Int>) {
-        guard let account, account.id == session.account?.id, hasLoaded else { return }
+        guard let account, account.id == session.account?.id else { return }
         children = ids.intersection(Set(profiles.map(\.id)))
         UploadProfilePreferences(site: site, ownerID: account.id).save(children)
     }
@@ -612,15 +721,14 @@ struct NativeUploadView: View {
             let remembered = UploadProfilePreferences(site: site, ownerID: current.id)
                 .restore(validIDs: Set(loaded.map(\.id)))
             account = current; profiles = loaded; children = remembered
-            hasLoaded = true; loadedProfileRevision = profileRevision; message = ""
+            loadedProfileRevision = profileRevision; message = ""
         } catch {
             if Task.isCancelled { return }
-            if !hasLoaded { account = nil }
             message = error is URLError ? "无法连接家庭站点，请检查网络。已保存的人物选择不会丢失。" : error.localizedDescription
         }
     }
     private func choosePhotos() async {
-        guard !openingPicker, !showPicker, account != nil else { return }
+        guard canAdd, !showPicker else { return }
         openingPicker = true
         defer { openingPicker = false }
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
