@@ -167,12 +167,17 @@ struct UploadStore {
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: directory.path)
         #endif
     }
-    func load() throws -> [UploadItem] {
+    func load(resumeConfirmedUploads: Bool = false) throws -> [UploadItem] {
         guard FileManager.default.fileExists(atPath: manifest.path) else { return [] }
         var items = try JSONDecoder().decode([UploadItem].self, from: Data(contentsOf: manifest))
-        for i in items.indices where !items[i].isTerminal && items[i].phase != .ready && items[i].phase != .failed {
-            items[i].phase = .paused
-            items[i].message = "已恢复本机记录；继续时将核对服务端分片。"
+        for i in items.indices where items[i].phase.canPause {
+            if resumeConfirmedUploads, items[i].confirmed, items[i].phase == .queued || items[i].phase == .uploading {
+                items[i].phase = .queued
+                items[i].message = "等待续传，将核对服务端分片。"
+            } else {
+                items[i].phase = .paused
+                items[i].message = "已恢复本机记录；继续时将核对服务端分片。"
+            }
         }
         return items
     }

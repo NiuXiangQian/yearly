@@ -6,6 +6,11 @@ import Photos
 }
 
 @MainActor final class UploadQueue: ObservableObject {
+    enum BackgroundUpdate: Equatable {
+        case started(Int)
+        case finished(completed: Int, interrupted: Int)
+    }
+
     struct Transfer {
         let itemID: UUID
         let inFlightBytes: Int64
@@ -38,23 +43,28 @@ import Photos
 
     private weak var activeService: UploadAPI?
     private var inBackground = false
+    private var preparingForBackground = false
     private var recoveredTransfersCleared = false
+    private var backgroundBatch: Set<UUID> = []
     private let backgroundExecution: UploadBackgroundExecution?
     private let backgroundTransport: BackgroundUploadTransport?
+    private let reportBackgroundUpdate: @MainActor (BackgroundUpdate) -> Void
     private let serviceFactory: @MainActor (NativeSession, Int, BackgroundUploadTransport?) -> UploadAPI
 
     init(store suppliedStore: UploadStore? = nil, backgroundExecution: UploadBackgroundExecution? = nil,
          backgroundTransport: BackgroundUploadTransport? = nil,
+         reportBackgroundUpdate: @escaping @MainActor (BackgroundUpdate) -> Void = { _ in },
          serviceFactory: @escaping @MainActor (NativeSession, Int, BackgroundUploadTransport?) -> UploadAPI = { session, owner, transport in
              session.uploadAPI(ownerID: owner, backgroundTransport: transport)
          }) {
         self.backgroundExecution = backgroundExecution
         self.backgroundTransport = backgroundExecution == nil ? nil : (backgroundTransport ?? .shared)
+        self.reportBackgroundUpdate = reportBackgroundUpdate
         self.serviceFactory = serviceFactory
         do {
             let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             let store = try suppliedStore ?? UploadStore(directory: root.appendingPathComponent("NativeUploads", isDirectory: true))
-            items = try store.load()
+            items = try store.load(resumeConfirmedUploads: backgroundExecution != nil)
             self.store = store
             for item in items where item.isTerminal { try? store.removeFiles(item.id) }
         } catch {
@@ -62,15 +72,22 @@ import Photos
         }
     }
     func configure(session: NativeSession) {
-        if self.session !== session || configuredOwnerID != session.account?.id {
+        let ownerID = session.account?.id
+        let changed = self.session !== session || configuredOwnerID != ownerID
+        if changed, configuredOwnerID != nil {
             pauseAll()
             uploadGroup = []
             uploadRate = nil
             duplicateNotice = ""; duplicateNames = []
         }
-        configuredOwnerID = session.account?.id
+        configuredOwnerID = ownerID
         self.site = session.site
         self.session = session
+        if changed, backgroundExecution != nil, session.canEdit,
+           items.contains(where: { $0.confirmed && $0.phase == .queued && $0.ownerID == ownerID && $0.site == session.site.url.absoluteString }) {
+            suspended = false
+            start()
+        }
     }
 
     func previewFile(for item: UploadItem, role: String = "original") -> URL? {
@@ -181,12 +198,8 @@ import Photos
         resume(phases: [.paused, .failed], ids: [id])
     }
 
-    func resumeAll() {
-        resume(phases: [.paused])
-    }
-
-    func retryFailed() {
-        resume(phases: [.failed])
+    func retryInterrupted() {
+        resume(phases: [.paused, .failed])
     }
 
     private func resume(phases: Set<UploadPhase>, ids: Set<UUID>? = nil) {
@@ -258,20 +271,48 @@ import Photos
             if activeID != id { try store?.removeFiles(id) }
         } catch { self.error = error.localizedDescription }
     }
+    func prepareForBackground() {
+        guard backgroundExecution != nil, !preparingForBackground else { return }
+        preparingForBackground = true
+        activeService?.setBackground(true)
+    }
+
     func enteredBackground() {
         guard backgroundExecution != nil, !inBackground else { return }
+        prepareForBackground()
         inBackground = true
         beginBackgroundExecution()
-        activeService?.setBackground(true)
+        reportBackgroundStart()
     }
     func enteredForeground() {
         inBackground = false
+        preparingForBackground = false
+        backgroundBatch = []
         activeService?.setBackground(false)
         backgroundExecution?.end()
         guard !backgroundResume.isEmpty else { return }
         let ids = backgroundResume
         backgroundResume = []
         resume(phases: [.paused], ids: ids)
+    }
+
+    private func reportBackgroundStart() {
+        guard inBackground, worker != nil, backgroundBatch.isEmpty, let site, let ownerID = configuredOwnerID else { return }
+        let running = items.filter { $0.site == site.url.absoluteString && $0.ownerID == ownerID &&
+            $0.confirmed && ($0.phase == .queued || $0.phase == .uploading) }
+        guard !running.isEmpty else { return }
+        backgroundBatch = Set(running.map(\.id))
+        reportBackgroundUpdate(.started(running.count))
+    }
+
+    private func reportBackgroundResult() {
+        guard inBackground, !backgroundBatch.isEmpty else { return }
+        let observed = items.filter { backgroundBatch.contains($0.id) }
+        guard observed.allSatisfy({ $0.isTerminal || $0.phase == .paused || $0.phase == .failed }) else { return }
+        backgroundBatch = []
+        let completed = observed.filter { $0.phase == .complete || $0.phase == .skipped }.count
+        let interrupted = observed.filter { $0.phase == .paused || $0.phase == .failed }.count
+        if completed > 0 || interrupted > 0 { reportBackgroundUpdate(.finished(completed: completed, interrupted: interrupted)) }
     }
 
     private func beginBackgroundExecution() {
@@ -292,6 +333,7 @@ import Photos
             preparation = nil
             worker = nil
             running = false
+            reportBackgroundResult()
             backgroundExecution?.end()
             // A per-item cancellation must not discard the other items in this batch.
             if !suspended && items.contains(where: { $0.site == self.site?.url.absoluteString && $0.ownerID == self.session?.account?.id && [.selected, .queued].contains($0.phase) }) {
@@ -299,6 +341,7 @@ import Photos
             }
         }
         beginBackgroundExecution()
+        reportBackgroundStart()
     }
     private func run(site: SiteOrigin, session: NativeSession) async {
         guard let store else { return }
@@ -331,7 +374,7 @@ import Photos
                     try persist()
                 } else {
                     uploadGroup.insert(id)
-                    if let backgroundTransport, !recoveredTransfersCleared {
+                    if let backgroundTransport, !recoveredTransfersCleared, !inBackground {
                         // Use server status when restarting a queue after process termination.
                         await backgroundTransport.cancelRecoveredTransfers()
                         recoveredTransfersCleared = true
@@ -339,7 +382,7 @@ import Photos
                     }
                     let service = serviceFactory(session, items[index].ownerID, backgroundTransport)
                     activeService = service
-                    service.setBackground(inBackground)
+                    service.setBackground(preparingForBackground)
                     service.onBackgroundWake = { [weak self] in self?.beginBackgroundExecution() }
                     service.onPartProgress = { [weak self] bytes, rate in
                         guard let self, self.activeID == id, self.items[index].phase == .uploading else { return }

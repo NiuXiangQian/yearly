@@ -127,7 +127,9 @@ private struct SyntheticCredentials: SessionCredentialStore {
         await session.restore()
         precondition(session.canEdit)
 
-        func queue(_ name: String, live: Bool = false, count: Int = 1, execution: ExecutionLease? = nil, extensionMode: Bool = false) throws -> UploadQueue {
+        func queue(_ name: String, live: Bool = false, count: Int = 1, execution: ExecutionLease? = nil,
+                   extensionMode: Bool = false, phases: [UploadPhase] = [],
+                   updates: @escaping @MainActor (UploadQueue.BackgroundUpdate) -> Void = { _ in }) throws -> UploadQueue {
             let store = try UploadStore(directory: root.appendingPathComponent(name))
             var items: [UploadItem] = []
             for number in 0..<count {
@@ -139,11 +141,13 @@ private struct SyntheticCredentials: SessionCredentialStore {
                     let hash = try FileIntegrity.fingerprint(file)
                     item.resources.append(UploadResource(role: role, filename: role, mimeType: "application/octet-stream", path: role, size: hash.size, sha256: hash.sha256, crc64: hash.crc64))
                 }
-                item.confirmed = true; item.phase = .queued
+                item.confirmed = true
+                item.phase = phases.isEmpty ? .paused : phases[number]
                 items.append(item)
             }
             try store.save(items)
-            let result = UploadQueue(store: store, backgroundExecution: extensionMode ? nil : (execution ?? ExecutionLease()), backgroundTransport: transport) { session, owner, background in
+            let result = UploadQueue(store: store, backgroundExecution: extensionMode ? nil : (execution ?? ExecutionLease()),
+                                     backgroundTransport: transport, reportBackgroundUpdate: updates) { session, owner, background in
                 UploadAPI(site: session.site, ownerID: owner, cookieProvider: { session.cookies() }, session: http, backgroundTransport: background)
             }
             result.configure(session: session)
@@ -151,10 +155,15 @@ private struct SyntheticCredentials: SessionCredentialStore {
         }
 
         BackgroundHTTP.reset(hold: "/parts/")
-        let lease = ExecutionLease(), first = try queue("live", live: true, count: 2, execution: lease)
-        first.resumeAll()
+        let lease = ExecutionLease()
+        var updates: [UploadQueue.BackgroundUpdate] = []
+        let first = try queue("live", live: true, count: 2, execution: lease) { updates.append($0) }
+        first.retryInterrupted()
         try await wait("first file-backed transfer") { BackgroundHTTP.waiting() }
         precondition(!transport.hasPendingTransfers, "foreground upload must start without waiting for the daemon")
+        first.prepareForBackground()
+        precondition(transport.hasPendingTransfers, "the daemon PUT must be submitted before entering the background")
+        precondition(updates.isEmpty, "temporary deactivation must not post a notification")
         first.enteredBackground()
         try await wait("hand off the active foreground part to the daemon") { transport.hasPendingTransfers }
         let staged = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("parts"), includingPropertiesForKeys: nil)
@@ -168,6 +177,8 @@ private struct SyntheticCredentials: SessionCredentialStore {
         try await wait("both Live Photo resources complete in background") { !first.running }
         precondition(first.items.allSatisfy { $0.phase == .complete && $0.resources.allSatisfy(\.complete) })
         precondition(lease.begins >= 2 && lease.expiration == nil)
+        precondition(updates == [.started(2), .finished(completed: 2, interrupted: 0)],
+                     "Background updates must summarize the confirmed batch once")
         let puts = BackgroundHTTP.captured().filter { $0.httpMethod == "PUT" }
         precondition(puts.count > 2)
         for put in puts {
@@ -180,7 +191,7 @@ private struct SyntheticCredentials: SessionCredentialStore {
 
         BackgroundHTTP.reset(hold: "/parts/")
         let foreground = try queue("return-to-foreground")
-        foreground.resumeAll()
+        foreground.retryInterrupted()
         foreground.enteredBackground()
         try await wait("daemon PUT pending") { transport.hasPendingTransfers && BackgroundHTTP.waiting() }
         let requestsBeforeReturn = BackgroundHTTP.captured().filter { $0.httpMethod == "PUT" }.count
@@ -195,7 +206,7 @@ private struct SyntheticCredentials: SessionCredentialStore {
 
         BackgroundHTTP.reset(hold: "/parts/")
         let paused = try queue("manual-pause")
-        paused.resumeAll()
+        paused.retryInterrupted()
         try await wait("transfer to pause") { BackgroundHTTP.waiting() }
         paused.enteredBackground()
         try await wait("file-backed PUT to pause") { transport.hasPendingTransfers }
@@ -204,22 +215,22 @@ private struct SyntheticCredentials: SessionCredentialStore {
         try await wait("cancelled transfer settles") { !paused.running }
         paused.enteredForeground()
         precondition(paused.items[0].phase == .paused && !paused.running)
-        paused.resumeAll()
+        paused.resume(paused.items[0].id)
         try await wait("explicit resume completes") { !paused.running }
         precondition(paused.items[0].phase == .complete)
 
         BackgroundHTTP.reset(hold: "/parts/")
         let immediate = try queue("immediate-resume")
-        immediate.resumeAll()
+        immediate.retryInterrupted()
         try await wait("transfer to immediately resume") { BackgroundHTTP.waiting() }
-        immediate.enteredBackground(); immediate.pauseAll(); immediate.resumeAll()
+        immediate.enteredBackground(); immediate.pauseAll(); immediate.retryInterrupted()
         BackgroundHTTP.release()
         try await wait("immediate resume settles") { !immediate.running }
         precondition(immediate.items[0].phase == .complete, "pause cleanup must not cancel the new transfer")
 
         BackgroundHTTP.reset(hold: "/parts/")
         let cancelled = try queue("cancel")
-        cancelled.resumeAll()
+        cancelled.retryInterrupted()
         try await wait("transfer to cancel") { BackgroundHTTP.waiting() }
         cancelled.enteredBackground(); cancelled.cancel(cancelled.items[0].id); BackgroundHTTP.release()
         try await wait("cancellation completes") { !cancelled.running }
@@ -229,7 +240,7 @@ private struct SyntheticCredentials: SessionCredentialStore {
 
         BackgroundHTTP.reset(hold: "/yearly/api/uploads")
         let shortLease = ExecutionLease(), expired = try queue("expired", execution: shortLease)
-        expired.resumeAll()
+        expired.retryInterrupted()
         try await wait("control request") { BackgroundHTTP.waiting() }
         expired.enteredBackground(); shortLease.expire(); BackgroundHTTP.release()
         try await wait("control request cancellation") { !expired.running }
@@ -240,7 +251,7 @@ private struct SyntheticCredentials: SessionCredentialStore {
 
         BackgroundHTTP.reset(hold: "/yearly/api/uploads")
         let extensionQueue = try queue("extension", extensionMode: true)
-        extensionQueue.resumeAll()
+        extensionQueue.retryInterrupted()
         try await wait("extension control request") { BackgroundHTTP.waiting() }
         extensionQueue.enteredBackground()
         precondition(extensionQueue.items[0].phase == .uploading && !transport.hasPendingTransfers)
@@ -251,14 +262,21 @@ private struct SyntheticCredentials: SessionCredentialStore {
         BackgroundHTTP.reset()
         BackgroundHTTP.rejectPUT = true
         let failure = try queue("failure")
-        failure.resumeAll(); failure.enteredBackground()
+        failure.retryInterrupted(); failure.enteredBackground()
         try await wait("failed PUT") { !failure.running }
         precondition(failure.items[0].phase == .failed && !failure.items[0].resources[0].complete)
         precondition(!BackgroundHTTP.captured().contains { $0.url!.path.hasSuffix("/complete") })
         BackgroundHTTP.rejectPUT = false
-        failure.retryFailed()
+        failure.retryInterrupted()
         try await wait("failed PUT retry") { !failure.running }
         precondition(failure.items[0].phase == .complete)
-        print("Passed background upload checks: file bytes, Live Photo multipart continuation, lease expiration/wake, credential isolation, pause/resume, cancel, foreground recovery, extension lifetime and failed PUT retry.")
+        BackgroundHTTP.reset()
+        let restored = try queue("restore-confirmed", count: 3, phases: [.uploading, .paused, .failed])
+        try await wait("confirmed transfer automatically resumes after relaunch") { !restored.running }
+        precondition(restored.items.map(\.phase) == [.complete, .paused, .failed], "explicit interruption must remain visible after relaunch")
+        restored.retryInterrupted()
+        try await wait("bulk retry resumes paused and failed tasks") { !restored.running }
+        precondition(restored.items.allSatisfy { $0.phase == .complete })
+        print("Passed background upload checks: early daemon handoff, file bytes, Live Photo multipart continuation, lease expiration/wake, credential isolation, pause/resume, relaunch recovery, background notices, extension lifetime and bulk retry.")
     }
 }

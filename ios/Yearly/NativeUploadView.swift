@@ -229,25 +229,19 @@ struct NativeUploadView: View {
     }
 
     private var canPause: Bool { pending.contains { $0.phase.canPause } }
-    private var hasPaused: Bool { pending.contains { $0.phase == .paused } }
-    private var failedCount: Int { pending.filter { $0.phase == .failed }.count }
+    private var interruptedCount: Int { pending.filter { $0.phase == .paused || $0.phase == .failed }.count }
     private var hasLimitedAccess: Bool { PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited }
 
     private var taskMenu: some View {
         Menu {
-            if canPause {
+            if !showFinished && canPause {
                 Button { queue.pauseAll() } label: { Label("全部暂停", systemImage: "pause.circle") }
-            }
-            if hasPaused {
-                Button { queue.resumeAll() } label: { Label("继续暂停的任务", systemImage: "play.circle") }
-                    .disabled(account == nil)
-            }
-            if failedCount > 0 {
-                Button { queue.retryFailed() } label: { Label("重试 \(failedCount) 项失败任务", systemImage: "arrow.clockwise") }
-                    .disabled(account == nil)
             }
             if hasLimitedAccess {
                 Button { presentLimitedPicker() } label: { Label("管理允许访问的照片", systemImage: "photo.on.rectangle") }
+            }
+            Button { IOSUploadNotifications.requestPermission(openSettingsOtherwise: true) } label: {
+                Label("后台上传提醒", systemImage: "bell")
             }
         } label: {
             Label("任务操作", systemImage: "ellipsis.circle")
@@ -268,6 +262,18 @@ struct NativeUploadView: View {
             if !queue.error.isEmpty { Text(queue.error).font(.footnote).foregroundStyle(NativeTheme.inputError) }
             if account == nil && !loadingAccount {
                 Button("刷新登录状态") { Task { await loadAccount() } }
+            }
+            if interruptedCount > 0 {
+                Button {
+                    IOSUploadNotifications.requestPermission()
+                    queue.retryInterrupted()
+                } label: {
+                    Label("全部重试（\(interruptedCount) 项）", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(NativeActionStyle(compact: true))
+                .disabled(account == nil)
+                .accessibilityIdentifier("upload-retry-all")
             }
             if !queue.duplicateNotice.isEmpty {
                 Button { showingDuplicate = true } label: {
@@ -618,9 +624,7 @@ struct NativeUploadView: View {
             .tint(NativeTheme.accent)
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    if hasLimitedAccess || (!showFinished && (canPause || hasPaused || failedCount > 0)) {
-                        taskMenu
-                    }
+                    taskMenu
                     if showFinished || !pending.isEmpty || batchResult != nil || addingCount > 0 {
                         addMediaButton.labelStyle(.iconOnly)
                     }
@@ -705,6 +709,7 @@ struct NativeUploadView: View {
 
     private func startUpload(_ ids: Set<UUID>) {
         guard account != nil, batchNameError == nil else { return }
+        IOSUploadNotifications.requestPermission()
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"

@@ -1,12 +1,24 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct YearlyApp: App {
     @UIApplicationDelegateAdaptor(YearlyAppDelegate.self) private var appDelegate
-    var body: some Scene { WindowGroup { YearlyRootView() } }
+    var body: some Scene { WindowGroup { YearlyRootView(appDelegate: appDelegate) } }
 }
 
+@MainActor
 final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
+    let uploads = UploadQueue(backgroundExecution: IOSUploadBackgroundExecution(), reportBackgroundUpdate: IOSUploadNotifications.post)
+    private var currentSession: NativeSession?
+
+    func session(for site: SiteOrigin) -> NativeSession {
+        if let currentSession, currentSession.site.url == site.url { return currentSession }
+        let session = NativeSession(site: site)
+        currentSession = session
+        return session
+    }
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         _ = BackgroundUploadTransport.shared // Reconnect the stable daemon session on every launch.
         return true
@@ -14,7 +26,52 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
         guard identifier == BackgroundUploadTransport.identifier else { completionHandler(); return }
-        BackgroundUploadTransport.shared.handleEvents(completion: completionHandler)
+        BackgroundUploadTransport.shared.handleEvents { [weak self] in
+            Task { @MainActor in
+                defer { completionHandler() }
+                if application.applicationState == .background { await self?.recoverUploads(whileBackgrounded: true) }
+            }
+        }
+    }
+
+    func recoverUploads(whileBackgrounded: Bool) async {
+        let address = UserDefaults.standard.string(forKey: "yearlySite") ?? AppConfiguration.defaultSite
+        guard let site = SiteOrigin(address), !uploads.running,
+              uploads.items.contains(where: { $0.site == site.url.absoluteString && $0.confirmed && $0.phase == .queued }) else { return }
+        if whileBackgrounded { uploads.enteredBackground() }
+        let session = session(for: site)
+        if session.account == nil {
+            guard UIApplication.shared.isProtectedDataAvailable else { return }
+            await session.restore()
+        }
+        if currentSession === session { uploads.configure(session: session) }
+    }
+}
+
+@MainActor enum IOSUploadNotifications {
+    static func requestPermission(openSettingsOtherwise: Bool = false) {
+        Task {
+            let center = UNUserNotificationCenter.current()
+            if await center.notificationSettings().authorizationStatus == .notDetermined {
+                _ = try? await center.requestAuthorization(options: [.alert])
+            } else if openSettingsOtherwise, let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                await UIApplication.shared.open(url)
+            }
+        }
+    }
+
+    static func post(_ update: UploadQueue.BackgroundUpdate) {
+        let content = UNMutableNotificationContent()
+        switch update {
+        case .started(let count):
+            content.title = "后台上传"
+            content.body = "正在处理 \(count) 项。可返回上传页查看进度。"
+        case .finished(let completed, let interrupted):
+            content.title = interrupted == 0 ? "后台上传完成" : "有上传任务中断"
+            content.body = interrupted == 0 ? "已处理 \(completed) 项。" : "\(interrupted) 项待重试。可在上传页点「全部重试」。"
+        }
+        let request = UNNotificationRequest(identifier: "yearly.upload.\(UUID().uuidString)", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
     }
 }
 
@@ -40,13 +97,14 @@ final class YearlyAppDelegate: NSObject, UIApplicationDelegate {
 struct YearlyRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("yearlySite") private var address = AppConfiguration.defaultSite
-    @StateObject private var uploads = UploadQueue(backgroundExecution: IOSUploadBackgroundExecution())
+    let appDelegate: YearlyAppDelegate
+    private var uploads: UploadQueue { appDelegate.uploads }
     @State private var editingSite = false
     @State private var shareSetupError = ""
     var body: some View {
         Group {
             if let site = SiteOrigin(address) {
-                NativeAppShell(site: site, queue: uploads) { editingSite = true }.id(address)
+                NativeAppShell(session: appDelegate.session(for: site), queue: uploads) { editingSite = true }.id(address)
                     .nativeSheet(isPresented: $editingSite) {
                         SiteSettings(address: address, canCancel: true) { newAddress in
                             uploads.pauseAll(); address = newAddress; editingSite = false
@@ -65,12 +123,18 @@ struct YearlyRootView: View {
             Button("知道了", role: .cancel) { shareSetupError = "" }
         } message: { Text(shareSetupError) }
         .onChange(of: scenePhase) { phase in
+            if phase == .inactive { uploads.prepareForBackground() }
             if phase == .background { uploads.enteredBackground() }
-            if phase == .active { uploads.enteredForeground() }
+            if phase == .active {
+                uploads.enteredForeground()
+                Task { await appDelegate.recoverUploads(whileBackgrounded: false) }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIScene.willDeactivateNotification)) { _ in
+            uploads.prepareForBackground()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             NativeImageCache.clear()
-            uploads.pauseAll(); uploads.error = "系统内存紧张，已保存并暂停任务，请稍后继续。"
         }
     }
 }
@@ -87,8 +151,7 @@ struct NativeAppShell: View {
     @State private var uploadDay: Date?
     @State private var profileRevision = 0
     @State private var message = ""
-    init(site: SiteOrigin, queue: UploadQueue, editSite: @escaping () -> Void) {
-        let session = NativeSession(site: site)
+    init(session: NativeSession, queue: UploadQueue, editSite: @escaping () -> Void) {
         _session = StateObject(wrappedValue: session)
         _timeline = StateObject(wrappedValue: NativeTimelineStore(session: session))
         self.queue = queue; self.editSite = editSite
@@ -222,14 +285,16 @@ struct NativeAppShell: View {
             }
         }
         .nativeSheet(isPresented: $showingShares) { NativeSharingView(session: session) }
-        .task { await session.restore(); queue.configure(session: session) }
+        .task {
+            if session.account == nil { await session.restore() }
+            queue.configure(session: session)
+        }
         .onChange(of: session.account?.id) { _ in
             NativeImageCache.clear()
-            queue.pauseAll(); queue.configure(session: session)
+            queue.configure(session: session)
             showingShares = false
             timeline.resetForAccountChange(); tab = 0
         }
-        .onDisappear { queue.pauseAll() }
     }
 }
 

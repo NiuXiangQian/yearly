@@ -103,12 +103,12 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
     private let backgroundTransport: BackgroundUploadTransport?
     var onBackgroundWake: (@MainActor () -> Void)?
     private var usesBackgroundSession = false
-    private var transferTask: Task<URLResponse, Error>?
+    private var changeTransferRoute: ((Bool) -> Void)?
 
     func setBackground(_ background: Bool) {
         guard backgroundTransport != nil, background != usesBackgroundSession else { return }
         usesBackgroundSession = background
-        transferTask?.cancel()
+        changeTransferRoute?(background)
     }
 
     var onPartProgress: ((Int64, Double) -> Void)?
@@ -198,45 +198,71 @@ final class UploadRedirectPolicy: NSObject, URLSessionTaskDelegate {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         // Never send Cookie, Origin, CSRF or Authorization to OSS.
+        let stagedFile = try await backgroundTransport?.stage(data)
+        var handedOff: BackgroundUploadTransport.Transfer?
+        let part = UUID()
+        let started = Date()
+        let partSize = Int64(data.count)
+        let wake = onBackgroundWake
+        var lastProgress = Date.distantPast
+        activePart = part
         defer {
             activePart = nil
-            transferTask = nil
+            changeTransferRoute = nil
+            handedOff?.cancel()
+            if let stagedFile { try? FileManager.default.removeItem(at: stagedFile) }
         }
+
+        func progress(fromBackground: Bool) -> @Sendable (Int64) -> Void {
+            { [weak self] bytes in
+                Task { @MainActor in
+                    let now = Date()
+                    guard let self, self.activePart == part, self.usesBackgroundSession == fromBackground,
+                          now.timeIntervalSince(lastProgress) >= 0.25 else { return }
+                    lastProgress = now
+                    self.onPartProgress?(min(bytes, partSize), Double(bytes) / max(now.timeIntervalSince(started), 0.05))
+                }
+            }
+        }
+
+        let backgroundProgress = progress(fromBackground: true)
+        let foregroundProgress = progress(fromBackground: false)
         while true {
             try Task.checkCancellation()
-            let part = UUID()
-            activePart = part
-            let started = Date()
-            let partSize = Int64(data.count)
-            var lastProgress = started
-            let delegate = UploadRedirectPolicy { [weak self] bytes in
-                let sampledAt = Date()
-                Task { @MainActor in
-                    guard let self, self.activePart == part, sampledAt.timeIntervalSince(lastProgress) >= 0.25 else { return }
-                    lastProgress = sampledAt
-                    self.onPartProgress?(min(bytes, partSize), Double(bytes) / sampledAt.timeIntervalSince(started))
+            let attempt: Task<URLResponse, Error>
+            if usesBackgroundSession, let backgroundTransport, let stagedFile {
+                let transfer = handedOff ?? backgroundTransport.schedule(request, file: stagedFile,
+                                                                        progress: backgroundProgress, wake: wake)
+                handedOff = nil
+                attempt = Task { try await transfer.response() }
+                changeTransferRoute = { _ in attempt.cancel() }
+            } else {
+                let delegate = UploadRedirectPolicy(progress: foregroundProgress)
+                attempt = Task { try await session.upload(for: request, from: data, delegate: delegate).1 }
+                changeTransferRoute = { [backgroundTransport] background in
+                    if background, let backgroundTransport, let stagedFile {
+                        // Submit the file to iOS while the scene is still deactivating.
+                        handedOff = backgroundTransport.schedule(request, file: stagedFile,
+                                                                  progress: backgroundProgress, wake: wake)
+                    } else {
+                        handedOff?.cancel()
+                        handedOff = nil
+                    }
+                    attempt.cancel()
                 }
             }
-            let background = usesBackgroundSession ? backgroundTransport : nil
-            let attempt = Task { () throws -> URLResponse in
-                try Task.checkCancellation()
-                if let background {
-                    return try await background.put(data, to: url, progress: { delegate.progress?($0) }, wake: onBackgroundWake)
-                }
-                return try await session.upload(for: request, from: data, delegate: delegate).1
-            }
-            transferTask = attempt
             do {
                 let response = try await withTaskCancellationHandler { try await attempt.value } onCancel: { attempt.cancel() }
+                try Task.checkCancellation()
+                if attempt.isCancelled { continue }
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                     throw UploadHTTPError(status: (response as? HTTPURLResponse)?.statusCode ?? 0, isOSS: true)
                 }
                 onPartProgress?(partSize, Double(partSize) / max(Date().timeIntervalSince(started), 0.05))
                 return
             } catch {
-                activePart = nil
-                onPartProgress?(0, 0)
                 try Task.checkCancellation()
+                onPartProgress?(0, 0)
                 // A scene transition restarts the same PUT with identical bytes and part number.
                 if attempt.isCancelled { continue }
                 throw error
@@ -258,27 +284,25 @@ final class BackgroundUploadTransport: NSObject, URLSessionTaskDelegate {
     static let identifier = "family.yearly.original-parts"
     static let shared = BackgroundUploadTransport()
 
-    private final class Pending: @unchecked Sendable {
-        private let lock = NSLock()
-        private var task: URLSessionTask?
-        private var cancelled = false
-        var continuation: CheckedContinuation<URLResponse, Error>?
+    struct Transfer: Sendable {
+        let task: URLSessionUploadTask
+        let result: AsyncThrowingStream<URLResponse, Error>
+
+        func response() async throws -> URLResponse {
+            try await withTaskCancellationHandler {
+                var iterator = result.makeAsyncIterator()
+                guard let response = try await iterator.next() else { throw CancellationError() }
+                return response
+            } onCancel: { task.cancel() }
+        }
+
+        func cancel() { task.cancel() }
+    }
+
+    private struct Pending {
+        let result: AsyncThrowingStream<URLResponse, Error>.Continuation
         let progress: @Sendable (Int64) -> Void
         let wake: (@MainActor () -> Void)?
-        init(progress: @escaping @Sendable (Int64) -> Void, wake: (@MainActor () -> Void)?) {
-            self.progress = progress; self.wake = wake
-        }
-        func start(_ task: URLSessionTask) {
-            lock.lock()
-            self.task = task
-            if cancelled { task.cancel() }
-            task.resume()
-            lock.unlock()
-        }
-        func cancel() {
-            lock.lock(); defer { lock.unlock() }
-            cancelled = true; task?.cancel()
-        }
     }
 
     private let lock = NSLock()
@@ -322,10 +346,8 @@ final class BackgroundUploadTransport: NSObject, URLSessionTaskDelegate {
         }
     }
 
-    func put(_ data: Data, to url: URL, progress: @escaping @Sendable (Int64) -> Void,
-             wake: (@MainActor () -> Void)? = nil) async throws -> URLResponse {
+    func stage(_ data: Data) async throws -> URL {
         let file = directory.appendingPathComponent(UUID().uuidString + ".part")
-        defer { try? FileManager.default.removeItem(at: file) }
         try await Task.detached(priority: .utility) { [directory] in
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             #if os(iOS)
@@ -334,21 +356,17 @@ final class BackgroundUploadTransport: NSObject, URLSessionTaskDelegate {
             try data.write(to: file, options: .atomic)
             #endif
         }.value
-        let record = Pending(progress: progress, wake: wake)
-        return try await withTaskCancellationHandler {
-            try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { continuation in
-                var request = URLRequest(url: url)
-                request.httpMethod = "PUT"
-                record.continuation = continuation
-                lock.lock()
-                let task = session.uploadTask(with: request, fromFile: file)
-                task.taskDescription = file.lastPathComponent
-                pending[task.taskIdentifier] = record
-                lock.unlock()
-                record.start(task)
-            }
-        } onCancel: { record.cancel() }
+        return file
+    }
+
+    func schedule(_ request: URLRequest, file: URL, progress: @escaping @Sendable (Int64) -> Void,
+                  wake: (@MainActor () -> Void)?) -> Transfer {
+        let (stream, result) = AsyncThrowingStream<URLResponse, Error>.makeStream(of: URLResponse.self)
+        let task = session.uploadTask(with: request, fromFile: file)
+        task.taskDescription = file.lastPathComponent
+        lock.withLock { pending[task.taskIdentifier] = Pending(result: result, progress: progress, wake: wake) }
+        task.resume()
+        return Transfer(task: task, result: stream)
     }
 
     func handleEvents(completion: @escaping () -> Void) {
@@ -368,16 +386,22 @@ final class BackgroundUploadTransport: NSObject, URLSessionTaskDelegate {
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let response = task.response
-        if let name = task.taskDescription, UUID(uuidString: String(name.dropLast(5))) != nil, name.hasSuffix(".part") {
-            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
-        }
+        let name = task.taskDescription
+        let identifier = task.taskIdentifier
         DispatchQueue.main.async { [self] in
             // Keep the transfer visible to the expiration handler until its callback runs.
-            guard let record = lock.withLock({ pending.removeValue(forKey: task.taskIdentifier) }) else { return }
+            guard let record = lock.withLock({ pending.removeValue(forKey: identifier) }) else {
+                if let name, name.hasSuffix(".part"), UUID(uuidString: String(name.dropLast(5))) != nil {
+                    try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+                }
+                return
+            }
             record.wake?() // Obtain execution time for sign/checkpoint/complete before resuming the queue.
-            if let error { record.continuation?.resume(throwing: error) }
-            else if let response { record.continuation?.resume(returning: response) }
-            else { record.continuation?.resume(throwing: URLError(.badServerResponse)) }
+            if let error { record.result.finish(throwing: error) }
+            else if let response {
+                record.result.yield(response)
+                record.result.finish()
+            } else { record.result.finish(throwing: URLError(.badServerResponse)) }
         }
     }
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
