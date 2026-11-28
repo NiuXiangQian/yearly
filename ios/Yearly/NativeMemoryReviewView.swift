@@ -147,9 +147,9 @@ struct NativeMemoryReviewView: View {
                     Menu {
                         analysisActions(queue)
                     } label: {
-                        Label("查找更多人物与宠物", systemImage: "viewfinder")
+                        Label("查找更多", systemImage: "viewfinder")
                             .frame(minHeight: 44)
-                    }
+                    }.accessibilityLabel("查找更多人物与宠物")
                 }
             }
             ForEach(store.subjects) { subject in
